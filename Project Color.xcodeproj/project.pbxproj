@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		F4EE4CFB2EBF924A00EFDF4F /* Project_Color.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = F4EE4CF92EBF924A00EFDF4F /* Project_Color.xcdatamodeld */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		F4EE4C052EBF82F200EFDF4F /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -27,6 +31,7 @@
 		F4EE4BF02EBF82F000EFDF4F /* Project Color.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Project Color.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F4EE4C042EBF82F200EFDF4F /* Project ColorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Project ColorTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F4EE4C0E2EBF82F200EFDF4F /* Project ColorUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Project ColorUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		F4EE4CFA2EBF924A00EFDF4F /* Project_Color.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = Project_Color.xcdatamodel; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -97,6 +102,7 @@
 				F4EE4C072EBF82F200EFDF4F /* Project ColorTests */,
 				F4EE4C112EBF82F200EFDF4F /* Project ColorUITests */,
 				F4EE4BF12EBF82F000EFDF4F /* Products */,
+				F4EE4CF92EBF924A00EFDF4F /* Project_Color.xcdatamodeld */,
 			);
 			sourceTree = "<group>";
 		};
@@ -254,6 +260,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F4EE4CFB2EBF924A00EFDF4F /* Project_Color.xcdatamodeld in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -635,6 +642,19 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCVersionGroup section */
+		F4EE4CF92EBF924A00EFDF4F /* Project_Color.xcdatamodeld */ = {
+			isa = XCVersionGroup;
+			children = (
+				F4EE4CFA2EBF924A00EFDF4F /* Project_Color.xcdatamodel */,
+			);
+			currentVersion = F4EE4CFA2EBF924A00EFDF4F /* Project_Color.xcdatamodel */;
+			path = Project_Color.xcdatamodeld;
+			sourceTree = "<group>";
+			versionGroupType = wrapper.xcdatamodel;
+		};
+/* End XCVersionGroup section */
 	};
 	rootObject = F4EE4BE82EBF82F000EFDF4F /* Project object */;
 }

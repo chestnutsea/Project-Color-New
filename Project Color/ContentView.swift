@@ -12,21 +12,29 @@ struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
 
     @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \Item.timestamp, ascending: true)],
+        sortDescriptors: [NSSortDescriptor(keyPath: \PhotoEntity.timestamp, ascending: true)],
         animation: .default)
-    private var items: FetchedResults<Item>
+    private var photos: FetchedResults<PhotoEntity>
 
     var body: some View {
         NavigationView {
             List {
-                ForEach(items) { item in
+                ForEach(photos) { photo in
                     NavigationLink {
-                        Text("Item at \(item.timestamp!, formatter: itemFormatter)")
+                        if let timestamp = photo.timestamp {
+                            Text("Photo at \(timestamp, formatter: itemFormatter)")
+                        } else {
+                            Text("Photo details unavailable")
+                        }
                     } label: {
-                        Text(item.timestamp!, formatter: itemFormatter)
+                        if let timestamp = photo.timestamp {
+                            Text(timestamp, formatter: itemFormatter)
+                        } else {
+                            Text("Unknown date")
+                        }
                     }
                 }
-                .onDelete(perform: deleteItems)
+                .onDelete(perform: deletePhotos)
             }
             .toolbar {
 #if os(iOS)
@@ -35,19 +43,22 @@ struct ContentView: View {
                 }
 #endif
                 ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
+                    Button(action: addPhoto) {
+                        Label("Add Photo", systemImage: "plus")
                     }
                 }
             }
-            Text("Select an item")
+            Text("Select a photo")
         }
     }
 
-    private func addItem() {
+    private func addPhoto() {
         withAnimation {
-            let newItem = Item(context: viewContext)
-            newItem.timestamp = Date()
+            let newPhoto = PhotoEntity(context: viewContext)
+            newPhoto.id = UUID()
+            newPhoto.assetLocalId = UUID().uuidString
+            newPhoto.timestamp = Date()
+            newPhoto.toneCategory = "neutral"
 
             do {
                 try viewContext.save()
@@ -60,9 +71,9 @@ struct ContentView: View {
         }
     }
 
-    private func deleteItems(offsets: IndexSet) {
+    private func deletePhotos(offsets: IndexSet) {
         withAnimation {
-            offsets.map { items[$0] }.forEach(viewContext.delete)
+            offsets.map { photos[$0] }.forEach(viewContext.delete)
 
             do {
                 try viewContext.save()
@@ -84,5 +95,5 @@ private let itemFormatter: DateFormatter = {
 }()
 
 #Preview {
-    ContentView().environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
+    ContentView().environment(\.managedObjectContext, CoreDataManager.preview.viewContext)
 }
