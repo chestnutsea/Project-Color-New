@@ -5,11 +5,12 @@ build/
 *.xcuserdata/
 *.xcworkspace/
 Pods/
-# Swift Package Manager
-/.build/
-/Packages/
-# macOS 系统文件
-.DS_Store
-# VSCode / Cursor / Copilot temp files
+# Cursor / VS Code
 .cursor/
 .codex/
+.vscode/
+# Node / npm
+node_modules/
+.npm/
+# macOS 系统文件
+.DS_Store
