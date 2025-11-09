@@ -14,7 +14,31 @@ class AnalysisSettings: ObservableObject {
     
     static let shared = AnalysisSettings()
     
+    // MARK: - 单图主色提取设置
+    
+    /// 单图主色提取算法
+    enum ColorExtractionAlgorithm: String, Codable {
+        case labWeighted = "感知模式"
+        case medianCut = "快速模式"
+    }
+    
+    /// 处理精度
+    enum ExtractionQuality: String, Codable {
+        case fast = "快速"
+        case balanced = "平衡"
+        case fine = "精细"
+    }
+    
+    @Published var colorExtractionAlgorithm: ColorExtractionAlgorithm? = nil
+    @Published var extractionQuality: ExtractionQuality? = nil
+    @Published var autoMergeSimilarColors: Bool? = nil
+    
     // MARK: - 自适应聚类设置
+    
+    /// 是否启用自适应聚类
+    /// - 默认: true
+    /// - 说明: 关闭后，将保留全局聚类的原始结果，不进行合并/删除操作
+    @Published var enableAdaptiveClustering: Bool? = nil
     
     /// 合并阈值（ΔE₀₀）
     /// - 默认: 12.0
@@ -35,11 +59,36 @@ class AnalysisSettings: ObservableObject {
     
     // MARK: - 默认值
     
+    private let defaultColorExtractionAlgorithm: ColorExtractionAlgorithm = .labWeighted
+    private let defaultExtractionQuality: ExtractionQuality = .balanced
+    private let defaultAutoMergeSimilarColors: Bool = true
+    
+    private let defaultEnableAdaptiveClustering: Bool = true
     private let defaultMergeThreshold: Float = 12.0
     private let defaultUseColorNameSimilarity: Bool = true
     private let defaultMinClusterSize: Int = 2
     
     // MARK: - 获取实际使用的值
+    
+    /// 获取实际使用的主色提取算法
+    var effectiveColorExtractionAlgorithm: ColorExtractionAlgorithm {
+        return colorExtractionAlgorithm ?? defaultColorExtractionAlgorithm
+    }
+    
+    /// 获取实际使用的提取精度
+    var effectiveExtractionQuality: ExtractionQuality {
+        return extractionQuality ?? defaultExtractionQuality
+    }
+    
+    /// 获取实际使用的自动合并相似色设置
+    var effectiveAutoMergeSimilarColors: Bool {
+        return autoMergeSimilarColors ?? defaultAutoMergeSimilarColors
+    }
+    
+    /// 获取实际使用的自适应聚类开关
+    var effectiveEnableAdaptiveClustering: Bool {
+        return enableAdaptiveClustering ?? defaultEnableAdaptiveClustering
+    }
     
     /// 获取实际使用的合并阈值
     var effectiveMergeThreshold: Float {
@@ -59,6 +108,10 @@ class AnalysisSettings: ObservableObject {
     // MARK: - 重置为默认值
     
     func resetToDefaults() {
+        colorExtractionAlgorithm = nil
+        extractionQuality = nil
+        autoMergeSimilarColors = nil
+        enableAdaptiveClustering = nil
         mergeThresholdDeltaE = nil
         useColorNameSimilarity = nil
         minClusterSize = nil
@@ -107,6 +160,14 @@ class AnalysisSettings: ObservableObject {
     /// 平衡分类（默认）
     func applyBalancedPreset() {
         resetToDefaults()
+    }
+    
+    /// 单色系细分（适合颜色相近的照片）
+    func applyMonochromePreset() {
+        enableAdaptiveClustering = false  // ✅ 关闭自适应聚类，保留原始 K 值结果
+        mergeThresholdDeltaE = 6.0   // 非常严格，保留细微差异
+        useColorNameSimilarity = false  // 不看名称，只看色差
+        minClusterSize = 1              // 保留所有簇
     }
 }
 

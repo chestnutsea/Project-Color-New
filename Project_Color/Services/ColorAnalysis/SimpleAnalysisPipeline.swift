@@ -28,9 +28,6 @@ class SimpleAnalysisPipeline {
     // Phase 5: 并发控制
     private let maxConcurrentExtractions = 8  // 最多同时处理8张照片
     
-    // Phase 5: 是否启用自适应更新
-    var enableAdaptiveClustering = true
-    
     // Phase 5: 是否启用缓存
     var enableCaching = true
     
@@ -63,6 +60,10 @@ class SimpleAnalysisPipeline {
         assets: [PHAsset],
         progressHandler: @escaping (AnalysisProgress) -> Void
     ) async -> AnalysisResult {
+        
+        print("\n🎨 开始颜色分析...")
+        print("   照片数量: \(assets.count)")
+        print("   📊 用户设置: \(settings.configurationDescription)")
         
         let result = AnalysisResult()
         result.totalPhotoCount = assets.count
@@ -147,13 +148,19 @@ class SimpleAnalysisPipeline {
             }
         }
         
+        // Phase 5: 收集完成后，同步本地 photoInfos（包含缓存 + 新分析）
+        photoInfos = result.photoInfos
+        
         // 从所有照片（包括缓存）中收集主色用于聚类
+        var allColorWeights: [Float] = []  // 新增：权重数组
+        
         // 先从缓存的照片收集
         for photoInfo in cachedInfos {
             // 收集所有5个主色
             for color in photoInfo.dominantColors {
                 let lab = converter.rgbToLab(color.rgb)
                 allMainColorsLAB.append(lab)
+                allColorWeights.append(color.weight)  // 收集权重
             }
         }
         
@@ -163,6 +170,7 @@ class SimpleAnalysisPipeline {
             for color in photoInfo.dominantColors {
                 let lab = converter.rgbToLab(color.rgb)
                 allMainColorsLAB.append(lab)
+                allColorWeights.append(color.weight)  // 收集权重
             }
         }
         
@@ -191,7 +199,22 @@ class SimpleAnalysisPipeline {
         // Phase 5: 使用并发K值选择
         // 计算合理的K值范围
         let minK = 3
-        let maxK = max(minK, min(12, allMainColorsLAB.count / 10))  // 确保 maxK >= minK
+        // Phase 5: 优化小数据集的K值范围
+        // 对于少量照片，允许更多簇以捕捉细微差异
+        let maxK: Int
+        if allMainColorsLAB.count < 20 {
+            // 少于20个颜色点（约4张照片）：最多6个簇
+            maxK = max(minK, min(6, allMainColorsLAB.count / 3))
+        } else if allMainColorsLAB.count < 50 {
+            // 20-50个颜色点（约4-10张照片）：最多8个簇
+            maxK = max(minK, min(8, allMainColorsLAB.count / 5))
+        } else {
+            // 50+个颜色点（10+张照片）：最多12个簇
+            maxK = max(minK, min(12, allMainColorsLAB.count / 10))
+        }
+        
+        print("   颜色点数: \(allMainColorsLAB.count)")
+        print("   K值范围: \(minK) - \(maxK)")
         
         guard let kResult = await autoKSelector.findOptimalKConcurrent(
             points: allMainColorsLAB,
@@ -199,7 +222,8 @@ class SimpleAnalysisPipeline {
                 minK: minK,
                 maxK: maxK,
                 maxIterations: 50,
-                colorSpace: .lab
+                colorSpace: .lab,
+                weights: allColorWeights  // 传递权重
             ),
             progressHandler: { currentK, totalK in
                 Task { @MainActor in
@@ -319,8 +343,8 @@ class SimpleAnalysisPipeline {
                 clusters[i].photoIdentifiers = photosInCluster.map { $0.assetIdentifier }
             }
             
-            // Phase 5: 自适应聚类更新
-            if enableAdaptiveClustering {
+            // Phase 5: 自适应聚类更新（使用用户设置）
+            if settings.effectiveEnableAdaptiveClustering {
                 await MainActor.run {
                     progressHandler(AnalysisProgress(
                         currentPhoto: assets.count,
@@ -354,6 +378,24 @@ class SimpleAnalysisPipeline {
                 )
                 
                 result.clusters = updatedClusters
+                
+                // Phase 5: 根据自适应更新后的簇，更新照片的 primaryClusterIndex
+                // 构建 assetIdentifier → clusterIndex 的映射
+                var photoToClusterMap: [String: Int] = [:]
+                for cluster in updatedClusters {
+                    for photoId in cluster.photoIdentifiers {
+                        photoToClusterMap[photoId] = cluster.index
+                    }
+                }
+                
+                // 更新 photoInfos 中的 primaryClusterIndex
+                for i in 0..<photoInfos.count {
+                    if let newClusterIndex = photoToClusterMap[photoInfos[i].assetIdentifier] {
+                        photoInfos[i].primaryClusterIndex = newClusterIndex
+                    } else {
+                        print("⚠️ 警告: 照片 \(photoInfos[i].assetIdentifier.prefix(8))... 未分配到任何簇")
+                    }
+                }
                 
                 // 更新进度以显示自适应操作
                 await MainActor.run {
@@ -441,8 +483,34 @@ class SimpleAnalysisPipeline {
                     return
                 }
                 
-                // 提取主色
-                let dominantColors = self.colorExtractor.extractDominantColors(from: cgImage, count: 5)
+                // 根据用户设置构建配置
+                let algorithm: SimpleColorExtractor.Config.Algorithm =
+                    self.settings.effectiveColorExtractionAlgorithm == .labWeighted
+                        ? .labWeighted
+                        : .medianCut
+                
+                let quality: SimpleColorExtractor.Config.Quality
+                switch self.settings.effectiveExtractionQuality {
+                case .fast:
+                    quality = .fast
+                case .balanced:
+                    quality = .balanced
+                case .fine:
+                    quality = .fine
+                }
+                
+                let config = SimpleColorExtractor.Config(
+                    algorithm: algorithm,
+                    quality: quality,
+                    autoMergeSimilarColors: self.settings.effectiveAutoMergeSimilarColors
+                )
+                
+                // 提取主色（使用配置）
+                let dominantColors = self.colorExtractor.extractDominantColors(
+                    from: cgImage,
+                    count: 5,
+                    config: config
+                )
                 
                 // 命名主色
                 var namedColors = dominantColors

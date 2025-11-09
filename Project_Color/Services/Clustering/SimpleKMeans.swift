@@ -27,7 +27,13 @@ class SimpleKMeans {
     }
     
     // MARK: - 执行聚类
-    func cluster(points: [SIMD3<Float>], k: Int = 5, maxIterations: Int = 50, colorSpace: ColorSpace = .rgb) -> ClusteringResult? {
+    func cluster(
+        points: [SIMD3<Float>],
+        k: Int = 5,
+        maxIterations: Int = 50,
+        colorSpace: ColorSpace = .rgb,
+        weights: [Float]? = nil  // 新增：可选权重
+    ) -> ClusteringResult? {
         self.colorSpace = colorSpace
         
         guard points.count >= k else {
@@ -63,22 +69,45 @@ class SimpleKMeans {
                 assignments[pointIndex] = closestCentroid
             }
             
-            // 2b. 重新计算质心
-            var newCentroids = [SIMD3<Float>](repeating: SIMD3<Float>(0, 0, 0), count: k)
-            var counts = [Int](repeating: 0, count: k)
-            
-            for (pointIndex, point) in points.enumerated() {
-                let cluster = assignments[pointIndex]
-                newCentroids[cluster] += point
-                counts[cluster] += 1
-            }
-            
-            for i in 0..<k {
-                if counts[i] > 0 {
-                    centroids[i] = newCentroids[i] / Float(counts[i])
-                } else {
-                    // 如果某个簇为空，随机重新初始化
-                    centroids[i] = points.randomElement() ?? SIMD3<Float>(0.5, 0.5, 0.5)
+            // 2b. 重新计算质心（支持权重）
+            if let weights = weights {
+                // 带权重的质心计算
+                var newCentroids = [SIMD3<Float>](repeating: SIMD3<Float>(0, 0, 0), count: k)
+                var totalWeights = [Float](repeating: 0, count: k)
+                
+                for (pointIndex, point) in points.enumerated() {
+                    let cluster = assignments[pointIndex]
+                    let weight = weights[pointIndex]
+                    newCentroids[cluster] += point * weight
+                    totalWeights[cluster] += weight
+                }
+                
+                for i in 0..<k {
+                    if totalWeights[i] > 0 {
+                        centroids[i] = newCentroids[i] / totalWeights[i]
+                    } else {
+                        // 如果某个簇为空，随机重新初始化
+                        centroids[i] = points.randomElement() ?? SIMD3<Float>(0.5, 0.5, 0.5)
+                    }
+                }
+            } else {
+                // 无权重的质心计算（原有逻辑）
+                var newCentroids = [SIMD3<Float>](repeating: SIMD3<Float>(0, 0, 0), count: k)
+                var counts = [Int](repeating: 0, count: k)
+                
+                for (pointIndex, point) in points.enumerated() {
+                    let cluster = assignments[pointIndex]
+                    newCentroids[cluster] += point
+                    counts[cluster] += 1
+                }
+                
+                for i in 0..<k {
+                    if counts[i] > 0 {
+                        centroids[i] = newCentroids[i] / Float(counts[i])
+                    } else {
+                        // 如果某个簇为空，随机重新初始化
+                        centroids[i] = points.randomElement() ?? SIMD3<Float>(0.5, 0.5, 0.5)
+                    }
                 }
             }
             

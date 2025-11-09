@@ -49,9 +49,13 @@ class PhotoColorCache {
                 
                 print("  ✅ 缓存命中: \(identifier)")
                 
+                // 注意：只返回主色，不返回聚类索引
+                // 因为聚类索引依赖于全局聚类，会随用户设置变化
                 return PhotoColorInfo(
                     assetIdentifier: identifier,
-                    dominantColors: dominantColors
+                    dominantColors: dominantColors,
+                    primaryClusterIndex: nil,  // 不缓存聚类结果
+                    clusterMix: [:]
                 )
             }
         } catch {

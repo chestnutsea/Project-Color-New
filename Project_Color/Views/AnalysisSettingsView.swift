@@ -11,17 +11,21 @@ import SwiftUI
 struct AnalysisSettingsView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var settings = AnalysisSettings.shared
+    @State private var showClearCacheAlert = false
     
     var body: some View {
         NavigationView {
             Form {
                 // 预设配置
                 Section {
+                    Button("平衡分类（推荐）") {
+                        settings.applyBalancedPreset()
+                    }
                     Button("精细分类（更多簇）") {
                         settings.applyFineGrainedPreset()
                     }
-                    Button("平衡分类（推荐）") {
-                        settings.applyBalancedPreset()
+                    Button("单色系细分（同色系照片）") {
+                        settings.applyMonochromePreset()
                     }
                     Button("简洁分类（更少簇）") {
                         settings.applySimplifiedPreset()
@@ -29,7 +33,7 @@ struct AnalysisSettingsView: View {
                 } header: {
                     Text("预设配置")
                 } footer: {
-                    Text("快速应用预设配置，或在下方自定义")
+                    Text("快速应用预设配置，或在下方自定义。单色系细分适合颜色相近的照片（如全绿色、全蓝色）。")
                 }
                 
                 // 合并阈值
@@ -92,6 +96,25 @@ struct AnalysisSettingsView: View {
                     Text("照片数少于此值的簇会被删除。设为1可保留所有簇。")
                 }
                 
+                // 自适应聚类开关
+                Section {
+                    Toggle("启用自适应聚类", isOn: Binding(
+                        get: { settings.enableAdaptiveClustering ?? true },
+                        set: { settings.enableAdaptiveClustering = $0 }
+                    ))
+                    
+                    if settings.enableAdaptiveClustering != nil {
+                        Button("使用默认值 (开启)") {
+                            settings.enableAdaptiveClustering = nil
+                        }
+                        .font(.caption)
+                    }
+                } header: {
+                    Text("自适应聚类")
+                } footer: {
+                    Text("关闭后，将保留全局聚类的原始结果（K个簇），不进行合并/删除操作。适合单色系照片细分。")
+                }
+                
                 // 颜色名称相似性
                 Section {
                     Toggle("启用颜色名称相似性", isOn: Binding(
@@ -108,7 +131,7 @@ struct AnalysisSettingsView: View {
                 } header: {
                     Text("智能合并")
                 } footer: {
-                    Text("开启时，只合并名称相似的簇（如 DarkBlue + LightBlue）。关闭时，仅根据色差合并。")
+                    Text("开启时，只合并名称相似的簇（如 DarkBlue + LightBlue）。关闭时，仅根据色差合并。仅在启用自适应聚类时生效。")
                 }
                 
                 // 当前配置
@@ -120,12 +143,66 @@ struct AnalysisSettingsView: View {
                     Text("当前配置")
                 }
                 
+                // 单图主色提取设置
+                Section {
+                    Picker("主色提取算法", selection: Binding(
+                        get: { settings.colorExtractionAlgorithm ?? .labWeighted },
+                        set: { settings.colorExtractionAlgorithm = $0 }
+                    )) {
+                        Text("🎨 感知模式（推荐）").tag(AnalysisSettings.ColorExtractionAlgorithm.labWeighted)
+                        Text("⚡ 快速模式").tag(AnalysisSettings.ColorExtractionAlgorithm.medianCut)
+                    }
+                    
+                    Picker("处理精度", selection: Binding(
+                        get: { settings.extractionQuality ?? .balanced },
+                        set: { settings.extractionQuality = $0 }
+                    )) {
+                        Text("快速").tag(AnalysisSettings.ExtractionQuality.fast)
+                        Text("平衡（推荐）").tag(AnalysisSettings.ExtractionQuality.balanced)
+                        Text("精细").tag(AnalysisSettings.ExtractionQuality.fine)
+                    }
+                    
+                    Toggle("自动合并相似色", isOn: Binding(
+                        get: { settings.autoMergeSimilarColors ?? true },
+                        set: { settings.autoMergeSimilarColors = $0 }
+                    ))
+                    
+                    if settings.colorExtractionAlgorithm != nil || 
+                       settings.extractionQuality != nil || 
+                       settings.autoMergeSimilarColors != nil {
+                        Button("恢复默认") {
+                            settings.colorExtractionAlgorithm = nil
+                            settings.extractionQuality = nil
+                            settings.autoMergeSimilarColors = nil
+                        }
+                        .font(.caption)
+                    }
+                } header: {
+                    Text("单图主色提取")
+                } footer: {
+                    Text(extractionDescription)
+                }
+                
                 // 重置按钮
                 Section {
                     Button("重置所有设置") {
                         settings.resetToDefaults()
                     }
                     .foregroundColor(.red)
+                } footer: {
+                    Text("重置为推荐的默认配置")
+                }
+                
+                // 缓存管理
+                Section {
+                    Button("清除颜色分析缓存") {
+                        showClearCacheAlert = true
+                    }
+                    .foregroundColor(.orange)
+                } header: {
+                    Text("缓存管理")
+                } footer: {
+                    Text("清除后，下次分析会重新提取所有照片的颜色。注意：缓存只存储颜色提取结果，不影响聚类设置的应用。")
                 }
             }
             .navigationTitle("分析设置")
@@ -136,6 +213,14 @@ struct AnalysisSettingsView: View {
                         dismiss()
                     }
                 }
+            }
+            .alert("清除缓存", isPresented: $showClearCacheAlert) {
+                Button("取消", role: .cancel) { }
+                Button("清除", role: .destructive) {
+                    clearCache()
+                }
+            } message: {
+                Text("确定要清除所有颜色分析缓存吗？下次分析将重新提取照片颜色。")
             }
         }
     }
@@ -156,6 +241,36 @@ struct AnalysisSettingsView: View {
         } else {
             return "非常宽松 - 大幅简化分类"
         }
+    }
+    
+    private var extractionDescription: String {
+        let algorithm = settings.effectiveColorExtractionAlgorithm
+        let quality = settings.effectiveExtractionQuality
+        
+        var desc = ""
+        if algorithm == .labWeighted {
+            desc = "感知模式使用 Lab 色彩空间，更符合人眼感知，提取自然、真实的主色层次。"
+        } else {
+            desc = "快速模式速度更快，适合霓虹、展览、集市等高对比场景。"
+        }
+        
+        desc += "\n"
+        switch quality {
+        case .fast:
+            desc += "快速精度：约 20ms/张。"
+        case .balanced:
+            desc += "平衡精度：约 80ms/张（推荐）。"
+        case .fine:
+            desc += "精细精度：约 133ms/张，最高质量。"
+        }
+        
+        return desc
+    }
+    
+    private func clearCache() {
+        let cache = PhotoColorCache()
+        cache.clearAllCache()
+        print("✅ 已清除所有颜色分析缓存")
     }
 }
 

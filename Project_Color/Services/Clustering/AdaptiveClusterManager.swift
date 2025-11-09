@@ -144,6 +144,12 @@ class AdaptiveClusterManager {
             return true
         }
         
+        if filtered.isEmpty {
+            operations.removeAll()
+            operations.append("⚠️ 所有簇都小于最小簇大小，保留原始簇以避免空结果")
+            return (clusters, operations)
+        }
+        
         return (filtered, operations)
     }
     
@@ -317,10 +323,44 @@ class AdaptiveClusterManager {
             indexMap[cluster.index] = arrayIndex
         }
         
+        // 转换簇质心到 LAB 空间
+        var centroidsLAB: [SIMD3<Float>] = []
+        for cluster in updatedClusters {
+            centroidsLAB.append(converter.rgbToLab(cluster.centroid))
+        }
+        
         // 为每张照片重新分配簇
         for photoInfo in photoInfos {
+            var assignedIndex: Int? = nil
+            
+            // 尝试使用原有的簇索引
             if let primaryClusterIndex = photoInfo.primaryClusterIndex,
                let arrayIndex = indexMap[primaryClusterIndex] {
+                assignedIndex = arrayIndex
+            } else {
+                // 原簇不存在（被删除或合并），需要重新分配
+                // 找到最近的簇
+                var minDistance = Float.greatestFiniteMagnitude
+                var closestClusterIndex = 0
+                
+                for dominantColor in photoInfo.dominantColors {
+                    let colorLAB = converter.rgbToLab(dominantColor.rgb)
+                    
+                    for (index, centroidLAB) in centroidsLAB.enumerated() {
+                        let distance = converter.deltaE(colorLAB, centroidLAB)
+                        if distance < minDistance {
+                            minDistance = distance
+                            closestClusterIndex = index
+                        }
+                    }
+                }
+                
+                assignedIndex = closestClusterIndex
+                print("  🔄 重新分配照片 \(photoInfo.assetIdentifier.prefix(8))... → 簇 #\(updatedClusters[closestClusterIndex].index)")
+            }
+            
+            // 分配照片到簇
+            if let arrayIndex = assignedIndex {
                 updatedClusters[arrayIndex].photoIdentifiers.append(photoInfo.assetIdentifier)
                 updatedClusters[arrayIndex].photoCount += 1
             }

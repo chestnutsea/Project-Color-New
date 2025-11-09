@@ -25,12 +25,14 @@ class AutoKSelector {
         let maxK: Int
         let maxIterations: Int
         let colorSpace: ColorSpace
+        let weights: [Float]?  // 新增：可选权重
         
         static let `default` = Config(
             minK: 3,
             maxK: 12,
             maxIterations: 50,
-            colorSpace: .lab
+            colorSpace: .lab,
+            weights: nil
         )
     }
     
@@ -78,12 +80,13 @@ class AutoKSelector {
             
             print("\n📊 测试 K=\(k)...")
             
-            // 执行聚类
+            // 执行聚类（传递权重）
             guard let clustering = kmeans.cluster(
                 points: points,
                 k: k,
                 maxIterations: config.maxIterations,
-                colorSpace: config.colorSpace
+                colorSpace: config.colorSpace,
+                weights: config.weights
             ) else {
                 print("   ⚠️ K=\(k) 聚类失败")
                 continue
@@ -223,12 +226,13 @@ class AutoKSelector {
                     
                     print("\n📊 测试 K=\(k)...")
                     
-                    // 执行聚类
+                    // 执行聚类（传递权重）
                     guard let clustering = localKMeans.cluster(
                         points: points,
                         k: k,
                         maxIterations: config.maxIterations,
-                        colorSpace: config.colorSpace
+                        colorSpace: config.colorSpace,
+                        weights: config.weights
                     ) else {
                         return (k, nil, nil)
                     }
