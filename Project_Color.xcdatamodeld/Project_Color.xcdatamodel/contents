@@ -1,8 +1,36 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="24299" systemVersion="24G84" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithCloudKit="YES" userDefinedModelVersionIdentifier="">
+    <entity name="AnalysisSessionEntity" representedClassName="AnalysisSessionEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="failedCount" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
+        <attribute name="optimalK" attributeType="Integer 16" defaultValueString="5" usesScalarValueType="YES"/>
+        <attribute name="processedCount" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="silhouetteScore" optional="YES" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="status" attributeType="String" defaultValueString="completed"/>
+        <attribute name="timestamp" attributeType="Date" defaultDateTimeInterval="0" usesScalarValueType="NO"/>
+        <attribute name="totalPhotoCount" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <relationship name="clusters" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="ColorClusterEntity" inverseName="session" inverseEntity="ColorClusterEntity"/>
+        <relationship name="photoAnalyses" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="PhotoAnalysisEntity" inverseName="session" inverseEntity="PhotoAnalysisEntity"/>
+    </entity>
+    <entity name="ColorClusterEntity" representedClassName="ColorClusterEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="centroidA" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="centroidB" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="centroidHex" attributeType="String" defaultValueString=""/>
+        <attribute name="centroidL" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="clusterIndex" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="colorName" attributeType="String" defaultValueString=""/>
+        <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
+        <attribute name="isNeutral" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="sampleCount" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="sampleRatio" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <relationship name="photoAnalyses" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="PhotoAnalysisEntity" inverseName="primaryCluster" inverseEntity="PhotoAnalysisEntity"/>
+        <relationship name="session" optional="YES" deletionRule="Nullify" destinationEntity="AnalysisSessionEntity" inverseName="clusters" inverseEntity="AnalysisSessionEntity"/>
+    </entity>
     <entity name="ColorSwatchEntity" representedClassName="ColorSwatchEntity" syncable="YES" codeGenerationType="class">
         <attribute name="a" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="b" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="colorName" optional="YES" attributeType="String"/>
+        <attribute name="deltaEToNamed" optional="YES" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="hex" attributeType="String" defaultValueString=""/>
         <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
         <attribute name="l" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
@@ -15,6 +43,19 @@
         <attribute name="modelSource" attributeType="String" defaultValueString=""/>
         <attribute name="vector" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
         <relationship name="photo" optional="YES" deletionRule="Nullify" destinationEntity="PhotoEntity" inverseName="features" inverseEntity="PhotoEntity"/>
+    </entity>
+    <entity name="PhotoAnalysisEntity" representedClassName="PhotoAnalysisEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="assetLocalIdentifier" attributeType="String" defaultValueString=""/>
+        <attribute name="confidence" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="deltaEToCentroid" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="dominantColors" optional="YES" attributeType="Binary"/>
+        <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
+        <attribute name="mixVector" optional="YES" attributeType="Binary"/>
+        <attribute name="primaryClusterIndex" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="primaryColorName" attributeType="String" defaultValueString=""/>
+        <attribute name="sha256Hash" optional="YES" attributeType="String"/>
+        <relationship name="primaryCluster" optional="YES" deletionRule="Nullify" destinationEntity="ColorClusterEntity" inverseName="photoAnalyses" inverseEntity="ColorClusterEntity"/>
+        <relationship name="session" optional="YES" deletionRule="Nullify" destinationEntity="AnalysisSessionEntity" inverseName="photoAnalyses" inverseEntity="AnalysisSessionEntity"/>
     </entity>
     <entity name="PhotoEntity" representedClassName="PhotoEntity" syncable="YES" codeGenerationType="class">
         <attribute name="assetLocalId" attributeType="String" defaultValueString=""/>

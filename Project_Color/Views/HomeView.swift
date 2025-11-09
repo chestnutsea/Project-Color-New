@@ -52,6 +52,14 @@ struct HomeView: View {
     @State private var processingProgress: Double = 0.0
     @State private var photoStackOpacity: Double = 1.0
     
+    // 颜色分析相关
+    @State private var analysisProgress = AnalysisProgress()
+    @State private var analysisResult: AnalysisResult?
+    @State private var showAnalysisResult = false
+    @State private var showAnalysisHistory = false  // Phase 3: 历史记录
+    @State private var showAnalysisSettings = false  // Phase 5: 分析设置
+    private let analysisPipeline = SimpleAnalysisPipeline()
+    
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -135,19 +143,88 @@ struct HomeView: View {
                     }
                 }
                 
-                // 进度条
-                if isProcessing {
+                // Phase 3 & 5: 历史记录和设置按钮
+                if !isProcessing {
                     VStack {
-                        ProgressView(value: processingProgress)
-                            .progressViewStyle(LinearProgressViewStyle())
-                            .frame(width: 200)
-                            .padding()
-                            .background(Color.white.opacity(0.9))
-                            .cornerRadius(10)
-                            .shadow(radius: 5)
-                        
+                        HStack {
+                            Spacer()
+                            
+                            // Phase 5: 设置按钮
+                            Button(action: {
+                                showAnalysisSettings = true
+                            }) {
+                                Image(systemName: "slider.horizontal.3")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(.primary)
+                                    .padding(12)
+                                    .background(Color.white.opacity(0.9))
+                                    .clipShape(Circle())
+                                    .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+                            }
+                            .padding(.trailing, 8)
+                            
+                            // Phase 3: 历史记录按钮
+                            Button(action: {
+                                showAnalysisHistory = true
+                            }) {
+                                Image(systemName: "clock.arrow.circlepath")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(.primary)
+                                    .padding(12)
+                                    .background(Color.white.opacity(0.9))
+                                    .clipShape(Circle())
+                                    .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+                            }
+                            .padding(.trailing)
+                        }
                         Spacer()
                     }
+                }
+                
+                // 进度条
+                if isProcessing {
+                    VStack(spacing: 12) {
+                        Text(analysisProgress.currentStage)
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        
+                        Text(analysisProgress.progressText)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                        
+                        ProgressView(value: processingProgress)
+                            .progressViewStyle(LinearProgressViewStyle())
+                            .frame(width: 250)
+                        
+                        HStack(spacing: 16) {
+                            Text(analysisProgress.percentageText)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            if !analysisProgress.timeRemainingText.isEmpty {
+                                Text("•")
+                                    .foregroundColor(.secondary)
+                                Text(analysisProgress.timeRemainingText)
+                                    .font(.caption)
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                        
+                        // Phase 5: 详细进度信息
+                        if !analysisProgress.detailText.isEmpty {
+                            Text(analysisProgress.detailText)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.top, 4)
+                        }
+                    }
+                    .padding(20)
+                    .background(Color.white.opacity(0.95))
+                    .cornerRadius(15)
+                    .shadow(radius: 10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .padding(.top, scannerTopOffset - progressBarTopOffset)
                 }
             }
@@ -162,6 +239,17 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showAlbumList) {
             AlbumListView()
+        }
+        .sheet(isPresented: $showAnalysisResult) {
+            if let result = analysisResult {
+                AnalysisResultView(result: result)
+            }
+        }
+        .sheet(isPresented: $showAnalysisHistory) {
+            AnalysisHistoryView()
+        }
+        .sheet(isPresented: $showAnalysisSettings) {
+            AnalysisSettingsView()
         }
         .onAppear {
             checkPhotoLibraryStatus()
@@ -179,40 +267,56 @@ struct HomeView: View {
     // MARK: - 拖拽处理
     private func handleDragEnd(geometry: GeometryProxy) {
         // 调试信息
-        print("Scanner frame: \(scannerFrame)")
-        print("Photo stack frame: \(photoStackFrame)")
+        print("=== handleDragEnd called ===")
+        print("Screen size: \(geometry.size.width) x \(geometry.size.height)")
         print("Drag offset: \(dragOffset)")
         
-        // 检查 frame 是否有效
-        guard !scannerFrame.isEmpty && !photoStackFrame.isEmpty else {
-            print("Warning: Frame is empty, resetting drag")
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                dragOffset = .zero
-            }
+        let screenWidth = geometry.size.width
+        let screenHeight = geometry.size.height
+        
+        // 计算scanner的范围（基于布局常量，scanner水平居中）
+        let scannerTop = scannerTopOffset  // 100
+        let scannerBottom = scannerTopOffset + imageSize  // 100 + 300 = 400
+        let scannerLeft = (screenWidth - imageSize) / 2  // 居中
+        let scannerRight = scannerLeft + imageSize
+        
+        // 估算照片堆的初始位置（底部居中）
+        let photoStackWidth: CGFloat = photoCardWidth + 100  // 照片宽度 + 偏移容差
+        let photoStackHeight: CGFloat = 200  // 估算高度
+        let photoStackInitialX = (screenWidth - photoStackWidth) / 2
+        let photoStackInitialY = screenHeight - photoStackBottomOffset - photoStackHeight / 2
+        
+        // 计算拖拽后的照片堆位置
+        let photoStackDraggedX = photoStackInitialX + dragOffset.width
+        let photoStackDraggedY = photoStackInitialY + dragOffset.height
+        let photoStackDraggedRight = photoStackDraggedX + photoStackWidth
+        let photoStackDraggedBottom = photoStackDraggedY + photoStackHeight
+        
+        print("Scanner range: X[\(Int(scannerLeft))-\(Int(scannerRight))] Y[\(Int(scannerTop))-\(Int(scannerBottom))]")
+        print("Photo stack dragged: X[\(Int(photoStackDraggedX))-\(Int(photoStackDraggedRight))] Y[\(Int(photoStackDraggedY))-\(Int(photoStackDraggedBottom))]")
+        
+        // 判断是否有重合（X轴和Y轴都要检查）
+        let hasXOverlap = photoStackDraggedRight > scannerLeft && photoStackDraggedX < scannerRight
+        let hasYOverlap = photoStackDraggedBottom > scannerTop && photoStackDraggedY < scannerBottom
+        
+        print("X overlap: \(hasXOverlap), Y overlap: \(hasYOverlap)")
+        
+        if hasXOverlap && hasYOverlap {
+            print("✅ Photo stack overlaps with scanner! Starting processing...")
+            startProcessing()
             return
         }
         
-        // 计算拖拽后的照片堆位置
-        let draggedPhotoStackFrame = CGRect(
-            x: photoStackFrame.origin.x + dragOffset.width,
-            y: photoStackFrame.origin.y + dragOffset.height,
-            width: photoStackFrame.width,
-            height: photoStackFrame.height
-        )
-        
-        print("Dragged photo stack frame: \(draggedPhotoStackFrame)")
-        
-        // 检测碰撞
-        if scannerFrame.intersects(draggedPhotoStackFrame) {
-            print("Collision detected! Starting processing...")
-            // 有重叠，开始处理
-            startProcessing()
-        } else {
-            print("No collision, bouncing back")
-            // 无重叠，弹回原位
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                dragOffset = .zero
-            }
+        // 如果没有重合，弹回原位
+        print("❌ No overlap detected")
+        if !hasYOverlap {
+            print("   Y: Photo stack (\(Int(photoStackDraggedY))) needs to reach scanner (\(Int(scannerBottom)))")
+        }
+        if !hasXOverlap {
+            print("   X: Photo stack needs better horizontal alignment")
+        }
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+            dragOffset = .zero
         }
     }
     
@@ -231,25 +335,42 @@ struct HomeView: View {
             
             print("Animation started - opacity set to 0, dragOffset reset")
             
-            // 延迟后开始显示进度条
+            // 延迟后开始显示进度条并开始分析
             DispatchQueue.main.asyncAfter(deadline: .now() + self.fadeOutDuration) {
-                print("Starting progress bar")
+                print("Starting analysis")
                 self.isProcessing = true
-                self.simulateProcessing()
+                self.startColorAnalysis()
             }
         }
     }
     
-    private func simulateProcessing() {
-        // 模拟处理进度
-        processingProgress = 0.0
-        Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { timer in
-            if processingProgress < 1.0 {
-                processingProgress += 0.02
-            } else {
-                timer.invalidate()
-                // 处理完成后的逻辑
-                // TODO: 跳转到结果页面或其他操作
+    private func startColorAnalysis() {
+        // 获取选中的照片资产
+        let assets = selectionManager.getLatestPhotos(count: 1000)  // 获取所有选中的照片
+        
+        guard !assets.isEmpty else {
+            print("No assets to analyze")
+            isProcessing = false
+            return
+        }
+        
+        Task {
+            let result = await analysisPipeline.analyzePhotos(assets: assets) { (progress: AnalysisProgress) in
+                DispatchQueue.main.async {
+                    self.analysisProgress = progress
+                    self.processingProgress = progress.overallProgress
+                }
+            }
+            
+            // 分析完成
+            await MainActor.run {
+                self.analysisResult = result
+                self.isProcessing = false
+                
+                // 短暂延迟后跳转到结果页
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.showAnalysisResult = true
+                }
             }
         }
     }
