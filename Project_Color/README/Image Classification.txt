@@ -1,0 +1,141 @@
+一、项目背景与目标
+在大规模图像集管理中，基于颜色对照片进行分类与聚合，是实现视觉风格分析、相册自动整理与色调检索的重要手段。
+传统仅基于 Hue（色相）进行分类的方法，容易在多主色或低饱和照片中失真。
+因此，本方案提出一种基于 主色 Hue 环形均值 + 平均 Saturation + 平均 Value 的综合分类方法，兼顾准确性与可解释性。
+
+---
+二、颜色特征选取
+1. 主色提取
+每张照片提取 5 个主色，可通过：
+- KMeans 聚类（如 OpenCV 的 cv2.kmeans）
+- ColorThief / Pillow / skimage.color
+得到每张照片的 5 个主色 HSV 值：
+暂时无法在飞书文档外展示此内容
+
+---
+2. Hue 环形均值（Circular Mean）
+Hue 值在 0–360° 范围内环形分布，0° 与 360° 实际表示同一颜色（红色）。
+ 因此不能用普通平均，否则 10° 与 350° 的平均会错误地变为 180°（绿色）。
+正确做法是：
+1. 将每个 hue 转换为单位圆坐标：
+ [
+ x = \cos(\text{Hue角度}), \quad y = \sin(\text{Hue角度})
+ ]
+2. 计算平均方向：
+ [
+ \bar{x} = mean(x_i), \quad \bar{y} = mean(y_i)
+ ]
+3. 转回角度并取模：
+ [
+ Hue_{mean} = (\arctan2(\bar{y}, \bar{x}) \times \frac{180}{\pi}) \mod 360
+ ]
+Python 实现：
+import numpy as np
+
+def circular_mean(hues):
+    hues_rad = np.deg2rad(hues)
+    mean_x = np.mean(np.cos(hues_rad))
+    mean_y = np.mean(np.sin(hues_rad))
+    mean_angle = np.arctan2(mean_y, mean_x)
+    return np.rad2deg(mean_angle) % 360
+
+---
+4. 平均饱和度与亮度
+mean_s = np.mean([s1, s2, s3, s4, s5])
+mean_v = np.mean([v1, v2, v3, v4, v5])
+得到每张照片的综合色彩特征：
+ [
+ \text{Feature Vector} = [Hue_{mean}, Saturation_{mean}, Value_{mean}]
+ ]
+
+---
+三、分类方法
+方法一：基于规则的区间分类（语义化色系）
+适合需要明确标签的场景（如“红色系”、“冷色系”、“暖亮色”）。
+示例规则：
+def color_label(h, s, v):
+    # 饱和度与亮度分类
+    if s < 0.25:
+        tone = '灰调'
+    elif v > 0.8:
+        tone = '亮色'
+    elif v < 0.3:
+        tone = '暗色'
+    else:
+        tone = '中性色'
+
+    # 色相分类
+    if (h >= 0 and h < 30) or (h >= 330 and h <= 360):
+        hue_label = '红'
+    elif 30 <= h < 90:
+        hue_label = '黄'
+    elif 90 <= h < 150:
+        hue_label = '绿'
+    elif 150 <= h < 210:
+        hue_label = '青'
+    elif 210 <= h < 270:
+        hue_label = '蓝'
+    elif 270 <= h < 330:
+        hue_label = '紫'
+    else:
+        hue_label = '未知'
+
+    return f"{tone}{hue_label}系"
+优点：
+- 可解释性强
+- 适合前端显示或自动标注
+缺点：
+- 需人工定义边界
+- 对边界附近色调可能不敏感
+
+---
+方法二：基于 HSV 特征的 KMeans 聚类（自动分群）——我们选择方法二
+适合分析、探索或风格聚合任务。
+特征准备
+由于 Hue 是环形变量，先展开成二维坐标：
+X = np.column_stack([
+    np.cos(np.deg2rad(mean_hue)),
+    np.sin(np.deg2rad(mean_hue)),
+    mean_s,
+    mean_v
+])
+聚类实现
+from sklearn.cluster import KMeans
+
+kmeans = KMeans(n_clusters=6, random_state=0).fit(X)
+labels = kmeans.labels_
+得到的类别可代表：
+- 冷亮色调（高V、低H）
+- 暖暗色调（高S、低V）
+- 灰低饱和组（低S）
+后续可通过每类的平均 HSV 推断语义标签。
+
+---
+四、可视化分析
+5. 色相-饱和度分布
+import matplotlib.pyplot as plt
+
+plt.scatter(mean_hue, mean_s, c=plt.cm.hsv(mean_hue/360), alpha=0.7)
+plt.xlabel('Hue')
+plt.ylabel('Saturation')
+plt.title('Photo Color Distribution')
+plt.show()
+6. 聚类结果可视化
+使用 PCA / t-SNE 将 [cos(hue), sin(hue), s, v] 降维，
+ 不同 cluster 用颜色标示，可揭示自然分组关系。
+
+---
+五、适用场景与扩展
+扩展方向：
+- 可引入 LAB 空间的 a/b 分量以捕捉色度变化；
+- 可结合卷积特征（CNN）进行多模态风格聚类；
+- 可按时间序列分析用户的色彩偏好变化。
+
+---
+六、总结
+本方案综合考虑 Hue 的环形特性与照片整体的饱和度、亮度信息，
+ 通过 环形均值 + 聚类 / 区间规则 实现了更符合人眼感知的照片颜色分类。
+- 环形均值解决 Hue 平均失真问题；
+- KMeans 提供自动化色系发现；
+- 区间分类便于人工命名与解释。
+该方法兼具准确性、可解释性与扩展性，适用于照片管理、视觉风格分析与内容检索等多种应用场景。
