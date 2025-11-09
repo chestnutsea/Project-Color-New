@@ -1,50 +1,50 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="24299" systemVersion="24G84" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithCloudKit="YES" userDefinedModelVersionIdentifier="">
     <entity name="ColorSwatchEntity" representedClassName="ColorSwatchEntity" syncable="YES" codeGenerationType="class">
-        <attribute name="a" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
-        <attribute name="b" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
-        <attribute name="hex" optional="NO" attributeType="String" defaultValueString=""/>
-        <attribute name="id" optional="NO" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
-        <attribute name="l" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
-        <attribute name="ratio" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="a" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="b" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="hex" attributeType="String" defaultValueString=""/>
+        <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
+        <attribute name="l" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="ratio" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
         <relationship name="photo" optional="YES" deletionRule="Nullify" destinationEntity="PhotoEntity" inverseName="colorSwatches" inverseEntity="PhotoEntity"/>
     </entity>
     <entity name="FeatureEntity" representedClassName="FeatureEntity" syncable="YES" codeGenerationType="class">
-        <attribute name="dimension" optional="NO" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
-        <attribute name="id" optional="NO" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
-        <attribute name="modelSource" optional="NO" attributeType="String" defaultValueString=""/>
+        <attribute name="dimension" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
+        <attribute name="modelSource" attributeType="String" defaultValueString=""/>
         <attribute name="vector" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
         <relationship name="photo" optional="YES" deletionRule="Nullify" destinationEntity="PhotoEntity" inverseName="features" inverseEntity="PhotoEntity"/>
     </entity>
     <entity name="PhotoEntity" representedClassName="PhotoEntity" syncable="YES" codeGenerationType="class">
-        <attribute name="assetLocalId" optional="NO" attributeType="String" defaultValueString=""/>
-        <attribute name="id" optional="NO" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
+        <attribute name="assetLocalId" attributeType="String" defaultValueString=""/>
+        <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
         <attribute name="location" optional="YES" attributeType="String"/>
         <attribute name="sceneLabel" optional="YES" attributeType="String"/>
         <attribute name="styleLabel" optional="YES" attributeType="String"/>
         <attribute name="thumbnail" optional="YES" attributeType="Binary" defaultValueString="" allowsExternalBinaryDataStorage="YES"/>
-        <attribute name="timestamp" optional="NO" attributeType="Date" defaultDateTimeInterval="0" usesScalarValueType="NO"/>
-        <attribute name="toneCategory" optional="NO" attributeType="String" defaultValueString="neutral"/>
+        <attribute name="timestamp" attributeType="Date" defaultDateTimeInterval="0" usesScalarValueType="NO"/>
+        <attribute name="toneCategory" attributeType="String" defaultValueString="neutral"/>
         <relationship name="colorSwatches" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="ColorSwatchEntity" inverseName="photo" inverseEntity="ColorSwatchEntity"/>
         <relationship name="features" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="FeatureEntity" inverseName="photo" inverseEntity="FeatureEntity"/>
         <relationship name="preference" optional="YES" deletionRule="Nullify" destinationEntity="UserPreferenceEntity" inverseName="photos" inverseEntity="UserPreferenceEntity"/>
         <relationship name="styles" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="StyleEntity" inverseName="photos" inverseEntity="StyleEntity"/>
     </entity>
     <entity name="StyleEntity" representedClassName="StyleEntity" syncable="YES" codeGenerationType="class">
-        <attribute name="confidence" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
-        <attribute name="id" optional="NO" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
-        <attribute name="label" optional="NO" attributeType="String" defaultValueString=""/>
-        <attribute name="sourceModel" optional="NO" attributeType="String" defaultValueString=""/>
+        <attribute name="confidence" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
+        <attribute name="label" attributeType="String" defaultValueString=""/>
+        <attribute name="sourceModel" attributeType="String" defaultValueString=""/>
         <relationship name="photos" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="PhotoEntity" inverseName="styles" inverseEntity="PhotoEntity"/>
     </entity>
     <entity name="UserPreferenceEntity" representedClassName="UserPreferenceEntity" syncable="YES" codeGenerationType="class">
-        <attribute name="avgLightness" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
-        <attribute name="avgSaturation" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
-        <attribute name="dominantTone" optional="NO" attributeType="String" defaultValueString="neutral"/>
+        <attribute name="avgLightness" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="avgSaturation" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="dominantTone" attributeType="String" defaultValueString="neutral"/>
         <attribute name="embeddingCenter" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
-        <attribute name="id" optional="NO" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
-        <attribute name="lastUpdated" optional="NO" attributeType="Date" defaultDateTimeInterval="0" usesScalarValueType="NO"/>
-        <attribute name="styleDistribution" optional="YES" attributeType="Transformable"/>
+        <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
+        <attribute name="lastUpdated" attributeType="Date" defaultDateTimeInterval="0" usesScalarValueType="NO"/>
+        <attribute name="styleDistribution" optional="YES" attributeType="Binary"/>
         <relationship name="photos" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="PhotoEntity" inverseName="preference" inverseEntity="PhotoEntity"/>
     </entity>
 </model>

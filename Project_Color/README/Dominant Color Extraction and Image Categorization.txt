@@ -1,0 +1,365 @@
+伪代码：
+---
+import Foundation
+import Accelerate
+import ImageIO
+import CoreGraphics
+import UniformTypeIdentifiers
+
+// MARK: - 数据结构
+
+struct DominantColor: Codable, Hashable {
+    var lab: SIMD3<Float>      // [L*, a*, b*]
+    var rgb: SIMD3<Float>      // [R, G, B] 0–1
+    var hex: String            // "#RRGGBB"
+    var weight: Float          // 占比(0~1)
+}
+
+struct DominantColorResult: Codable {
+    var imageHash: String
+    var sourceURL: URL
+    var dominantColors: [DominantColor]
+    var averageLab: SIMD3<Float>
+    var colorCategory: String
+}
+
+// MARK: - 主控制流程
+
+final class ColorAnalysisPipeline {
+
+    func processImages(urls: [URL]) async -> [DominantColorResult] {
+        var results: [DominantColorResult] = []
+        
+        // 限制并发数量，避免内存暴涨
+        let semaphore = DispatchSemaphore(value: ProcessInfo.processInfo.processorCount)
+        let queue = DispatchQueue(label: "color.analysis.queue", attributes: .concurrent)
+        let group = DispatchGroup()
+        
+        for url in urls {
+            group.enter()
+            queue.async {
+                semaphore.wait()
+                autoreleasepool {
+                    if let result = self.processSingleImage(url: url) {
+                        DispatchQueue.global().async(flags: .barrier) {
+                            results.append(result)
+                        }
+                    }
+                    semaphore.signal()
+                    group.leave()
+                }
+            }
+        }
+        
+        group.wait()
+        return results
+    }
+}
+
+// MARK: - 单张图片处理
+
+extension ColorAnalysisPipeline {
+    
+    func processSingleImage(url: URL) -> DominantColorResult? {
+        guard let cgImage = createThumbnail(url: url, maxWidth: 300) else { return nil }
+        guard var labBuffer = convertToLab(cgImage: cgImage) else { return nil }
+        
+        // 执行聚类
+        let clusters = kMeansLAB(buffer: &labBuffer, k: 5)
+        
+        // 计算加权平均色
+        let average = weightedAverage(clusters)
+        
+        // 分类冷暖中性
+        let category = classifyColor(average)
+        
+        // 生成哈希
+        let hash = sha256(for: url)
+        
+        return DominantColorResult(
+            imageHash: hash,
+            sourceURL: url,
+            dominantColors: clusters,
+            averageLab: average,
+            colorCategory: category
+        )
+    }
+}
+
+// MARK: - Step 1: ImageIO 生成缩略图
+
+func createThumbnail(url: URL, maxWidth: CGFloat) -> CGImage? {
+    guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+        kCGImageSourceThumbnailMaxPixelSize: maxWidth,
+        kCGImageSourceShouldCache: false,
+        kCGImageSourceCreateThumbnailWithTransform: true
+    ]
+    return CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary)
+}
+
+// MARK: - Step 2: RGB → LAB 转换（Accelerate）
+
+func convertToLab(cgImage: CGImage) -> vImage_Buffer? {
+    // 加载成 vImage buffer
+    var format = vImage_CGImageFormat(bitsPerComponent: 8,
+                                      bitsPerPixel: 32,
+                                      colorSpace: nil,
+                                      bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                                      version: 0,
+                                      decode: nil,
+                                      renderingIntent: .defaultIntent)
+    var srcBuffer = vImage_Buffer()
+    defer { free(srcBuffer.data) }
+    
+    guard vImageBuffer_InitWithCGImage(&srcBuffer, &format, nil, cgImage, vImage_Flags(kvImageNoFlags)) == kvImageNoError else {
+        return nil
+    }
+    
+    // 转换到 sRGB（如有必要）
+    // 这里假设 cgImage 已是 sRGB，如果不是，可使用 vImageConverter
+    
+    // 创建 LAB buffer
+    var destBuffer = vImage_Buffer()
+    vImageBuffer_Init(&destBuffer,
+                      srcBuffer.height,
+                      srcBuffer.width,
+                      96, // 3 channels * 32bit float
+                      vImage_Flags(kvImageNoFlags))
+    
+    vImageConvert_RGB888toLabF(&srcBuffer, &destBuffer, vImage_Flags(kvImageNoFlags))
+    
+    return destBuffer
+}
+
+// MARK: - Step 3: KMeans 聚类 (K=5)
+
+func kMeansLAB(buffer: inout vImage_Buffer, k: Int) -> [DominantColor] {
+    // 取样像素
+    let pixels = sampleLABPixels(buffer, step: 2)
+    
+    // 初始化随机中心
+    var centroids = initializeCentroids(pixels, k)
+    
+    // 迭代聚类
+    for _ in 0..<50 {
+        let assignments = assignClusters(pixels, centroids)
+        let newCentroids = recomputeCentroids(pixels, assignments, k)
+        if converged(old: centroids, new: newCentroids) { break }
+        centroids = newCentroids
+    }
+    
+    // 计算簇权重并生成结果
+    return computeClusterResults(pixels, centroids)
+}
+
+// MARK: - Step 4: 平均主色计算
+
+func weightedAverage(_ clusters: [DominantColor]) -> SIMD3<Float> {
+    let totalWeight = clusters.reduce(0) { $0 + $1.weight }
+    var avg = SIMD3<Float>(0, 0, 0)
+    for c in clusters {
+        avg += c.lab * (c.weight / totalWeight)
+    }
+    return avg
+}
+
+// MARK: - Step 5: LAB → 冷暖中性色分类
+
+func classifyColor(_ lab: SIMD3<Float>) -> String {
+    // 转换 LAB 到 HSV 或球坐标
+    let (hue, saturation) = convertLabToHueSat(lab)
+    
+    if saturation < 0.2 { return "neutral" }
+    if hue >= 0 && hue < 90 || hue >= 330 { return "warm" }
+    if hue >= 180 && hue < 300 { return "cool" }
+    return "neutral"
+}
+
+// MARK: - Step 6: 哈希计算
+
+func sha256(for url: URL) -> String {
+    guard let data = try? Data(contentsOf: url) else { return UUID().uuidString }
+    // 这里可使用 CryptoKit
+    // return SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+    return "mockhash"
+}
+
+技术文档：
+
+模块
+功能
+技术点
+createThumbnail
+ImageIO 解码生成缩略图
+高效 I/O，自动纠正方向
+convertToLab
+RGB → LAB
+Accelerate / vImage
+kMeansLAB
+5 色聚类
+原生 Swift 实现
+weightedAverage
+计算主色中心
+简单向量运算
+classifyColor
+LAB 转 HSV 区域分类
+基于感知色调
+sha256
+文件唯一标识
+结果可索引原图
+一、系统目标
+本系统用于批量分析用户输入的照片（可达上万张），提取每张图片的主色特征，并根据主色在 LAB 色彩空间中的分布区域，将照片自动归入不同的色彩类别（如冷色系、暖色系、中性色系等）。
+目标特性：
+- 高效批处理：支持大规模图像（上万张）
+- 准确色彩：色彩空间转换精确到 LAB (D65)
+- 内存安全：流式读取、最小化内存占用
+- 可扩展：后续可接入 Core ML 模型或 UI 展示模块
+
+---
+二、整体流程架构
+原始图像文件
+   ↓
+ImageIO 缩略图解码（≤300 px 宽）
+   ↓
+vImageConvert → sRGB → LAB (D65)
+   ↓
+KMeans 聚类 (K=5)
+   ↓
+主色提取 + 加权平均
+   ↓
+LAB 空间区域划分（冷/暖/中性色等）
+   ↓
+输出结果（结构化 JSON）
+
+---
+三、核心模块设计
+1️⃣ 图像读取与缩放模块
+技术选型：
+- 使用 CGImageSourceCreateThumbnailAtIndex（ImageIO 框架）直接生成内存中缩略图。
+- 最大边设置为 300 像素，保持宽高比，自动纠正 EXIF 方向。
+- 禁止缓存原图：kCGImageSourceShouldCache: false。
+- 输出 CGImage 或 vImage_Buffer。
+原因与优势：
+- 一步生成目标尺寸图像，无需完整解码整张大图。
+- 比 Core Image (CILanczosScaleTransform) 更高效、更节省显存。
+注意事项：
+- 每张图处理完即释放内存（包裹在 autoreleasepool {} 内）。
+- 批量处理时避免同时加载多张原图。
+
+---
+2️⃣ 色彩空间转换模块
+步骤：
+1. 检测原图 colorSpace（可能为 sRGB / Display P3 / Adobe RGB）。
+2. 使用 vImageConvert_AnyToAny 将所有图像统一转换到 sRGB (D65)。
+3. 再用 vImageConvert_RGBToLab 转换到 CIELAB (D65)。
+设计理由：
+- LAB 空间更符合人眼感知差异，适合做聚类与色彩分区。
+- 统一到 sRGB 可防止 Display P3 图片偏红或偏黄。
+
+---
+3️⃣ 主色提取模块（KMeans 聚类）
+算法选型：
+- 使用 K-Means (K=5)。
+- 输入为 LAB 空间的像素向量。
+- 采用快速初始化（k-means++），迭代上限 50 次，提前收敛则停止。
+性能优化：
+- 对缩略图再下采样（如每隔 2–3 像素取一点）。
+- 采用 Accelerate / BNNS / vDSP 实现矩阵计算。
+输出结果：
+- 每个簇的中心值（Lab 三维向量）
+- 每个簇的权重（该簇像素占比）
+
+---
+4️⃣ 主色聚合与色彩区域分类
+思路：
+1. 计算每张图片的加权平均主色（按簇权重加权）。
+2. 将该主色映射到 LAB 空间的球坐标系（或 HSV 角度）。
+3. 根据规则划分色彩区域，如：
+  - 冷色系：Hue ∈ [180°, 300°)
+  - 暖色系：Hue ∈ [0°, 90°) ∪ [330°, 360°)
+  - 中性色：饱和度 < 0.2
+4. 输出所属类别。
+扩展可能：
+- 使用 DBSCAN / MeanShift 替代 KMeans，以获得自适应聚类数。
+- 后续可加入情绪标签（如「清冷」「热烈」「柔和」）。
+
+---
+5️⃣ 结果结构与索引
+每张图片生成一个结构体：
+struct DominantColorResult: Codable {
+    var imageHash: String        // 文件 SHA-256
+    var sourceURL: URL?          // 原图路径
+    var dominantColors: [DominantColor]
+    var averageColor: SIMD3<Float> // 加权平均LAB
+    var colorCategory: String     // 分类标签（冷/暖/中）
+}
+
+struct DominantColor: Codable {
+    var lab: SIMD3<Float>
+    var rgb: SIMD3<Float>
+    var hex: String
+    var weight: Float
+}
+哈希策略：
+- 对文件内容（或内容+尺寸）计算 SHA-256；
+- 结果可快速对应原始文件；
+- 允许在输出中直接反查原图。
+
+---
+四、性能优化与批量处理策略
+暂时无法在飞书文档外展示此内容
+
+---
+五、可选功能（扩展）
+- 结果缓存：
+ 若用户重复选择相同照片，可缓存缩略图和聚类结果 JSON。
+ 推荐格式：HEIF (质量 0.9)，仅当分析时间成为瓶颈时再启用。
+- 报告导出：
+ 支持导出汇总表（JSON / CSV），包含每张图主色与分类。
+- 可视化（未来）：
+ 用 SwiftUI 展示不同类别的代表色区域或比例分布。
+
+---
+六、关键参数推荐表
+缩略图最大宽
+300 px
+保证速度与色彩分布代表性
+颜色空间
+sRGB (D65)
+统一基准，防止偏色
+聚类算法
+K-Means (K=5)
+足以反映主色倾向
+聚类迭代次数
+≤50
+过多收益有限
+并发线程数
+#NAME?
+最优负载
+哈希算法
+SHA-256
+防冲突
+缓存格式
+HEIF 0.85–0.9
+可选，用于加速复用
+
+---
+七、输出与后处理
+- 所有结果可统一存储为 JSON：
+[
+  {
+    "imageHash": "...",
+    "averageColor": [56.2, 12.1, 30.7],
+    "colorCategory": "warm"
+  },
+  ...
+]
+- 结果可以输入后续模块（如颜色分布统计、风格聚类或用户偏好分析）。
+
+---
+八、未来扩展方向
+- 替换 KMeans 为 Core ML 模型（如轻量聚类网络）。
+- 使用 Metal Compute Shader 加速 LAB 转换与聚类。
+- 引入多线程文件队列（Combine + AsyncStream）以流式处理超大规模数据。
