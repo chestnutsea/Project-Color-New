@@ -150,7 +150,13 @@ class AdaptiveClusterManager {
             return (clusters, operations)
         }
         
-        return (filtered, operations)
+        // 重新索引簇（关键！防止索引越界）
+        var reindexed = filtered
+        for i in 0..<reindexed.count {
+            reindexed[i].index = i
+        }
+        
+        return (reindexed, operations)
     }
     
     // MARK: - Step 2: Merge Similar Clusters
@@ -222,7 +228,13 @@ class AdaptiveClusterManager {
             }
         }
         
-        return (workingClusters, operations)
+        // 重新索引簇（关键！防止索引越界）
+        var reindexed = workingClusters
+        for i in 0..<reindexed.count {
+            reindexed[i].index = i
+        }
+        
+        return (reindexed, operations)
     }
     
     /// 合并两个簇

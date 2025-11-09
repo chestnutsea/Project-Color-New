@@ -33,6 +33,14 @@ class AnalysisSettings: ObservableObject {
     @Published var extractionQuality: ExtractionQuality? = nil
     @Published var autoMergeSimilarColors: Bool? = nil
     
+    // MARK: - 全局聚类设置
+    
+    /// 手动指定 K 值（色系数量）
+    /// - 默认: nil（自动选择）
+    /// - 范围: 3 - 12
+    /// - 说明: 设置后将跳过自动 K 值选择，直接使用指定的 K 值
+    @Published var manualKValue: Int? = nil
+    
     // MARK: - 自适应聚类设置
     
     /// 是否启用自适应聚类
@@ -111,6 +119,7 @@ class AnalysisSettings: ObservableObject {
         colorExtractionAlgorithm = nil
         extractionQuality = nil
         autoMergeSimilarColors = nil
+        manualKValue = nil
         enableAdaptiveClustering = nil
         mergeThresholdDeltaE = nil
         useColorNameSimilarity = nil
@@ -147,27 +156,37 @@ class AnalysisSettings: ObservableObject {
     func applyFineGrainedPreset() {
         mergeThresholdDeltaE = 8.0
         useColorNameSimilarity = false
-        minClusterSize = 1
+        minClusterSize = nil  // 使用动态计算
     }
     
     /// 简洁分类（更少簇）
     func applySimplifiedPreset() {
         mergeThresholdDeltaE = 18.0
         useColorNameSimilarity = true
-        minClusterSize = 3
+        minClusterSize = 3  // 固定为 3，强制简化
     }
     
     /// 平衡分类（默认）
     func applyBalancedPreset() {
-        resetToDefaults()
+        resetToDefaults()  // minClusterSize = nil，使用动态计算
     }
     
     /// 单色系细分（适合颜色相近的照片）
     func applyMonochromePreset() {
+        manualKValue = 8                 // ✅ 强制使用 K=8，细分单色系
         enableAdaptiveClustering = false  // ✅ 关闭自适应聚类，保留原始 K 值结果
         mergeThresholdDeltaE = 6.0   // 非常严格，保留细微差异
         useColorNameSimilarity = false  // 不看名称，只看色差
-        minClusterSize = 1              // 保留所有簇
+        minClusterSize = nil  // 使用动态计算
+    }
+    
+    /// 多彩模式（适合颜色丰富多样的照片）
+    func applyColorfulPreset() {
+        manualKValue = nil               // 自动选择 K 值
+        enableAdaptiveClustering = true  // 启用自适应聚类
+        mergeThresholdDeltaE = 10.0      // 严格合并，保留更多色系
+        useColorNameSimilarity = false   // 不看名称，只看色差，避免误合并
+        minClusterSize = nil  // 使用动态计算
     }
 }
 

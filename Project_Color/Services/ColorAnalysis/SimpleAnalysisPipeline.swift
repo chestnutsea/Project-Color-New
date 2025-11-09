@@ -174,84 +174,129 @@ class SimpleAnalysisPipeline {
             }
         }
         
-        // 阶段2: 全局聚类（Phase 5: 并发自动选择最优K）
-        await MainActor.run {
-            // 计算K值选择的预计时间（约6-8秒）
-            let elapsed = Date().timeIntervalSince(startTime)
-            let kSelectionTime: TimeInterval = 7.0  // K值选择预计7秒
-            let remainingTime = kSelectionTime + 3.0  // +3秒用于后续处理
+        // 阶段2: 全局聚类（Phase 5: 并发自动选择最优K 或 使用手动K值）
+        
+        // 检查是否手动指定了 K 值
+        let clusteringResult: SimpleKMeans.ClusteringResult
+        
+        if let manualK = settings.manualKValue {
+            // 使用手动指定的 K 值
+            print("   📌 使用手动指定的 K=\(manualK)")
             
-            var progress = AnalysisProgress(
-                currentPhoto: assets.count,
-                totalPhotos: assets.count,
-                currentStage: "自动选择最优色系数",
-                overallProgress: 0.7,
-                failedCount: result.failedCount,
-                isSelectingK: true,
-                cachedCount: cachedInfos.count,
-                isConcurrent: true
-            )
-            progress.estimatedTimeRemaining = remainingTime
-            progress.startTime = startTime
-            progressHandler(progress)
-        }
-        
-        // Phase 5: 使用并发K值选择
-        // 计算合理的K值范围
-        let minK = 3
-        // Phase 5: 优化小数据集的K值范围
-        // 对于少量照片，允许更多簇以捕捉细微差异
-        let maxK: Int
-        if allMainColorsLAB.count < 20 {
-            // 少于20个颜色点（约4张照片）：最多6个簇
-            maxK = max(minK, min(6, allMainColorsLAB.count / 3))
-        } else if allMainColorsLAB.count < 50 {
-            // 20-50个颜色点（约4-10张照片）：最多8个簇
-            maxK = max(minK, min(8, allMainColorsLAB.count / 5))
-        } else {
-            // 50+个颜色点（10+张照片）：最多12个簇
-            maxK = max(minK, min(12, allMainColorsLAB.count / 10))
-        }
-        
-        print("   颜色点数: \(allMainColorsLAB.count)")
-        print("   K值范围: \(minK) - \(maxK)")
-        
-        guard let kResult = await autoKSelector.findOptimalKConcurrent(
-            points: allMainColorsLAB,
-            config: AutoKSelector.Config(
-                minK: minK,
-                maxK: maxK,
+            await MainActor.run {
+                progressHandler(AnalysisProgress(
+                    currentPhoto: assets.count,
+                    totalPhotos: assets.count,
+                    currentStage: "颜色聚类中（K=\(manualK)）",
+                    overallProgress: 0.75,
+                    failedCount: result.failedCount,
+                    cachedCount: cachedInfos.count,
+                    isConcurrent: true
+                ))
+            }
+            
+            // 直接执行 KMeans 聚类
+            guard let clustering = kmeans.cluster(
+                points: allMainColorsLAB,
+                k: manualK,
                 maxIterations: 50,
                 colorSpace: .lab,
-                weights: allColorWeights  // 传递权重
-            ),
-            progressHandler: { currentK, totalK in
-                Task { @MainActor in
-                    progressHandler(AnalysisProgress(
-                        currentPhoto: assets.count,
-                        totalPhotos: assets.count,
-                        currentStage: "自动选择最优色系数（并发）",
-                        overallProgress: 0.7 + 0.1 * Double(currentK) / Double(totalK),
-                        failedCount: result.failedCount,
-                        currentK: currentK,
-                        totalK: totalK,
-                        isSelectingK: true
-                    ))
-                }
+                weights: allColorWeights
+            ) else {
+                print("❌ 手动K值聚类失败，使用默认K=5")
+                result.optimalK = 5
+                result.qualityLevel = "未知"
+                return result
             }
-        ) else {
-            print("❌ 自动K选择失败，使用默认K=5")
-            result.optimalK = 5
-            result.qualityLevel = "未知"
-            return result
+            
+            clusteringResult = clustering
+            result.optimalK = manualK
+            result.silhouetteScore = 0.0  // 手动模式不计算质量分数
+            result.qualityLevel = "手动指定"
+            result.qualityDescription = "使用手动指定的 K=\(manualK)"
+            result.allKScores = [:]
+            
+        } else {
+            // 自动选择最优 K 值
+            await MainActor.run {
+                // 计算K值选择的预计时间（约6-8秒）
+                let elapsed = Date().timeIntervalSince(startTime)
+                let kSelectionTime: TimeInterval = 7.0  // K值选择预计7秒
+                let remainingTime = kSelectionTime + 3.0  // +3秒用于后续处理
+                
+                var progress = AnalysisProgress(
+                    currentPhoto: assets.count,
+                    totalPhotos: assets.count,
+                    currentStage: "自动选择最优色系数",
+                    overallProgress: 0.7,
+                    failedCount: result.failedCount,
+                    isSelectingK: true,
+                    cachedCount: cachedInfos.count,
+                    isConcurrent: true
+                )
+                progress.estimatedTimeRemaining = remainingTime
+                progress.startTime = startTime
+                progressHandler(progress)
+            }
+            
+            // Phase 5: 使用并发K值选择
+            // 计算合理的K值范围
+            let minK = 3
+            // Phase 5: 优化小数据集的K值范围
+            // 对于少量照片，允许更多簇以捕捉细微差异
+            let maxK: Int
+            if allMainColorsLAB.count < 20 {
+                // 少于20个颜色点（约4张照片）：最多6个簇
+                maxK = max(minK, min(6, allMainColorsLAB.count / 3))
+            } else if allMainColorsLAB.count < 50 {
+                // 20-50个颜色点（约4-10张照片）：最多8个簇
+                maxK = max(minK, min(8, allMainColorsLAB.count / 5))
+            } else {
+                // 50+个颜色点（10+张照片）：最多12个簇
+                maxK = max(minK, min(12, allMainColorsLAB.count / 10))
+            }
+            
+            print("   颜色点数: \(allMainColorsLAB.count)")
+            print("   K值范围: \(minK) - \(maxK)")
+            
+            guard let kResult = await autoKSelector.findOptimalKConcurrent(
+                points: allMainColorsLAB,
+                config: AutoKSelector.Config(
+                    minK: minK,
+                    maxK: maxK,
+                    maxIterations: 50,
+                    colorSpace: .lab,
+                    weights: allColorWeights  // 传递权重
+                ),
+                progressHandler: { currentK, totalK in
+                    Task { @MainActor in
+                        progressHandler(AnalysisProgress(
+                            currentPhoto: assets.count,
+                            totalPhotos: assets.count,
+                            currentStage: "自动选择最优色系数（并发）",
+                            overallProgress: 0.7 + 0.1 * Double(currentK) / Double(totalK),
+                            failedCount: result.failedCount,
+                            currentK: currentK,
+                            totalK: totalK,
+                            isSelectingK: true
+                        ))
+                    }
+                }
+            ) else {
+                print("❌ 自动K选择失败，使用默认K=5")
+                result.optimalK = 5
+                result.qualityLevel = "未知"
+                return result
+            }
+            
+            // 保存质量指标
+            clusteringResult = kResult.bestClustering
+            result.optimalK = kResult.optimalK
+            result.silhouetteScore = kResult.silhouetteScore
+            result.qualityLevel = kResult.qualityLevel.rawValue
+            result.qualityDescription = kResult.qualityDescription
+            result.allKScores = kResult.allScores
         }
-        
-        // 保存质量指标
-        result.optimalK = kResult.optimalK
-        result.silhouetteScore = kResult.silhouetteScore
-        result.qualityLevel = kResult.qualityLevel.rawValue
-        result.qualityDescription = kResult.qualityDescription
-        result.allKScores = kResult.allScores
         
         await MainActor.run {
             progressHandler(AnalysisProgress(
@@ -263,8 +308,7 @@ class SimpleAnalysisPipeline {
             ))
         }
         
-        // 使用最优聚类结果
-        let clusteringResult = kResult.bestClustering
+        // 使用聚类结果（已在上面获取）
         if true {
             // 创建簇对象
             var clusters: [ColorCluster] = []
@@ -358,16 +402,39 @@ class SimpleAnalysisPipeline {
                 }
                 
                 // Phase 5: 使用用户设置或默认配置
+                // 动态计算最小簇大小（如果用户没有手动设置）
+                let dynamicMinClusterSize: Int
+                if let userMinClusterSize = settings.minClusterSize {
+                    // 用户手动设置了，直接使用
+                    dynamicMinClusterSize = userMinClusterSize
+                } else {
+                    // 根据照片数量和合并阈值动态计算
+                    let photoCount = assets.count
+                    let mergeThreshold = settings.effectiveMergeThreshold
+                    
+                    if photoCount <= 20 {
+                        // 小数量：无论什么模式，都设为 1
+                        dynamicMinClusterSize = 1
+                    } else if mergeThreshold <= 10.0 {
+                        // 大数量 + 多彩模式（严格合并）：设为 1，保留更多色系
+                        dynamicMinClusterSize = 1
+                    } else {
+                        // 大数量 + 其他模式：使用默认值 2
+                        dynamicMinClusterSize = 2
+                    }
+                }
+                
                 let adaptiveConfig = AdaptiveClusterManager.Config(
                     mergeThresholdDeltaE: settings.effectiveMergeThreshold,
-                    minClusterSize: settings.effectiveMinClusterSize,
+                    minClusterSize: dynamicMinClusterSize,
                     splitThresholdIntraDist: 40.0,
                     useColorNameSimilarity: settings.effectiveUseColorNameSimilarity
                 )
                 
                 print("📊 自适应聚类配置:")
+                print("   - 照片数量: \(assets.count)")
                 print("   - 合并阈值 ΔE: \(String(format: "%.1f", adaptiveConfig.mergeThresholdDeltaE))")
-                print("   - 最小簇大小: \(adaptiveConfig.minClusterSize)")
+                print("   - 最小簇大小: \(adaptiveConfig.minClusterSize) \(settings.minClusterSize == nil ? "(动态)" : "(手动)")")
                 print("   - 名称相似性: \(adaptiveConfig.useColorNameSimilarity ? "开启" : "关闭")")
                 
                 let (updatedClusters, updateResult) = adaptiveManager.updateClusters(

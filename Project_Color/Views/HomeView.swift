@@ -35,7 +35,7 @@ struct HomeView: View {
     private let arrowBelowScannerOffset: CGFloat = 100 // 箭头距离 scanner 底部的距离
     private let fadeOutDuration: Double = 0.3 // 照片堆渐变消失速度
     private let progressBarTopOffset: CGFloat = 50 // 进度条距离 scanner 顶部的距离
-    private let photoStackBottomOffset: CGFloat = 40 // 照片堆距离屏幕底部的距离
+    private let photoStackBottomOffset: CGFloat = 80 // 照片堆距离屏幕底部的距离
     
     // MARK: - State
     @State private var showAlbumList = false

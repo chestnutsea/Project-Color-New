@@ -24,6 +24,11 @@ struct AnalysisResultView: View {
                     // Phase 4: 聚类质量指标
                     qualitySection
                     
+                    // 色系数量减少提示
+                    if result.clusters.count < result.optimalK {
+                        clusterReductionWarning
+                    }
+                    
                     // 聚类结果
                     clustersSection
                     
@@ -215,6 +220,55 @@ struct AnalysisResultView: View {
         case "较差": return Color.red.opacity(0.05)
         default: return Color(.systemBackground)
         }
+    }
+    
+    // MARK: - 色系数量减少提示
+    private var clusterReductionWarning: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "info.circle.fill")
+                    .font(.title3)
+                    .foregroundColor(.orange)
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("色系数量变化")
+                        .font(.headline)
+                        .foregroundColor(.orange)
+                    
+                    Text("初始识别 \(result.optimalK) 个色系，最终保留 \(result.clusters.count) 个")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    
+                    Divider()
+                    
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("可能原因：")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                        
+                        ReasonItem(icon: "arrow.merge", text: "相似色系被合并（色差 < 阈值）")
+                        ReasonItem(icon: "trash", text: "小簇被删除（照片数 < 最小簇大小）")
+                        ReasonItem(icon: "tag", text: "名称相似的色系被合并")
+                    }
+                    
+                    Divider()
+                    
+                    HStack(spacing: 4) {
+                        Image(systemName: "gearshape")
+                            .font(.caption)
+                        Text("可在设置中调整合并阈值、最小簇大小等参数")
+                            .font(.caption)
+                    }
+                    .foregroundColor(.blue)
+                    .padding(.top, 4)
+                }
+            }
+        }
+        .padding()
+        .background(Color.orange.opacity(0.05))
+        .cornerRadius(15)
+        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
     }
     
     // MARK: - 聚类结果
@@ -469,5 +523,24 @@ struct AnalysisPhotoThumbnail: View {
     ]
     
     return AnalysisResultView(result: result)
+}
+
+// MARK: - 原因列表项
+struct ReasonItem: View {
+    let icon: String
+    let text: String
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundColor(.orange)
+                .frame(width: 16)
+            
+            Text(text)
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
 }
 

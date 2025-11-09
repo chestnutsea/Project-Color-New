@@ -21,11 +21,14 @@ struct AnalysisSettingsView: View {
                     Button("平衡分类（推荐）") {
                         settings.applyBalancedPreset()
                     }
-                    Button("精细分类（更多簇）") {
-                        settings.applyFineGrainedPreset()
+                    Button("多彩模式（丰富色彩）") {
+                        settings.applyColorfulPreset()
                     }
                     Button("单色系细分（同色系照片）") {
                         settings.applyMonochromePreset()
+                    }
+                    Button("精细分类（更多簇）") {
+                        settings.applyFineGrainedPreset()
                     }
                     Button("简洁分类（更少簇）") {
                         settings.applySimplifiedPreset()
@@ -33,7 +36,7 @@ struct AnalysisSettingsView: View {
                 } header: {
                     Text("预设配置")
                 } footer: {
-                    Text("快速应用预设配置，或在下方自定义。单色系细分适合颜色相近的照片（如全绿色、全蓝色）。")
+                    Text("快速应用预设配置，或在下方自定义。\n• 多彩模式：保留更多色系，适合颜色丰富的照片（如旅行、聚会）\n• 单色系细分：细分相似色，适合颜色相近的照片（如全绿色、全蓝色）")
                 }
                 
                 // 合并阈值
@@ -94,6 +97,39 @@ struct AnalysisSettingsView: View {
                     Text("最小簇大小")
                 } footer: {
                     Text("照片数少于此值的簇会被删除。设为1可保留所有簇。")
+                }
+                
+                // 手动指定 K 值
+                Section {
+                    Toggle("手动指定色系数量", isOn: Binding(
+                        get: { settings.manualKValue != nil },
+                        set: { newValue in
+                            if newValue {
+                                settings.manualKValue = 8  // 默认 8
+                            } else {
+                                settings.manualKValue = nil
+                            }
+                        }
+                    ))
+                    
+                    if let _ = settings.manualKValue {
+                        Stepper("色系数量: \(settings.manualKValue ?? 8)", value: Binding(
+                            get: { settings.manualKValue ?? 8 },
+                            set: { settings.manualKValue = $0 }
+                        ), in: 3...12)
+                        
+                        Text("当前: \(settings.manualKValue ?? 8) 个色系")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } header: {
+                    Text("全局聚类")
+                } footer: {
+                    if settings.manualKValue != nil {
+                        Text("已手动指定 K=\(settings.manualKValue!)，将跳过自动选择。适合单色系照片细分。")
+                    } else {
+                        Text("自动选择最优色系数量（K值），基于 Silhouette Score 评估。")
+                    }
                 }
                 
                 // 自适应聚类开关
