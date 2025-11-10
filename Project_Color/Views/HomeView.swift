@@ -58,7 +58,6 @@ struct HomeView: View {
     @State private var showAnalysisResult = false
     @State private var showAnalysisHistory = false  // Phase 3: 历史记录
     @State private var showAnalysisSettings = false  // Phase 5: 分析设置
-    @State private var show3DTest = false  // 3D 测试视图
     private let analysisPipeline = SimpleAnalysisPipeline()
     
     var body: some View {
@@ -149,20 +148,6 @@ struct HomeView: View {
                     VStack {
                         HStack {
                             Spacer()
-                            
-                            // 3D 测试按钮
-                            Button(action: {
-                                show3DTest = true
-                            }) {
-                                Image(systemName: "cube.transparent")
-                                    .font(.system(size: 24))
-                                    .foregroundColor(.primary)
-                                    .padding(12)
-                                    .background(Color.white.opacity(0.9))
-                                    .clipShape(Circle())
-                                    .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
-                            }
-                            .padding(.trailing, 8)
                             
                             // Phase 5: 设置按钮
                             Button(action: {
@@ -265,9 +250,6 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showAnalysisSettings) {
             AnalysisSettingsView()
-        }
-        .sheet(isPresented: $show3DTest) {
-            threeDView()
         }
         .onAppear {
             checkPhotoLibraryStatus()

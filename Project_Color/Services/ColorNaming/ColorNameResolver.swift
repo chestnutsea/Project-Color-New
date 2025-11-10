@@ -7,12 +7,15 @@
 //
 
 import Foundation
+import CoreGraphics
 
 struct NamedColor {
     let name: String
     let rgb: SIMD3<Float>
     let lab: SIMD3<Float>
 }
+
+private final class ColorNameResolverBundleToken: NSObject {}
 
 class ColorNameResolver {
     
@@ -26,13 +29,42 @@ class ColorNameResolver {
     // MARK: - 加载调色板
     
     private func loadPalette() {
-        palette = XKCDColorData.colors.map { (name, rgbTuple) in
-            let rgb = SIMD3<Float>(rgbTuple.r, rgbTuple.g, rgbTuple.b)
-            let lab = converter.rgbToLab(rgb)
-            return NamedColor(name: name, rgb: rgb, lab: lab)
+        guard let url = locateColorNamesResource() else {
+            print("❌ Failed to locate colornames.csv in bundle")
+            palette = []
+            return
         }
         
-        print("✅ Loaded \(palette.count) xkcd colors")
+        do {
+            let rawCSV = try String(contentsOf: url, encoding: .utf8)
+            var results: [NamedColor] = []
+            results.reserveCapacity(28_000)
+            
+            rawCSV.enumerateLines { line, _ in
+                guard !line.isEmpty else { return }
+                if line.hasPrefix("name,hex") { return } // skip header
+                
+                let columns = line.split(separator: ",", maxSplits: 2, omittingEmptySubsequences: false)
+                guard columns.count >= 2 else { return }
+                
+                let rawName = columns[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                let rawHex = columns[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                guard
+                    !rawName.isEmpty,
+                    let rgb = self.hexToRGB(rawHex)
+                else { return }
+                
+                let lab = self.converter.rgbToLab(rgb)
+                results.append(NamedColor(name: rawName, rgb: rgb, lab: lab))
+            }
+            
+            palette = results
+            print("✅ Loaded \(palette.count) color names from colornames.csv")
+        } catch {
+            print("❌ Failed to load colornames.csv: \(error)")
+            palette = []
+        }
     }
     
     // MARK: - 颜色命名（LAB 空间最近邻）
@@ -74,40 +106,43 @@ class ColorNameResolver {
         var hueModifier = ""
         if abs(a) > 10 || abs(b) > 10 {
             if b > 15 && abs(a) < 10 {
-                hueModifier = "yellowish "
+                hueModifier = "yellowish"
             } else if b < -15 && abs(a) < 10 {
-                hueModifier = "bluish "
+                hueModifier = "bluish"
             } else if a > 15 && abs(b) < 10 {
-                hueModifier = "reddish "
+                hueModifier = "reddish"
             } else if a < -15 && abs(b) < 10 {
-                hueModifier = "greenish "
+                hueModifier = "greenish"
             } else if a > 10 && b > 10 {
-                hueModifier = "orangish "
+                hueModifier = "orangish"
             } else if a < -10 && b > 10 {
-                hueModifier = "lime "
+                hueModifier = "lime"
             } else if a < -10 && b < -10 {
-                hueModifier = "teal "
+                hueModifier = "teal"
             } else if a > 10 && b < -10 {
-                hueModifier = "purplish "
+                hueModifier = "purplish"
             }
         }
         
         // 判断亮度
         let lightnessModifier: String
         if L < 20 {
-            lightnessModifier = "very dark "
+            lightnessModifier = "very dark"
         } else if L < 40 {
-            lightnessModifier = "dark "
+            lightnessModifier = "dark"
         } else if L > 80 {
-            lightnessModifier = "very light "
+            lightnessModifier = "very light"
         } else if L > 60 {
-            lightnessModifier = "light "
+            lightnessModifier = "light"
         } else {
             lightnessModifier = ""
         }
         
-        // 组合名称（英文顺序：亮度 + 色调 + 基础色）
-        return "\(lightnessModifier)\(hueModifier)\(baseName)"
+        let sanitizedBase = sanitizedWords(from: baseName)
+        let components = [lightnessModifier, hueModifier, sanitizedBase].filter { !$0.isEmpty }
+        let combined = components.joined(separator: " ")
+        let sanitized = sanitizedWords(from: combined)
+        return sanitized.isEmpty ? "color" : sanitized
     }
     
     /// 获取最接近的颜色名称及其色差值
@@ -138,6 +173,32 @@ class ColorNameResolver {
     /// 根据名称查找颜色
     func findColor(byName name: String) -> NamedColor? {
         return palette.first { $0.name.lowercased() == name.lowercased() }
+    }
+    
+    // MARK: - 资源 & 解析
+    
+    private func locateColorNamesResource() -> URL? {
+        if let url = Bundle.main.url(forResource: "colornames", withExtension: "csv") {
+            return url
+        }
+        return Bundle(for: ColorNameResolverBundleToken.self).url(forResource: "colornames", withExtension: "csv")
+    }
+    
+    private func hexToRGB(_ hex: String) -> SIMD3<Float>? {
+        let cleaned = hex.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "#", with: "")
+        guard cleaned.count == 6, let value = Int(cleaned, radix: 16) else { return nil }
+        
+        let r = Float((value >> 16) & 0xFF) / 255.0
+        let g = Float((value >> 8) & 0xFF) / 255.0
+        let b = Float(value & 0xFF) / 255.0
+        return SIMD3<Float>(r, g, b)
+    }
+    
+    private func sanitizedWords(from input: String) -> String {
+        guard !input.isEmpty else { return "" }
+        let components = input.components(separatedBy: CharacterSet.letters.inverted)
+        let words = components.filter { !$0.isEmpty }
+        return words.joined(separator: " ")
     }
 }
 

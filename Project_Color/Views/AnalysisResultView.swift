@@ -8,36 +8,41 @@
 
 import SwiftUI
 import Photos
+import UIKit
+
+private enum AnalysisResultTab: String, CaseIterable, Identifiable {
+    case color = "色彩"
+    case distribution = "分布"
+    
+    var id: Self { self }
+}
 
 struct AnalysisResultView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var result: AnalysisResult
     @State private var selectedCluster: ColorCluster?
+    @State private var selectedTab: AnalysisResultTab = .color
+    @State private var show3DView = false
     
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(spacing: 20) {
-                    // 头部统计信息
-                    headerSection
-                    
-                    // Phase 4: 聚类质量指标
-                    qualitySection
-                    
-                    // 色系数量减少提示
-                    if result.clusters.count < result.optimalK {
-                        clusterReductionWarning
+                VStack(alignment: .leading, spacing: 20) {
+                    Picker("结果视图", selection: $selectedTab) {
+                        ForEach(AnalysisResultTab.allCases) { tab in
+                            Text(tab.rawValue).tag(tab)
+                        }
                     }
+                    .pickerStyle(.segmented)
                     
-                    // 聚类结果
-                    clustersSection
-                    
-                    // 底部统计
-                    if result.failedCount > 0 {
-                        failedSection
+                    Group {
+                        switch selectedTab {
+                        case .color:
+                            colorTabContent
+                        case .distribution:
+                            distributionTabContent
+                        }
                     }
-                    
-                    Spacer(minLength: 20)
                 }
                 .padding()
             }
@@ -53,6 +58,185 @@ struct AnalysisResultView: View {
         }
         .sheet(item: $selectedCluster) { cluster in
             ClusterDetailView(cluster: cluster, result: result)
+        }
+        .sheet(isPresented: $show3DView) {
+            threeDView(points: colorSpacePoints)
+        }
+    }
+    
+    // MARK: - Tab 内容
+    private var colorTabContent: some View {
+        VStack(spacing: 20) {
+            headerSection
+            qualitySection
+            
+            if result.clusters.count < result.optimalK {
+                clusterReductionWarning
+            }
+            
+            clustersSection
+            
+            if result.failedCount > 0 {
+                failedSection
+            }
+        }
+    }
+    
+    private var distributionTabContent: some View {
+        VStack(spacing: 20) {
+            SaturationBrightnessScatterView(
+                points: scatterPoints,
+                hue: dominantHue
+            )
+            
+            HueRingDistributionView(
+                points: hueRingPoints,
+                dominantHue: dominantHue,
+                onPresent3D: colorSpacePoints.isEmpty ? nil : {
+                    show3DView = true
+                }
+            )
+            
+            VStack(alignment: .leading, spacing: 8) {
+                if let cluster = dominantCluster {
+                    Text("主导色系：\(cluster.colorName)")
+                        .font(.headline)
+                    Text("使用该色系的色相显示散点密度。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("暂无主导色系数据。")
+                        .font(.headline)
+                }
+                
+                if scatterPoints.isEmpty {
+                    Text("无法计算饱和度-亮度散点，缺少照片颜色数据。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                if hueRingPoints.isEmpty {
+                    Text("暂无主色 hue 数据，无法显示分布环。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                if !colorSpacePoints.isEmpty {
+                    Text("点击环形中间的 3D 按钮可查看 RGB 空间中的主色分布。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+    
+    private var scatterPoints: [SaturationBrightnessPoint] {
+        result.photoInfos.compactMap { photo -> SaturationBrightnessPoint? in
+            guard !photo.dominantColors.isEmpty else { return nil }
+            
+            var weightedSaturation: Float = 0
+            var weightedBrightness: Float = 0
+            var totalWeight: Float = 0
+            
+            for dominantColor in photo.dominantColors {
+                let uiColor = UIColor(
+                    red: CGFloat(dominantColor.rgb.x),
+                    green: CGFloat(dominantColor.rgb.y),
+                    blue: CGFloat(dominantColor.rgb.z),
+                    alpha: 1.0
+                )
+                
+                var hue: CGFloat = 0
+                var saturation: CGFloat = 0
+                var brightness: CGFloat = 0
+                var alpha: CGFloat = 0
+                
+                guard uiColor.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha) else {
+                    continue
+                }
+                
+                let weight = max(dominantColor.weight, 0.0001)
+                weightedSaturation += Float(saturation) * weight
+                weightedBrightness += Float(brightness) * weight
+                totalWeight += weight
+            }
+            
+            guard totalWeight > 0 else { return nil }
+            
+            let sat = CGFloat(weightedSaturation / totalWeight) * 255.0
+            let bri = CGFloat(weightedBrightness / totalWeight) * 255.0
+            
+            return SaturationBrightnessPoint(saturation: sat, brightness: bri)
+        }
+    }
+    
+    private var dominantCluster: ColorCluster? {
+        result.clusters.max(by: { $0.photoCount < $1.photoCount })
+    }
+    
+    private var dominantHue: Double? {
+        guard let cluster = dominantCluster else { return nil }
+        
+        let uiColor = UIColor(
+            red: CGFloat(cluster.centroid.x),
+            green: CGFloat(cluster.centroid.y),
+            blue: CGFloat(cluster.centroid.z),
+            alpha: 1.0
+        )
+        
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        
+        guard uiColor.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha) else {
+            return nil
+        }
+        
+        return Double(hue)
+    }
+    
+    private var hueRingPoints: [HueRingPoint] {
+        result.photoInfos.flatMap { photoInfo in
+            photoInfo.dominantColors.compactMap { dominantColor -> HueRingPoint? in
+                let uiColor = UIColor(
+                    red: CGFloat(dominantColor.rgb.x),
+                    green: CGFloat(dominantColor.rgb.y),
+                    blue: CGFloat(dominantColor.rgb.z),
+                    alpha: 1.0
+                )
+                
+                var hue: CGFloat = 0
+                var saturation: CGFloat = 0
+                var brightness: CGFloat = 0
+                var alpha: CGFloat = 0
+                
+                guard uiColor.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha) else {
+                    return nil
+                }
+                
+                return HueRingPoint(
+                    hue: Double(hue),
+                    weight: Double(max(0, min(1, dominantColor.weight))),
+                    color: dominantColor.color.opacity(0.7)
+                )
+            }
+        }
+    }
+    
+    private var colorSpacePoints: [ColorSpacePoint] {
+        result.photoInfos.flatMap { photoInfo in
+            photoInfo.dominantColors.compactMap { dominantColor -> ColorSpacePoint? in
+                let weight = Double(max(0, min(1, dominantColor.weight)))
+                guard weight > 0 else { return nil }
+                
+                let hex = DominantColor.rgbToHex(dominantColor.rgb)
+                let percentage = Int(round(weight * 100))
+                let info = "\(hex) • \(percentage)%"
+                
+                return ColorSpacePoint(rgb: dominantColor.rgb, weight: weight, label: info)
+            }
         }
     }
     
