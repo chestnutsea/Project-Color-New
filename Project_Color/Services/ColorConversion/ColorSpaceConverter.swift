@@ -330,6 +330,113 @@ class ColorSpaceConverter {
         
         return (h: h, s: s, l: l)
     }
+
+    // MARK: - HSL/HSV/CMYK Conversion Helpers
+    func hslToRgb(_ h: Float, _ s: Float, _ l: Float) -> SIMD3<Float> {
+        let c = (1 - abs(2 * l - 1)) * s
+        let x = c * (1 - abs(((h / 60).truncatingRemainder(dividingBy: 2)) - 1))
+        let m = l - c / 2
+        
+        var r: Float = 0
+        var g: Float = 0
+        var b: Float = 0
+        
+        switch h {
+        case 0..<60:
+            r = c; g = x; b = 0
+        case 60..<120:
+            r = x; g = c; b = 0
+        case 120..<180:
+            r = 0; g = c; b = x
+        case 180..<240:
+            r = 0; g = x; b = c
+        case 240..<300:
+            r = x; g = 0; b = c
+        default:
+            r = c; g = 0; b = x
+        }
+        
+        return SIMD3<Float>(r + m, g + m, b + m)
+    }
+    
+    func rgbToHSV(_ rgb: SIMD3<Float>) -> (h: Float, s: Float, v: Float) {
+        let r = rgb.x
+        let g = rgb.y
+        let b = rgb.z
+        
+        let maxC = max(r, g, b)
+        let minC = min(r, g, b)
+        let delta = maxC - minC
+        
+        var h: Float = 0
+        if delta != 0 {
+            if maxC == r {
+                h = 60 * (((g - b) / delta).truncatingRemainder(dividingBy: 6))
+            } else if maxC == g {
+                h = 60 * (((b - r) / delta) + 2)
+            } else {
+                h = 60 * (((r - g) / delta) + 4)
+            }
+        }
+        if h < 0 { h += 360 }
+        
+        let v = maxC
+        let s: Float = maxC == 0 ? 0 : delta / maxC
+        
+        return (h: h, s: s, v: v)
+    }
+    
+    func hsvToRgb(_ h: Float, _ s: Float, _ v: Float) -> SIMD3<Float> {
+        let c = v * s
+        let x = c * (1 - abs(((h / 60).truncatingRemainder(dividingBy: 2)) - 1))
+        let m = v - c
+        
+        var r: Float = 0
+        var g: Float = 0
+        var b: Float = 0
+        
+        switch h {
+        case 0..<60:
+            r = c; g = x; b = 0
+        case 60..<120:
+            r = x; g = c; b = 0
+        case 120..<180:
+            r = 0; g = c; b = x
+        case 180..<240:
+            r = 0; g = x; b = c
+        case 240..<300:
+            r = x; g = 0; b = c
+        default:
+            r = c; g = 0; b = x
+        }
+        
+        return SIMD3<Float>(r + m, g + m, b + m)
+    }
+    
+    func rgbToCMYK(_ rgb: SIMD3<Float>) -> SIMD4<Float> {
+        let r = rgb.x
+        let g = rgb.y
+        let b = rgb.z
+        
+        let k = 1 - max(r, g, b)
+        if k >= 0.99999 {
+            return SIMD4<Float>(0, 0, 0, 1)
+        }
+        
+        let c = (1 - r - k) / (1 - k)
+        let m = (1 - g - k) / (1 - k)
+        let y = (1 - b - k) / (1 - k)
+        
+        return SIMD4<Float>(c, m, y, k)
+    }
+    
+    func cmykToRgb(_ c: Float, _ m: Float, _ y: Float, _ k: Float) -> SIMD3<Float> {
+        let r = (1 - c) * (1 - k)
+        let g = (1 - m) * (1 - k)
+        let b = (1 - y) * (1 - k)
+        return SIMD3<Float>(r, g, b)
+    }
+
 }
 
 // MARK: - SIMD3 扩展（map 方法）

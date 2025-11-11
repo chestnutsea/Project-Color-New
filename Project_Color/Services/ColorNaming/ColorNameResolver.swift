@@ -8,9 +8,11 @@
 
 import Foundation
 import CoreGraphics
+import simd
 
 struct NamedColor {
     let name: String
+    let hex: String
     let rgb: SIMD3<Float>
     let lab: SIMD3<Float>
 }
@@ -56,7 +58,7 @@ class ColorNameResolver {
                 else { return }
                 
                 let lab = self.converter.rgbToLab(rgb)
-                results.append(NamedColor(name: rawName, rgb: rgb, lab: lab))
+                results.append(NamedColor(name: rawName, hex: rawHex, rgb: rgb, lab: lab))
             }
             
             palette = results
@@ -146,6 +148,26 @@ class ColorNameResolver {
     }
     
     /// 获取最接近的颜色名称及其色差值
+    func findNearestColor(byHex hex: String) -> NamedColor? {
+        guard let rgb = hexToRGB(hex) else { return nil }
+        return findNearestColor(byRGB: rgb)
+    }
+    
+    func findNearestColor(byRGB rgb: SIMD3<Float>) -> NamedColor? {
+        guard !palette.isEmpty else { return nil }
+        let lab = converter.rgbToLab(rgb)
+        var minDeltaE = Float.greatestFiniteMagnitude
+        var nearest: NamedColor?
+        for namedColor in palette {
+            let deltaE = converter.deltaE(lab, namedColor.lab)
+            if deltaE < minDeltaE {
+                minDeltaE = deltaE
+                nearest = namedColor
+            }
+        }
+        return nearest
+    }
+    
     func getColorNameWithDistance(rgb: SIMD3<Float>) -> (name: String, deltaE: Float) {
         let lab = converter.rgbToLab(rgb)
         

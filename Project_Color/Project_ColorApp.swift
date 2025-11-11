@@ -13,7 +13,7 @@ struct Project_ColorApp: App {
 
     var body: some Scene {
         WindowGroup {
-            HomeView()
+            MainTabView()
                 .environment(\.managedObjectContext, coreDataManager.viewContext)
         }
     }

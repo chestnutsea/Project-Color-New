@@ -15,19 +15,10 @@ struct CalculateColorView: View {
     
     // MARK: - Layout Constants
     private let topPadding: CGFloat = 30
-    private let rowHeight: CGFloat = 25
-    private let labelWidth: CGFloat = 72
+    private let rowHeight: CGFloat = 46
+    private let labelWidth: CGFloat = 90
     private let labelFontSize: CGFloat = 16
     private let valueFontSize: CGFloat = 16
-    
-    private let placeholders: [ColorField: String] = [
-        .hex: "#FFFFFF",
-        .rgb: "(255, 255, 255)",
-        .hsl: "(0, 0%, 100%)",
-        .hsv: "(0, 0%, 100%)",
-        .cmyk: "(0, 0, 0, 0)"
-    ]
-    private let isccPlaceholder = "白色"
     
     // MARK: - State
     @State private var hexText: String = ""
@@ -53,7 +44,7 @@ struct CalculateColorView: View {
             VStack(alignment: .leading, spacing: 0) {
                 Spacer().frame(height: topPadding)
                 
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 10) {
                     colorRow(for: .hex, label: "HEX", text: $hexText)
                     colorRow(for: .rgb, label: "RGB", text: $rgbText)
                     colorRow(for: .hsl, label: "HSL", text: $hslText)
@@ -68,37 +59,50 @@ struct CalculateColorView: View {
         }
         .navigationTitle("算色")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(false) // 仅保留系统返回按钮
         .onChange(of: focusedField, perform: handleFocusChange)
     }
     
     // MARK: - Rows
     private func colorRow(for field: ColorField, label: String, text: Binding<String>) -> some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
             Text(label)
                 .font(.system(size: labelFontSize, weight: .medium))
                 .foregroundColor(textColor)
                 .frame(width: labelWidth, alignment: .leading)
             
-            Spacer()
+            Spacer(minLength: 8)
             
             ZStack(alignment: .trailing) {
-                if shouldShowPlaceholder(for: field, text: text.wrappedValue) {
-                    Text(placeholders[field] ?? "")
-                        .font(.system(size: valueFontSize))
-                        .foregroundColor(textColor.opacity(0.35))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
-                }
+                // 底纹：非强烈干扰的淡色条纹/渐变
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(field == activeField ? 0.28 : 0.16),
+                                Color.black.opacity(0.06)
+                            ],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                    )
                 
+                // 真正的输入/显示控件
                 TextField("", text: text)
                     .focused($focusedField, equals: field)
                     .font(.system(size: valueFontSize))
                     .foregroundColor(textColor)
                     .multilineTextAlignment(.trailing)
                     .textFieldStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .frame(height: rowHeight)
                     .disabled(activeField != nil && activeField != field)
-                    .opacity(activeField == field || !text.wrappedValue.isEmpty ? 1 : 0.01)
+                    .onTapGesture {
+                        focusField(field)
+                    }
                     .onChange(of: text.wrappedValue) { newValue in
                         guard activeField == field else { return }
                         handleTextChange(for: field, text: newValue)
@@ -113,48 +117,111 @@ struct CalculateColorView: View {
         }
         .frame(height: rowHeight)
         .contentShape(Rectangle())
-        .onTapGesture {
-            focusField(field)
-        }
+        .animation(.easeInOut(duration: 0.25), value: text.wrappedValue)
+        .animation(.easeInOut(duration: 0.25), value: activeField)
     }
     
     private func isccRow() -> some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
             Text("ISCC-NBS")
                 .font(.system(size: labelFontSize, weight: .medium))
                 .foregroundColor(textColor)
                 .frame(width: labelWidth, alignment: .leading)
             
-            Spacer()
+            Spacer(minLength: 8)
             
-            Text(isccText.isEmpty ? isccPlaceholder : isccText)
-                .font(.system(size: valueFontSize))
-                .foregroundColor(isccText.isEmpty ? textColor.opacity(0.35) : textColor)
-                .multilineTextAlignment(.trailing)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            ZStack(alignment: .trailing) {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.16),
+                                Color.black.opacity(0.06)
+                            ],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                    )
+                
+                Text(isccText)
+                    .font(.system(size: valueFontSize))
+                    .foregroundColor(isccText.isEmpty ? textColor.opacity(0.35) : textColor)
+                    .padding(.horizontal, 12)
+                    .frame(height: rowHeight, alignment: .center)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
         }
         .frame(height: rowHeight)
+        .animation(.easeInOut(duration: 0.25), value: isccText)
     }
     
     // MARK: - Focus Handling
     private func focusField(_ field: ColorField) {
         if activeField != field {
-            prepareForEditing(field)
+            // 切换到新行：清空所有内容 & 恢复默认背景
+            clearAllTexts()
         }
+        activeField = field
         focusedField = field
     }
     
     private func handleFocusChange(_ newValue: ColorField?) {
-        guard let newField = newValue else {
+        // 当完全失焦时，退出编辑态，但不清空已有匹配结果
+        if newValue == nil {
             activeField = nil
-            return
-        }
-        if activeField != newField {
-            prepareForEditing(newField)
         }
     }
     
-    private func prepareForEditing(_ field: ColorField) {
+    // MARK: - Text Handling
+    private func handleTextChange(for field: ColorField, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty {
+            clearComputedValues(keeping: field)
+            return
+        }
+        
+        // 仅当匹配成功时，联动更新其它行和背景
+        var rgb: SIMD3<Float>? = nil
+        
+        switch field {
+        case .hex:
+            let upper = trimmed.uppercased()
+            if isValidHex(upper), let val = hexToRGB(upper) { rgb = val }
+        case .rgb:
+            if isValidRGB(trimmed) {
+                let n = extractRGBNumbers(trimmed)
+                rgb = SIMD3<Float>(Float(n[0])/255, Float(n[1])/255, Float(n[2])/255)
+            }
+        case .hsl:
+            if isValidHSL(trimmed) {
+                let n = extractHSLNumbers(trimmed)
+                rgb = converter.hslToRgb(Float(n[0]), Float(n[1])/100, Float(n[2])/100)
+            }
+        case .hsv:
+            if isValidHSV(trimmed) {
+                let n = extractHSVNumbers(trimmed)
+                rgb = converter.hsvToRgb(Float(n[0]), Float(n[1])/100, Float(n[2])/100)
+            }
+        case .cmyk:
+            if isValidCMYK(trimmed) {
+                let n = extractCMYKNumbers(trimmed)
+                rgb = converter.cmykToRgb(Float(n[0])/100, Float(n[1])/100, Float(n[2])/100, Float(n[3])/100)
+            }
+        }
+        
+        if let rgb = rgb {
+            applyColor(from: field, rgb: rgb)
+        } else {
+            // 未匹配：保持仅当前行在编辑，其他行清空与底纹
+            clearComputedValues(keeping: field)
+        }
+    }
+    
+    // MARK: - Clear Helpers
+    private func clearAllTexts() {
         withAnimation(.easeInOut(duration: 0.2)) {
             hexText = ""
             rgbText = ""
@@ -164,84 +231,30 @@ struct CalculateColorView: View {
             isccText = ""
             backgroundColor = .white
             textColor = .black
-            activeField = field
         }
     }
     
-    private func shouldShowPlaceholder(for field: ColorField, text: String) -> Bool {
-        if !text.isEmpty { return false }
-        if let active = activeField {
-            return active == field
-        }
-        return true
-    }
-    
-    // MARK: - Text Handling
-    private func handleTextChange(for field: ColorField, text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty {
-            resetWhileEditing()
-            return
-        }
-        
-        switch field {
-        case .hex:
-            let upper = trimmed.uppercased()
-            guard isValidHex(upper), let rgb = hexToRGB(upper) else { return }
-            applyColor(from: .hex, rgb: rgb)
-        case .rgb:
-            guard isValidRGB(trimmed) else { return }
-            let numbers = extractRGBNumbers(trimmed)
-            guard numbers.count == 3 else { return }
-            let rgb = SIMD3<Float>(
-                Float(numbers[0]) / 255.0,
-                Float(numbers[1]) / 255.0,
-                Float(numbers[2]) / 255.0
-            )
-            applyColor(from: .rgb, rgb: rgb)
-        case .hsl:
-            guard isValidHSL(trimmed) else { return }
-            let numbers = extractHSLNumbers(trimmed)
-            guard numbers.count == 3 else { return }
-            let rgb = converter.hslToRgb(
-                Float(numbers[0]),
-                Float(numbers[1]) / 100.0,
-                Float(numbers[2]) / 100.0
-            )
-            applyColor(from: .hsl, rgb: rgb)
-        case .hsv:
-            guard isValidHSV(trimmed) else { return }
-            let numbers = extractHSVNumbers(trimmed)
-            guard numbers.count == 3 else { return }
-            let rgb = converter.hsvToRgb(
-                Float(numbers[0]),
-                Float(numbers[1]) / 100.0,
-                Float(numbers[2]) / 100.0
-            )
-            applyColor(from: .hsv, rgb: rgb)
-        case .cmyk:
-            guard isValidCMYK(trimmed) else { return }
-            let numbers = extractCMYKNumbers(trimmed)
-            guard numbers.count == 4 else { return }
-            let rgb = converter.cmykToRgb(
-                Float(numbers[0]) / 100.0,
-                Float(numbers[1]) / 100.0,
-                Float(numbers[2]) / 100.0,
-                Float(numbers[3]) / 100.0
-            )
-            applyColor(from: .cmyk, rgb: rgb)
-        }
-    }
-    
-    private func resetWhileEditing() {
+    private func clearComputedValues(keeping field: ColorField) {
         withAnimation(.easeInOut(duration: 0.2)) {
+            switch field {
+            case .hex:
+                rgbText = ""; hslText = ""; hsvText = ""; cmykText = ""
+            case .rgb:
+                hexText = ""; hslText = ""; hsvText = ""; cmykText = ""
+            case .hsl:
+                hexText = ""; rgbText = ""; hsvText = ""; cmykText = ""
+            case .hsv:
+                hexText = ""; rgbText = ""; hslText = ""; cmykText = ""
+            case .cmyk:
+                hexText = ""; rgbText = ""; hslText = ""; hsvText = ""
+            }
             isccText = ""
             backgroundColor = .white
             textColor = .black
         }
     }
     
-    // MARK: - Apply
+    // MARK: - Apply (only when matched)
     private func applyColor(from field: ColorField, rgb: SIMD3<Float>) {
         let clipped = simd_clamp(rgb, SIMD3<Float>(repeating: 0), SIMD3<Float>(repeating: 1))
         let hexValue = rgbToHex(clipped)
@@ -255,24 +268,30 @@ struct CalculateColorView: View {
         let iscc = getISCCNBSName(h: hsl.h, s: hsl.s, l: hsl.l)
         let lab = converter.rgbToLab(clipped)
         
-        withAnimation(.easeInOut(duration: 0.3)) {
-            hexText = hexValue
-            rgbText = rgbValue
-            hslText = hslValue
-            hsvText = hsvValue
-            cmykText = cmykValue
-            isccText = iscc
+        withAnimation(.easeInOut(duration: 0.28)) {
+            // 当前行保留用户输入，不覆盖
+            switch field {
+            case .hex:
+                rgbText = rgbValue; hslText = hslValue; hsvText = hsvValue; cmykText = cmykValue
+            case .rgb:
+                hexText = hexValue; hslText = hslValue; hsvText = hsvValue; cmykText = cmykValue
+            case .hsl:
+                hexText = hexValue; rgbText = rgbValue; hsvText = hsvValue; cmykText = cmykValue
+            case .hsv:
+                hexText = hexValue; rgbText = rgbValue; hslText = hslValue; cmykText = cmykValue
+            case .cmyk:
+                hexText = hexValue; rgbText = rgbValue; hslText = hslValue; hsvText = hsvValue
+            }
             
+            isccText = iscc
             backgroundColor = Color(red: Double(clipped.x), green: Double(clipped.y), blue: Double(clipped.z))
             textColor = lab.x < 50 ? .white : .black
-            activeField = nil
-            focusedField = nil
         }
     }
     
     // MARK: - Validators
     private func isValidHex(_ value: String) -> Bool {
-        let pattern = "^#[0-9A-F]{6}$"
+        let pattern = "^#[0-9A-Fa-f]{6}$"
         return value.range(of: pattern, options: .regularExpression) != nil
     }
     
@@ -291,10 +310,8 @@ struct CalculateColorView: View {
     }
     
     private func isValidHSV(_ value: String) -> Bool {
-        let pattern = "^\\(\\s*\\d{1,3}\\s*,\\s*\\d{1,3}%\\s*,\\s*\\d{1,3}%\\s*\\)$"
-        guard value.range(of: pattern, options: .regularExpression) != nil else { return false }
-        let numbers = extractHSVNumbers(value)
-        return numbers.count == 3 && numbers[0] >= 0 && numbers[0] <= 360 && numbers[1] >= 0 && numbers[1] <= 100 && numbers[2] >= 0 && numbers[2] <= 100
+        // 与 HSL 同样的结构校验
+        return isValidHSL(value)
     }
     
     private func isValidCMYK(_ value: String) -> Bool {
