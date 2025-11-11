@@ -39,6 +39,7 @@ struct HueRingDistributionView: View {
     
     var points: [HueRingPoint]
     var dominantHue: Double?
+    var primaryColor: Color? = nil
     var onPresent3D: (() -> Void)? = nil
     
     var body: some View {
@@ -52,6 +53,10 @@ struct HueRingDistributionView: View {
             if let action = onPresent3D, !points.isEmpty {
                 let baseHue = dominantHue ?? 0.6
                 let accentHue = (baseHue + 0.05).truncatingRemainder(dividingBy: 1.0)
+                let fallbackStart = Color(hue: baseHue, saturation: 0.8, brightness: 0.9)
+                let fallbackEnd = Color(hue: accentHue, saturation: 0.6, brightness: 0.85)
+                let gradientStart = primaryColor ?? fallbackStart
+                let gradientEnd = primaryColor?.opacity(0.75) ?? fallbackEnd
                 Button(action: action) {
                     Label("3D 空间", systemImage: "cube.transparent")
                         .labelStyle(.iconOnly)
@@ -62,10 +67,7 @@ struct HueRingDistributionView: View {
                             Circle()
                                 .fill(
                                     LinearGradient(
-                                        colors: [
-                                            Color(hue: baseHue, saturation: 0.8, brightness: 0.9),
-                                            Color(hue: accentHue, saturation: 0.6, brightness: 0.85)
-                                        ],
+                                        colors: [gradientStart, gradientEnd],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
@@ -107,7 +109,7 @@ struct HueRingDistributionView: View {
     }
     
     private func drawRing(context: inout GraphicsContext, rect: CGRect) {
-        var path = Path(ellipseIn: rect)
+        let path = Path(ellipseIn: rect)
         context.stroke(
             path,
             with: .color(Color.primary.opacity(Layout.ringOpacity)),

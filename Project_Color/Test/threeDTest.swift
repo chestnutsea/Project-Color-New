@@ -1,21 +1,13 @@
 import SwiftUI
 import CoreGraphics
+import simd
 
 struct ColorSpacePoint: Identifiable {
     let id = UUID()
-    let rgb: SIMD3<Float>
-    let weight: Double    // 0 ~ 1
+    let position: SIMD3<Float>   // Normalized Lab coordinates in [-0.5, 0.5]
+    let weight: Double           // 0 ~ 1
     let label: String
-    
-    var cgColor: CGColor {
-        let components: [CGFloat] = [
-            CGFloat(rgb.x),
-            CGFloat(rgb.y),
-            CGFloat(rgb.z),
-            1.0
-        ]
-        return CGColor(colorSpace: CGColorSpaceCreateDeviceRGB(), components: components) ?? CGColor(gray: 1.0, alpha: 1.0)
-    }
+    let displayColor: CGColor
 }
 
 #if os(iOS) || os(tvOS) || os(visionOS)
@@ -91,12 +83,11 @@ struct ColorSpace3DView: UIViewRepresentable {
     }
     
     // MARK: - 工具函数
-    private func colorToPosition(_ rgb: SIMD3<Float>) -> SCNVector3 {
+    private func colorToPosition(_ normalizedLab: SIMD3<Float>) -> SCNVector3 {
         let edgeLength = Float(LayoutConstants.cubeEdgeWidth)
-        let half = edgeLength / 2
-        let x = rgb.x * edgeLength - half
-        let y = rgb.y * edgeLength - half
-        let z = rgb.z * edgeLength - half
+        let x = normalizedLab.x * edgeLength
+        let y = normalizedLab.y * edgeLength
+        let z = normalizedLab.z * edgeLength
         return SCNVector3(x, y, z)
     }
 
@@ -140,11 +131,11 @@ struct ColorSpace3DView: UIViewRepresentable {
             let radius = LayoutConstants.minSphereRadius + CGFloat(clampedWeight) * (LayoutConstants.maxSphereRadius - LayoutConstants.minSphereRadius)
             
             let sphere = SCNSphere(radius: radius)
-            sphere.firstMaterial?.diffuse.contents = point.cgColor
+            sphere.firstMaterial?.diffuse.contents = point.displayColor
             sphere.firstMaterial?.lightingModel = .constant
             
             let node = SCNNode(geometry: sphere)
-            node.position = colorToPosition(point.rgb)
+            node.position = colorToPosition(point.position)
             node.name = point.label
             containerNode.addChildNode(node)
         }
@@ -248,7 +239,7 @@ struct threeDView: View {
                     .foregroundColor(.secondary)
                 Text("暂无 3D 数据")
                     .font(.headline)
-                Text("完成色彩分析后，将可在此查看所有主色在 RGB 空间中的分布。")
+                Text("完成色彩分析后，将可在此查看所有主色在归一化 Lab 空间中的分布。")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -260,11 +251,11 @@ struct threeDView: View {
 
 #Preview {
     let samplePoints: [ColorSpacePoint] = [
-        ColorSpacePoint(rgb: SIMD3<Float>(0.95, 0.25, 0.25), weight: 0.35, label: "#F24040 • 35%"),
-        ColorSpacePoint(rgb: SIMD3<Float>(0.20, 0.80, 0.40), weight: 0.25, label: "#33CC66 • 25%"),
-        ColorSpacePoint(rgb: SIMD3<Float>(0.10, 0.60, 1.00), weight: 0.20, label: "#1A99FF • 20%"),
-        ColorSpacePoint(rgb: SIMD3<Float>(0.95, 0.82, 0.10), weight: 0.15, label: "#F2D119 • 15%"),
-        ColorSpacePoint(rgb: SIMD3<Float>(0.80, 0.20, 0.80), weight: 0.05, label: "#CC33CC • 5%")
+        ColorSpacePoint(position: SIMD3<Float>(0.15, -0.12, 0.18), weight: 0.35, label: "#F24040 • 35%", displayColor: CGColor(red: 0.95, green: 0.25, blue: 0.25, alpha: 1.0)),
+        ColorSpacePoint(position: SIMD3<Float>(0.10, 0.20, -0.08), weight: 0.25, label: "#33CC66 • 25%", displayColor: CGColor(red: 0.20, green: 0.80, blue: 0.40, alpha: 1.0)),
+        ColorSpacePoint(position: SIMD3<Float>(0.05, -0.05, -0.22), weight: 0.20, label: "#1A99FF • 20%", displayColor: CGColor(red: 0.10, green: 0.60, blue: 1.00, alpha: 1.0)),
+        ColorSpacePoint(position: SIMD3<Float>(0.22, 0.08, 0.12), weight: 0.15, label: "#F2D119 • 15%", displayColor: CGColor(red: 0.95, green: 0.82, blue: 0.10, alpha: 1.0)),
+        ColorSpacePoint(position: SIMD3<Float>(0.05, -0.18, -0.05), weight: 0.05, label: "#CC33CC • 5%", displayColor: CGColor(red: 0.80, green: 0.20, blue: 0.80, alpha: 1.0))
     ]
     
     return threeDView(points: samplePoints)

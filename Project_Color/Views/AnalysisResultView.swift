@@ -8,7 +8,10 @@
 
 import SwiftUI
 import Photos
+#if canImport(UIKit)
 import UIKit
+#endif
+import simd
 
 private enum AnalysisResultTab: String, CaseIterable, Identifiable {
     case color = "色彩"
@@ -23,6 +26,12 @@ struct AnalysisResultView: View {
     @State private var selectedCluster: ColorCluster?
     @State private var selectedTab: AnalysisResultTab = .color
     @State private var show3DView = false
+    
+    private let labConverter = ColorSpaceConverter()
+    private let normalizedLabBounds = (
+        min: SIMD3<Float>(repeating: -0.5),
+        max: SIMD3<Float>(repeating: 0.5)
+    )
     
     var body: some View {
         NavigationView {
@@ -84,50 +93,24 @@ struct AnalysisResultView: View {
     
     private var distributionTabContent: some View {
         VStack(spacing: 20) {
-            SaturationBrightnessScatterView(
-                points: scatterPoints,
-                hue: dominantHue
-            )
-            
             HueRingDistributionView(
                 points: hueRingPoints,
                 dominantHue: dominantHue,
+                primaryColor: dominantCluster?.color,
                 onPresent3D: colorSpacePoints.isEmpty ? nil : {
                     show3DView = true
                 }
             )
             
-            VStack(alignment: .leading, spacing: 8) {
-                if let cluster = dominantCluster {
-                    Text("主导色系：\(cluster.colorName)")
-                        .font(.headline)
-                    Text("使用该色系的色相显示散点密度。")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else {
-                    Text("暂无主导色系数据。")
-                        .font(.headline)
-                }
-                
-                if scatterPoints.isEmpty {
-                    Text("无法计算饱和度-亮度散点，缺少照片颜色数据。")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                if hueRingPoints.isEmpty {
-                    Text("暂无主色 hue 数据，无法显示分布环。")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                if !colorSpacePoints.isEmpty {
-                    Text("点击环形中间的 3D 按钮可查看 RGB 空间中的主色分布。")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            SaturationBrightnessScatterView(
+                points: scatterPoints,
+                hue: dominantHue
+            )
+            
+            Text("3D 视图展示的是 Lab 色彩空间，拥有比 sRGB 更广阔的色域。三维坐标已做归一化处理，便于不同照片的色彩对比。")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
     
@@ -235,9 +218,36 @@ struct AnalysisResultView: View {
                 let percentage = Int(round(weight * 100))
                 let info = "\(hex) • \(percentage)%"
                 
-                return ColorSpacePoint(rgb: dominantColor.rgb, weight: weight, label: info)
+                let position = normalizedLabPosition(for: dominantColor.rgb)
+                let uiColor = UIColor(
+                    red: CGFloat(dominantColor.rgb.x),
+                    green: CGFloat(dominantColor.rgb.y),
+                    blue: CGFloat(dominantColor.rgb.z),
+                    alpha: 1.0
+                )
+                return ColorSpacePoint(
+                    position: position,
+                    weight: weight,
+                    label: info,
+                    displayColor: uiColor.cgColor
+                )
             }
         }
+    }
+    
+    private func normalizedLabPosition(for rgb: SIMD3<Float>) -> SIMD3<Float> {
+        let lab = labConverter.rgbToLab(rgb)
+        
+        let clampedL = max(0.0, min(100.0, lab.x))
+        let clampedA = max(-128.0, min(127.0, lab.y))
+        let clampedB = max(-128.0, min(127.0, lab.z))
+        
+        let normalizedL = (clampedL - 50.0) / 100.0
+        let normalizedA = clampedA / 255.0
+        let normalizedB = clampedB / 255.0
+        
+        let normalized = SIMD3<Float>(normalizedL, normalizedA, normalizedB)
+        return simd_clamp(normalized, normalizedLabBounds.min, normalizedLabBounds.max)
     }
     
     // MARK: - 头部信息
