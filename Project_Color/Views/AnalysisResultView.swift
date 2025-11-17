@@ -16,6 +16,7 @@ import simd
 private enum AnalysisResultTab: String, CaseIterable, Identifiable {
     case color = "色彩"
     case distribution = "分布"
+    case aiEvaluation = "AI评价"
     
     var id: Self { self }
 }
@@ -50,6 +51,8 @@ struct AnalysisResultView: View {
                             colorTabContent
                         case .distribution:
                             distributionTabContent
+                        case .aiEvaluation:
+                            aiEvaluationTabContent
                         }
                     }
                 }
@@ -107,10 +110,251 @@ struct AnalysisResultView: View {
                 hue: dominantHue
             )
             
+            // 冷暖色调直方图
+            if let warmCoolDist = result.warmCoolDistribution,
+               !warmCoolDist.scores.isEmpty,
+               let dominantCluster = dominantCluster,
+               let (hue, saturation, brightness) = getDominantClusterHSB(dominantCluster) {
+                WarmCoolHistogramView(
+                    distribution: warmCoolDist,
+                    dominantClusterHue: hue,
+                    dominantClusterSaturation: saturation,
+                    dominantClusterBrightness: brightness
+                )
+            } else if result.isCompleted {
+                // 调试信息：显示为什么没有显示直方图
+                VStack(spacing: 8) {
+                    HStack {
+                        Image(systemName: "thermometer")
+                            .foregroundColor(.orange)
+                        Text("冷暖色调分析")
+                            .font(.headline)
+                    }
+                    
+                    if result.warmCoolDistribution == nil {
+                        Text("暂无冷暖评分数据")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else if result.warmCoolDistribution?.scores.isEmpty == true {
+                        Text("评分数据为空")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else if dominantCluster == nil {
+                        Text("无代表色簇")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding()
+                .background(Color(.systemBackground))
+                .cornerRadius(15)
+                .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+            }
+            
             Text("3D 视图展示的是 Lab 色彩空间，拥有比 sRGB 更广阔的色域。三维坐标已做归一化处理，便于不同照片的色彩对比。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+    
+    private var aiEvaluationTabContent: some View {
+        VStack(spacing: 20) {
+            if let evaluation = result.aiEvaluation {
+                if evaluation.isLoading {
+                    // 加载状态
+                    aiLoadingView
+                } else if let error = evaluation.error {
+                    // 错误状态
+                    aiErrorView(error: error)
+                } else {
+                    // 评价内容
+                    if let overall = evaluation.overallEvaluation {
+                        overallEvaluationCard(overall)
+                    }
+                    
+                    if !evaluation.clusterEvaluations.isEmpty {
+                        clusterEvaluationsSection(evaluation.clusterEvaluations)
+                    }
+                }
+            } else {
+                // 初始状态（正在生成）
+                aiLoadingView
+            }
+        }
+    }
+    
+    private var aiLoadingView: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .scaleEffect(1.2)
+            
+            Text("AI 正在分析色彩组成...")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            
+            Text("这可能需要几秒钟")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(40)
+        .background(Color(.systemBackground))
+        .cornerRadius(15)
+        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+    }
+    
+    private func aiErrorView(error: String) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 40))
+                .foregroundColor(.orange)
+            
+            Text("AI 评价失败")
+                .font(.headline)
+            
+            Text(error)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+            
+            Button("重新尝试") {
+                retryAIEvaluation()
+            }
+            .buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(30)
+        .background(Color.orange.opacity(0.05))
+        .cornerRadius(15)
+        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+    }
+    
+    private func overallEvaluationCard(_ overall: OverallEvaluation) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Image(systemName: "sparkles")
+                    .font(.title2)
+                    .foregroundColor(.purple)
+                
+                Text("整体色彩评价")
+                    .font(.title3)
+                    .fontWeight(.bold)
+            }
+            
+            Divider()
+            
+            Text(overall.fullText)
+                .font(.body)
+                .foregroundColor(.primary)
+                .lineSpacing(6)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding()
+        .background(Color.purple.opacity(0.05))
+        .cornerRadius(15)
+        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+    }
+    
+    private func clusterEvaluationsSection(_ evaluations: [ClusterEvaluation]) -> some View {
+        VStack(alignment: .leading, spacing: 15) {
+            HStack {
+                Text("各色系评价")
+                    .font(.title3)
+                    .fontWeight(.bold)
+                
+                Spacer()
+                
+                Text("\(evaluations.count) 个色系")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            
+            ForEach(evaluations) { clusterEval in
+                clusterEvaluationCard(clusterEval)
+            }
+        }
+    }
+    
+    private func clusterEvaluationCard(_ clusterEval: ClusterEvaluation) -> some View {
+        HStack(alignment: .top, spacing: 15) {
+            // 色块
+            RoundedRectangle(cornerRadius: 10)
+                .fill(colorFromHex(clusterEval.hexValue))
+                .frame(width: 50, height: 50)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                )
+            
+            // 评价内容
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(clusterEval.colorName)
+                        .font(.headline)
+                    
+                    Spacer()
+                    
+                    Text(clusterEval.hexValue)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .monospaced()
+                }
+                
+                Text(clusterEval.evaluation)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                    .lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
+    }
+    
+    // Helper: 从 Hex 字符串创建 Color
+    private func colorFromHex(_ hex: String) -> Color {
+        let hex = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        var rgb: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&rgb)
+        
+        let r = Double((rgb >> 16) & 0xFF) / 255.0
+        let g = Double((rgb >> 8) & 0xFF) / 255.0
+        let b = Double(rgb & 0xFF) / 255.0
+        
+        return Color(red: r, green: g, blue: b)
+    }
+    
+    // 重试 AI 评价
+    private func retryAIEvaluation() {
+        Task {
+            await MainActor.run {
+                result.aiEvaluation = ColorEvaluation(isLoading: true)
+            }
+            
+            let evaluator = ColorAnalysisEvaluator()
+            do {
+                let evaluation = try await evaluator.evaluateColorAnalysis(
+                    result: result,
+                    onUpdate: { @MainActor updatedEvaluation in
+                        // 实时更新 UI（流式显示）
+                        result.aiEvaluation = updatedEvaluation
+                    }
+                )
+                await MainActor.run {
+                    result.aiEvaluation = evaluation
+                }
+            } catch {
+                await MainActor.run {
+                    var errorEvaluation = ColorEvaluation()
+                    errorEvaluation.isLoading = false
+                    errorEvaluation.error = error.localizedDescription
+                    result.aiEvaluation = errorEvaluation
+                }
+            }
         }
     }
     
@@ -156,6 +400,31 @@ struct AnalysisResultView: View {
     
     private var dominantCluster: ColorCluster? {
         result.clusters.max(by: { $0.photoCount < $1.photoCount })
+    }
+    
+    // 获取 dominant cluster 的 HSB 值
+    private func getDominantClusterHSB(_ cluster: ColorCluster) -> (hue: Float, saturation: Float, brightness: Float)? {
+        let uiColor = UIColor(
+            red: CGFloat(cluster.centroid.x),
+            green: CGFloat(cluster.centroid.y),
+            blue: CGFloat(cluster.centroid.z),
+            alpha: 1.0
+        )
+        
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        
+        guard uiColor.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha) else {
+            return nil
+        }
+        
+        return (
+            hue: Float(hue * 360),
+            saturation: Float(saturation),
+            brightness: Float(brightness)
+        )
     }
     
     private var dominantHue: Double? {
@@ -489,13 +758,50 @@ struct AnalysisResultView: View {
                     .padding()
             } else {
                 ForEach(nonEmptyClusters.sorted(by: { $0.photoCount > $1.photoCount })) { cluster in
-                    ClusterCard(cluster: cluster)
-                        .onTapGesture {
-                            selectedCluster = cluster
-                        }
+                    ClusterCard(
+                        cluster: cluster,
+                        representativePhotos: getRepresentativePhotos(for: cluster)
+                    )
+                    .onTapGesture {
+                        selectedCluster = cluster
+                    }
                 }
             }
         }
+    }
+    
+    /// 获取聚类的代表性照片（最接近质心的照片）
+    private func getRepresentativePhotos(for cluster: ColorCluster, maxCount: Int = 3) -> [PHAsset] {
+        // 筛选属于该聚类的照片
+        let clusterPhotos = result.photoInfos.filter { $0.primaryClusterIndex == cluster.index }
+        
+        guard !clusterPhotos.isEmpty else { return [] }
+        
+        // 如果照片数量少于 maxCount，全部返回
+        if clusterPhotos.count <= maxCount {
+            return clusterPhotos.compactMap { photoInfo in
+                fetchAsset(identifier: photoInfo.assetIdentifier)
+            }
+        }
+        
+        // 计算每张照片与质心的距离
+        let photosWithDistance = clusterPhotos.compactMap { photo -> (photoInfo: PhotoColorInfo, distance: Float)? in
+            guard let firstColor = photo.dominantColors.first else { return nil }
+            let distance = simd_distance(firstColor.rgb, cluster.centroid)
+            return (photo, distance)
+        }
+        
+        // 按距离排序，选择最接近的 maxCount 张
+        let sortedPhotos = photosWithDistance.sorted { $0.distance < $1.distance }
+        return sortedPhotos.prefix(maxCount).compactMap { item in
+            fetchAsset(identifier: item.photoInfo.assetIdentifier)
+        }
+    }
+    
+    /// 根据 identifier 获取 PHAsset
+    private func fetchAsset(identifier: String) -> PHAsset? {
+        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil)
+        return fetchResult.firstObject
     }
     
     // MARK: - 失败统计
@@ -545,42 +851,94 @@ struct StatItem: View {
 // MARK: - 聚类卡片
 struct ClusterCard: View {
     let cluster: ColorCluster
+    let representativePhotos: [PHAsset]
+    
+    @State private var thumbnails: [UIImage] = []
     
     var body: some View {
-        HStack(spacing: 15) {
-            // 色块
-            RoundedRectangle(cornerRadius: 10)
-                .fill(cluster.color)
-                .frame(width: 60, height: 60)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                )
-            
-            // 信息
-            VStack(alignment: .leading, spacing: 6) {
-                Text(cluster.colorName)
-                    .font(.headline)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 15) {
+                // 色块
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(cluster.color)
+                    .frame(width: 60, height: 60)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                    )
                 
-                Text(cluster.hex)
-                    .font(.caption)
+                // 信息
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(cluster.colorName)
+                        .font(.headline)
+                    
+                    Text(cluster.hex)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .monospaced()
+                    
+                    Text("\(cluster.photoCount) 张照片")
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                }
+                
+                Spacer()
+                
+                Image(systemName: "chevron.right")
                     .foregroundColor(.secondary)
-                    .monospaced()
-                
-                Text("\(cluster.photoCount) 张照片")
-                    .font(.subheadline)
-                    .foregroundColor(.blue)
             }
             
-            Spacer()
-            
-            Image(systemName: "chevron.right")
-                .foregroundColor(.secondary)
+            // 代表性照片缩略图
+            if !thumbnails.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(thumbnails.indices, id: \.self) { index in
+                            Image(uiImage: thumbnails[index])
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 80, height: 80)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                                )
+                        }
+                    }
+                }
+            }
         }
         .padding()
         .background(Color(.systemBackground))
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
+        .onAppear {
+            loadThumbnails()
+        }
+    }
+    
+    private func loadThumbnails() {
+        let imageManager = PHImageManager.default()
+        let options = PHImageRequestOptions()
+        options.isSynchronous = false
+        options.deliveryMode = .opportunistic
+        options.resizeMode = .fast
+        
+        let targetSize = CGSize(width: 160, height: 160) // 2x for retina
+        
+        for asset in representativePhotos.prefix(3) {
+            imageManager.requestImage(
+                for: asset,
+                targetSize: targetSize,
+                contentMode: .aspectFill,
+                options: options
+            ) { image, _ in
+                if let image = image {
+                    DispatchQueue.main.async {
+                        self.thumbnails.append(image)
+                    }
+                }
+            }
+        }
     }
 }
 

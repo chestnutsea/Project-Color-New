@@ -24,6 +24,8 @@ class SimpleAnalysisPipeline {
     private let adaptiveManager = AdaptiveClusterManager()  // Phase 5: 自适应聚类
     private let colorCache = PhotoColorCache()  // Phase 5: 缓存管理
     private let settings = AnalysisSettings.shared  // Phase 5: 用户设置
+    private let aiEvaluator = ColorAnalysisEvaluator()  // AI 评价
+    private let warmCoolCalculator = WarmCoolScoreCalculator()  // 冷暖评分
     
     // Phase 5: 并发控制
     private let maxConcurrentExtractions = 8  // 最多同时处理8张照片
@@ -83,6 +85,39 @@ class SimpleAnalysisPipeline {
             let (uncached, cached) = colorCache.filterUncached(assets: assets)
             assetsToProcess = uncached
             cachedInfos = cached
+            
+            // 检查缓存的照片是否有冷暖评分，如果没有则需要重新计算
+            var cachedWithScores: [PhotoColorInfo] = []
+            var cachedNeedingScores: [(asset: PHAsset, info: PhotoColorInfo)] = []
+            
+            for info in cachedInfos {
+                if info.warmCoolScore != nil {
+                    cachedWithScores.append(info)
+                } else {
+                    // 找到对应的 asset
+                    if let asset = assets.first(where: { $0.localIdentifier == info.assetIdentifier }) {
+                        cachedNeedingScores.append((asset, info))
+                    }
+                }
+            }
+            
+            print("🌡️ 缓存照片冷暖评分检查:")
+            print("   - 已有评分: \(cachedWithScores.count)")
+            print("   - 需要计算评分: \(cachedNeedingScores.count)")
+            
+            // 为缓存的照片计算冷暖评分
+            if !cachedNeedingScores.isEmpty {
+                for (asset, var info) in cachedNeedingScores {
+                    if let updatedInfo = await updateWarmCoolScore(asset: asset, photoInfo: info) {
+                        cachedWithScores.append(updatedInfo)
+                    } else {
+                        cachedWithScores.append(info)
+                    }
+                }
+            }
+            
+            // 使用更新后的缓存信息
+            cachedInfos = cachedWithScores
             
             // 缓存的结果直接添加到两个地方
             photoInfos.append(contentsOf: cachedInfos)
@@ -188,7 +223,7 @@ class SimpleAnalysisPipeline {
                     currentPhoto: assets.count,
                     totalPhotos: assets.count,
                     currentStage: "颜色聚类中（K=\(manualK)）",
-                    overallProgress: 0.75,
+                    overallProgress: 0.70,  // 颜色提取完成后开始聚类
                     failedCount: result.failedCount,
                     cachedCount: cachedInfos.count,
                     isConcurrent: true
@@ -303,7 +338,7 @@ class SimpleAnalysisPipeline {
                 currentPhoto: assets.count,
                 totalPhotos: assets.count,
                 currentStage: "颜色聚类中",
-                overallProgress: 0.8,
+                overallProgress: 0.75,  // 聚类阶段
                 failedCount: result.failedCount
             ))
         }
@@ -340,7 +375,7 @@ class SimpleAnalysisPipeline {
                     currentPhoto: assets.count,
                     totalPhotos: assets.count,
                     currentStage: "计算结果中",
-                    overallProgress: 0.9,
+                    overallProgress: 0.85,  // 聚类完成，开始计算结果
                     failedCount: result.failedCount
                 ))
             }
@@ -394,7 +429,7 @@ class SimpleAnalysisPipeline {
                         currentPhoto: assets.count,
                         totalPhotos: assets.count,
                         currentStage: "优化聚类结果",
-                        overallProgress: 0.95,
+                        overallProgress: 0.88,  // 优化聚类
                         failedCount: result.failedCount,
                         cachedCount: cachedInfos.count,
                         isConcurrent: false
@@ -470,7 +505,7 @@ class SimpleAnalysisPipeline {
                         currentPhoto: assets.count,
                         totalPhotos: assets.count,
                         currentStage: "优化聚类结果",
-                        overallProgress: 0.98,
+                        overallProgress: 0.90,  // 优化完成
                         failedCount: result.failedCount,
                         cachedCount: cachedInfos.count,
                         adaptiveOperations: updateResult.operations
@@ -490,6 +525,45 @@ class SimpleAnalysisPipeline {
         
         result.photoInfos = photoInfos
         result.isCompleted = true
+        
+        // 计算冷暖色调分布
+        await MainActor.run {
+            progressHandler(AnalysisProgress(
+                currentPhoto: assets.count,
+                totalPhotos: assets.count,
+                currentStage: "计算冷暖色调分布",
+                overallProgress: 0.92,  // 开始冷暖分析
+                failedCount: result.failedCount,
+                cachedCount: cachedInfos.count
+            ))
+        }
+        
+        print("🌡️ 计算冷暖色调分布...")
+        print("   - 照片总数: \(photoInfos.count)")
+        
+        // 检查有多少照片有评分
+        let photosWithScores = photoInfos.filter { $0.warmCoolScore != nil }
+        print("   - 有评分的照片: \(photosWithScores.count)")
+        
+        let warmCoolDistribution = warmCoolCalculator.calculateDistribution(photoInfos: photoInfos)
+        await MainActor.run {
+            result.warmCoolDistribution = warmCoolDistribution
+        }
+        
+        await MainActor.run {
+            progressHandler(AnalysisProgress(
+                currentPhoto: assets.count,
+                totalPhotos: assets.count,
+                currentStage: "冷暖色调分析完成",
+                overallProgress: 0.95,  // 冷暖分析完成
+                failedCount: result.failedCount,
+                cachedCount: cachedInfos.count
+            ))
+        }
+        
+        print("✅ 冷暖色调分布计算完成")
+        print("   - 直方图档数: \(warmCoolDistribution.histogram.count)")
+        print("   - 评分数据: \(warmCoolDistribution.scores.count)")
         
         // 完成
         await MainActor.run {
@@ -521,7 +595,79 @@ class SimpleAnalysisPipeline {
             }
         }
         
+        // AI 颜色评价（后台线程，不阻塞主流程，流式响应）
+        Task.detached(priority: .background) {
+            do {
+                print("🎨 开始 AI 颜色评价（流式）...")
+                let evaluation = try await self.aiEvaluator.evaluateColorAnalysis(
+                    result: result,
+                    onUpdate: { @MainActor updatedEvaluation in
+                        // 实时更新 UI
+                        result.aiEvaluation = updatedEvaluation
+                    }
+                )
+                await MainActor.run {
+                    result.aiEvaluation = evaluation
+                    print("✅ AI 评价完成")
+                }
+            } catch {
+                await MainActor.run {
+                    print("⚠️ AI 评价失败: \(error.localizedDescription)")
+                    // 创建一个带有错误信息的评价对象
+                    var errorEvaluation = ColorEvaluation()
+                    errorEvaluation.isLoading = false
+                    errorEvaluation.error = error.localizedDescription
+                    result.aiEvaluation = errorEvaluation
+                }
+            }
+        }
+        
         return result
+    }
+    
+    // MARK: - 为缓存的照片更新冷暖评分
+    private func updateWarmCoolScore(asset: PHAsset, photoInfo: PhotoColorInfo) async -> PhotoColorInfo? {
+        #if canImport(UIKit)
+        return await withCheckedContinuation { continuation in
+            let manager = PHImageManager.default()
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .highQualityFormat
+            options.isSynchronous = false
+            options.isNetworkAccessAllowed = true
+            options.resizeMode = .fast
+            
+            let targetSize = CGSize(width: 300, height: 300)
+            
+            manager.requestImage(
+                for: asset,
+                targetSize: targetSize,
+                contentMode: .aspectFit,
+                options: options
+            ) { [weak self] image, info in
+                guard let self = self,
+                      let image = image,
+                      let cgImage = image.cgImage else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                
+                // 计算冷暖评分
+                Task {
+                    let warmCoolScore = await self.warmCoolCalculator.calculateScore(
+                        image: cgImage,
+                        dominantColors: photoInfo.dominantColors
+                    )
+                    
+                    var updatedInfo = photoInfo
+                    updatedInfo.warmCoolScore = warmCoolScore
+                    
+                    continuation.resume(returning: updatedInfo)
+                }
+            }
+        }
+        #else
+        return nil
+        #endif
     }
     
     // MARK: - 提取单张照片的主色
@@ -585,12 +731,25 @@ class SimpleAnalysisPipeline {
                     namedColors[i].colorName = self.colorNamer.getColorName(rgb: namedColors[i].rgb)
                 }
                 
-                let photoInfo = PhotoColorInfo(
+                // 创建 PhotoColorInfo
+                var photoInfo = PhotoColorInfo(
                     assetIdentifier: asset.localIdentifier,
                     dominantColors: namedColors
                 )
                 
-                continuation.resume(returning: photoInfo)
+                // 计算冷暖评分（在 Task 中异步计算，但确保在 resume 前完成）
+                Task {
+                    let warmCoolScore = await self.warmCoolCalculator.calculateScore(
+                        image: cgImage,
+                        dominantColors: namedColors
+                    )
+                    
+                    photoInfo.warmCoolScore = warmCoolScore
+                    
+                    print("🌡️ 照片 \(asset.localIdentifier) 冷暖评分已设置: \(warmCoolScore.overallScore)")
+                    
+                    continuation.resume(returning: photoInfo)
+                }
             }
         }
         #else

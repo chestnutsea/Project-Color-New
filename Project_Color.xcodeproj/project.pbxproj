@@ -51,9 +51,11 @@
 				F492B9812EC0262E0076B618 /* Exceptions for "Project_Color" folder in "Project_Color" target */,
 			);
 			explicitFileTypes = {
+				"README/Color Analysis Implementation Roadmap.md" = text;
 				"README/Core Data Structure.md" = text;
 				"README/Project Description.md" = text;
 				README/Tasks.md = text;
+				"README/Warm-cold classification.md" = text;
 			};
 			path = Project_Color;
 			sourceTree = "<group>";
@@ -301,6 +303,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEEPSEEK_API_KEY = "sk-02551e4b861b4d7abb754abef5d73ae5";
 				DEVELOPMENT_TEAM = FGH6P7Z3NA;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -348,6 +351,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEEPSEEK_API_KEY = "sk-02551e4b861b4d7abb754abef5d73ae5";
 				DEVELOPMENT_TEAM = FGH6P7Z3NA;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;

@@ -14,3 +14,7 @@ node_modules/
 .npm/
 # macOS 系统文件
 .DS_Store
+
+# Secrets
+Project_Color/Config/Secrets.xcconfig
+**/Secrets.xcconfig

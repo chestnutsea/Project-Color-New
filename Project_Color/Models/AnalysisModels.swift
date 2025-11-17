@@ -17,6 +17,7 @@ struct PhotoColorInfo: Identifiable {
     var dominantColors: [DominantColor] = []  // 5个主色
     var primaryClusterIndex: Int?  // 所属主簇
     var clusterMix: [Int: Double] = [:]  // 各簇占比
+    var warmCoolScore: WarmCoolScore? = nil  // 冷暖评分
 }
 
 // MARK: - 主色结构
@@ -83,10 +84,135 @@ class AnalysisResult: ObservableObject {
     @Published var qualityDescription: String = ""
     @Published var allKScores: [Int: Double] = [:]  // 各K值的得分
     
+    // AI 颜色评价
+    @Published var aiEvaluation: ColorEvaluation? = nil
+    
+    // 冷暖色调分布
+    @Published var warmCoolDistribution: WarmCoolDistribution? = nil
+    
+    // 色彩统计数据（按需计算）
+    @Published var globalStatistics: GlobalColorStatistics? = nil
+    @Published var clusterAnalytics: [ClusterAnalytics]? = nil
+    
     // 根据簇索引获取照片
     func photos(in clusterIndex: Int) -> [PhotoColorInfo] {
         return photoInfos.filter { $0.primaryClusterIndex == clusterIndex }
     }
+}
+
+// MARK: - AI 颜色评价
+struct ColorEvaluation {
+    var isLoading: Bool = false
+    var error: String? = nil
+    var completedAt: Date? = nil
+    
+    // 整体评价
+    var overallEvaluation: OverallEvaluation? = nil
+    
+    // 各簇评价
+    var clusterEvaluations: [ClusterEvaluation] = []
+}
+
+// MARK: - 整体评价
+struct OverallEvaluation {
+    var hueAnalysis: String  // 色调分析
+    var saturationAnalysis: String  // 饱和度分析
+    var brightnessAnalysis: String  // 明度分析
+    var fullText: String  // 完整评价文本
+}
+
+// MARK: - 单簇评价
+struct ClusterEvaluation: Identifiable {
+    var id: Int { clusterIndex }
+    var clusterIndex: Int
+    var colorName: String
+    var hexValue: String
+    var evaluation: String
+}
+
+// MARK: - 色彩统计数据模型
+
+/// 聚类统计信息
+struct ClusterStatistics {
+    /// 色相范围（度数，0-360）
+    let hueRange: (min: Float, max: Float)
+    /// 色相标准差
+    let hueStdDev: Float
+    
+    /// 明度范围（0-1）
+    let lightnessRange: (min: Float, max: Float)
+    /// 明度标准差
+    let lightnessStdDev: Float
+    
+    /// 饱和度范围（0-1）
+    let saturationRange: (min: Float, max: Float)
+    /// 饱和度标准差
+    let saturationStdDev: Float
+    
+    /// 聚类内部一致性评分（0-1，越高越一致）
+    let consistency: Float
+    
+    /// 照片数量
+    let photoCount: Int
+}
+
+/// 全局色彩统计信息
+struct GlobalColorStatistics {
+    /// 整体色调倾向（基于色相分布）
+    let dominantHueRange: String  // 如 "橙-黄色系"、"蓝-青色系"
+    
+    /// 整体影调倾向
+    let dominantValue: String  // "高调"、"中调"、"低调"
+    let averageLightness: Float
+    
+    /// 整体饱和度倾向
+    let dominantSaturation: String  // "艳丽"、"柔和"、"灰调"
+    let averageSaturation: Float
+    
+    /// 色相分布统计（主要色相区间及其占比）
+    let hueDistribution: [(range: String, percentage: Float)]
+    
+    /// 明度分布统计
+    let lightnessDistribution: [(range: String, percentage: Float)]
+    
+    /// 饱和度分布统计
+    let saturationDistribution: [(range: String, percentage: Float)]
+}
+
+/// 聚类分析数据（包含聚类及其统计信息）
+struct ClusterAnalytics {
+    let cluster: ColorCluster
+    let statistics: ClusterStatistics
+}
+
+// MARK: - 冷暖色调评分
+struct WarmCoolScore {
+    // 核心分数
+    var overallScore: Float        // 最终融合得分 [-1, 1]（70% 局部 + 30% 代表色）
+    
+    // 分解分数（用于调试和分析）
+    var labBScore: Float           // 局部结构得分（SLIC-based）[-1, 1]
+    var dominantWarmth: Float      // 代表色得分（全局调性）[-1, 1]
+    
+    // 兼容性字段（保留但不再使用）
+    var hueWarmth: Float           // 已废弃
+    var warmPixelRatio: Float      // 已废弃
+    var coolPixelRatio: Float      // 已废弃
+    var neutralPixelRatio: Float   // 已废弃
+    
+    // 辅助数据
+    var labBMean: Float            // Lab b通道均值（等同于 labBScore）
+    var overallWarmth: Float       // 调试用：代表色暖度
+    var overallCoolness: Float     // 调试用：代表色冷度
+}
+
+// MARK: - 所有照片的冷暖分布数据
+struct WarmCoolDistribution {
+    var scores: [String: WarmCoolScore]  // assetIdentifier -> score
+    var histogram: [Float]                // 直方图数据（分档统计）
+    var histogramBins: Int = 20           // 直方图分档数
+    var minScore: Float = -1.0
+    var maxScore: Float = 1.0
 }
 
 // MARK: - 分析进度
