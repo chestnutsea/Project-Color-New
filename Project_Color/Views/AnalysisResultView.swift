@@ -21,12 +21,27 @@ private enum AnalysisResultTab: String, CaseIterable, Identifiable {
     var id: Self { self }
 }
 
+// MARK: - Layout Constants
+private enum KeywordTagLayout {
+    static let fontSize: CGFloat = 16
+    static let horizontalPadding: CGFloat = 10
+    static let verticalPadding: CGFloat = 5
+    static let cornerRadius: CGFloat = 5
+    static let spacing: CGFloat = 8
+}
+
 struct AnalysisResultView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var result: AnalysisResult
     @State private var selectedCluster: ColorCluster?
     @State private var selectedTab: AnalysisResultTab = .color
     @State private var show3DView = false
+    
+    // 缓存计算密集的属性
+    @State private var cachedHueRingPoints: [HueRingPoint] = []
+    @State private var cachedScatterPoints: [SaturationBrightnessPoint] = []
+    @State private var cachedColorSpacePoints: [ColorSpacePoint] = []
+    @State private var isDistributionDataReady = false
     
     private let labConverter = ColorSpaceConverter()
     private let normalizedLabBounds = (
@@ -72,7 +87,24 @@ struct AnalysisResultView: View {
             ClusterDetailView(cluster: cluster, result: result)
         }
         .sheet(isPresented: $show3DView) {
-            threeDView(points: colorSpacePoints)
+            threeDView(points: cachedColorSpacePoints)
+        }
+        .onAppear {
+            // 在后台计算分布数据
+            if !isDistributionDataReady {
+                Task.detached(priority: .userInitiated) {
+                    let huePoints = await computeHueRingPoints()
+                    let scatterPts = await computeScatterPoints()
+                    let spacePts = await computeColorSpacePoints()
+                    
+                    await MainActor.run {
+                        cachedHueRingPoints = huePoints
+                        cachedScatterPoints = scatterPts
+                        cachedColorSpacePoints = spacePts
+                        isDistributionDataReady = true
+                    }
+                }
+            }
         }
     }
     
@@ -96,19 +128,24 @@ struct AnalysisResultView: View {
     
     private var distributionTabContent: some View {
         VStack(spacing: 20) {
-            HueRingDistributionView(
-                points: hueRingPoints,
-                dominantHue: dominantHue,
-                primaryColor: dominantCluster?.color,
-                onPresent3D: colorSpacePoints.isEmpty ? nil : {
-                    show3DView = true
-                }
-            )
-            
-            SaturationBrightnessScatterView(
-                points: scatterPoints,
-                hue: dominantHue
-            )
+            if isDistributionDataReady {
+                HueRingDistributionView(
+                    points: cachedHueRingPoints,
+                    dominantHue: dominantHue,
+                    primaryColor: dominantCluster?.color,
+                    onPresent3D: cachedColorSpacePoints.isEmpty ? nil : {
+                        show3DView = true
+                    }
+                )
+                
+                SaturationBrightnessScatterView(
+                    points: cachedScatterPoints,
+                    hue: dominantHue
+                )
+            } else {
+                ProgressView("正在计算分布数据...")
+                    .padding()
+            }
             
             // 冷暖色调直方图
             if let warmCoolDist = result.warmCoolDistribution,
@@ -232,29 +269,212 @@ struct AnalysisResultView: View {
     }
     
     private func overallEvaluationCard(_ overall: OverallEvaluation) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Image(systemName: "sparkles")
-                    .font(.title2)
-                    .foregroundColor(.purple)
-                
-                Text("整体色彩评价")
-                    .font(.title3)
-                    .fontWeight(.bold)
-            }
-            
-            Divider()
-            
-            Text(overall.fullText)
-                .font(.body)
-                .foregroundColor(.primary)
-                .lineSpacing(6)
-                .fixedSize(horizontal: false, vertical: true)
+        // 获取主代表色（照片数量最多的聚类）
+        let dominantColor = getDominantClusterColor()
+        
+        return VStack(alignment: .leading, spacing: 20) {
+            // 解析并格式化显示评价内容
+            formattedEvaluationView(overall.fullText, dominantColor: dominantColor)
         }
         .padding()
-        .background(Color.purple.opacity(0.05))
-        .cornerRadius(15)
-        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+    }
+    
+    // 获取主代表色（照片数量最多的聚类的颜色）
+    private func getDominantClusterColor() -> Color {
+        let clusters = result.clusters
+        guard !clusters.isEmpty else {
+            return Color.purple
+        }
+        
+        // 找到照片数量最多的聚类
+        guard let dominantCluster = clusters.max(by: { $0.photoCount < $1.photoCount }) else {
+            return Color.purple
+        }
+        
+        // 将 RGB 转换为 Color
+        let rgb = dominantCluster.centroid
+        return Color(red: Double(rgb.x), green: Double(rgb.y), blue: Double(rgb.z))
+    }
+    
+    // 解析并格式化显示评价内容
+    private func formattedEvaluationView(_ text: String, dominantColor: Color) -> some View {
+        // 分离关键词和正文
+        let (mainText, keywordsText) = parseTextAndKeywords(text)
+        
+        return VStack(alignment: .leading, spacing: 20) {
+            // 关键词 tag 显示在最上方（背景色区域外）
+            if !keywordsText.isEmpty {
+                keywordTagsView(keywordsText)
+                    .padding(.bottom, 10)
+            }
+            
+            // 正文显示在彩色背景区域内
+            if !mainText.isEmpty {
+                Text(mainText)
+                    .font(.body)
+                    .foregroundColor(.primary)
+                    .lineSpacing(6)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding()
+                    .background(dominantColor.opacity(0.08))
+                    .cornerRadius(15)
+            }
+        }
+    }
+    
+    // 分离正文和关键词
+    private func parseTextAndKeywords(_ text: String) -> (mainText: String, keywords: String) {
+        // 查找"风格关键词："标记
+        if let range = text.range(of: "风格关键词：") {
+            let mainText = String(text[..<range.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let keywords = String(text[range.upperBound...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return (mainText, keywords)
+        }
+        
+        // 如果没有找到标记，全部作为正文
+        return (text.trimmingCharacters(in: .whitespacesAndNewlines), "")
+    }
+    
+    // 将关键词显示为彩色 tag
+    private func keywordTagsView(_ text: String) -> some View {
+        let keywordItems = parseKeywordsWithColors(text)
+        
+        return FlowLayout(spacing: KeywordTagLayout.spacing) {
+            ForEach(keywordItems.indices, id: \.self) { index in
+                let item = keywordItems[index]
+                
+                Text(item.keyword)
+                    .font(.system(size: KeywordTagLayout.fontSize))
+                    .fontWeight(.medium)
+                    .padding(.horizontal, KeywordTagLayout.horizontalPadding)
+                    .padding(.vertical, KeywordTagLayout.verticalPadding)
+                    .background(item.color.opacity(0.2))
+                    .foregroundColor(item.color.opacity(0.9))
+                    .cornerRadius(KeywordTagLayout.cornerRadius)
+            }
+        }
+    }
+    
+    // 解析关键词和颜色（格式：关键词#颜色值）
+    private func parseKeywordsWithColors(_ text: String) -> [(keyword: String, color: Color)] {
+        let items = text.components(separatedBy: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        
+        return items.enumerated().map { index, item in
+            // 尝试分割关键词和颜色值
+            let parts = item.components(separatedBy: "#")
+            let keyword = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            if parts.count > 1 {
+                // 有颜色值，解析十六进制颜色
+                let hexColor = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                if let color = Color(hex: hexColor) {
+                    return (keyword, color)
+                }
+            }
+            
+            // 没有颜色值或解析失败，使用默认颜色
+            let defaultColors: [Color] = [.blue, .purple, .green, .orange, .pink, .teal, .indigo]
+            return (keyword, defaultColors[index % defaultColors.count])
+        }
+    }
+    
+    
+    // FlowLayout - 自动换行的布局（支持分散对齐）
+    struct FlowLayout: Layout {
+        var spacing: CGFloat = 8
+        var justify: Bool = true  // 是否分散对齐
+        
+        func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+            let result = FlowResult(
+                in: proposal.replacingUnspecifiedDimensions().width,
+                subviews: subviews,
+                spacing: spacing,
+                justify: justify
+            )
+            return result.size
+        }
+        
+        func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+            let result = FlowResult(
+                in: bounds.width,
+                subviews: subviews,
+                spacing: spacing,
+                justify: justify
+            )
+            for (index, subview) in subviews.enumerated() {
+                subview.place(at: CGPoint(x: bounds.minX + result.positions[index].x,
+                                         y: bounds.minY + result.positions[index].y),
+                             proposal: .unspecified)
+            }
+        }
+        
+        struct FlowResult {
+            var size: CGSize = .zero
+            var positions: [CGPoint] = []
+            
+            init(in maxWidth: CGFloat, subviews: Subviews, spacing: CGFloat, justify: Bool) {
+                var lines: [[Int]] = [[]]  // 每行的 subview 索引
+                var lineSizes: [[CGSize]] = [[]]  // 每行每个元素的尺寸
+                var currentLineWidth: CGFloat = 0
+                var lineHeights: [CGFloat] = []
+                
+                // 第一步：分组到各行
+                for (index, subview) in subviews.enumerated() {
+                    let size = subview.sizeThatFits(.unspecified)
+                    
+                    if currentLineWidth + size.width > maxWidth && !lines.last!.isEmpty {
+                        // 换行
+                        lines.append([])
+                        lineSizes.append([])
+                        currentLineWidth = 0
+                    }
+                    
+                    lines[lines.count - 1].append(index)
+                    lineSizes[lineSizes.count - 1].append(size)
+                    currentLineWidth += size.width + (lines.last!.count > 1 ? spacing : 0)
+                }
+                
+                // 第二步：计算每行的位置（支持分散对齐）
+                var y: CGFloat = 0
+                
+                for (lineIndex, lineIndices) in lines.enumerated() {
+                    let sizes = lineSizes[lineIndex]
+                    let lineHeight = sizes.map { $0.height }.max() ?? 0
+                    lineHeights.append(lineHeight)
+                    
+                    // 计算该行内容的总宽度
+                    let totalContentWidth = sizes.reduce(0) { $0 + $1.width }
+                    
+                    var x: CGFloat = 0
+                    let isLastLine = (lineIndex == lines.count - 1)
+                    let itemCount = lineIndices.count
+                    
+                    // 计算间距
+                    var actualSpacing = spacing
+                    if justify && !isLastLine && itemCount > 1 {
+                        // 分散对齐：计算调整后的间距
+                        let availableSpace = maxWidth - totalContentWidth
+                        actualSpacing = availableSpace / CGFloat(itemCount - 1)
+                    }
+                    
+                    for (i, index) in lineIndices.enumerated() {
+                        positions.append(CGPoint(x: x, y: y))
+                        x += sizes[i].width
+                        if i < itemCount - 1 {
+                            x += actualSpacing
+                        }
+                    }
+                    
+                    y += lineHeight + spacing
+                }
+                
+                self.size = CGSize(width: maxWidth, height: y - spacing)
+            }
+        }
     }
     
     private func clusterEvaluationsSection(_ evaluations: [ClusterEvaluation]) -> some View {
@@ -358,7 +578,9 @@ struct AnalysisResultView: View {
         }
     }
     
-    private var scatterPoints: [SaturationBrightnessPoint] {
+    // MARK: - 异步计算方法
+    
+    private func computeScatterPoints() async -> [SaturationBrightnessPoint] {
         result.photoInfos.compactMap { photo -> SaturationBrightnessPoint? in
             guard !photo.dominantColors.isEmpty else { return nil }
             
@@ -449,7 +671,7 @@ struct AnalysisResultView: View {
         return Double(hue)
     }
     
-    private var hueRingPoints: [HueRingPoint] {
+    private func computeHueRingPoints() async -> [HueRingPoint] {
         result.photoInfos.flatMap { photoInfo in
             photoInfo.dominantColors.compactMap { dominantColor -> HueRingPoint? in
                 let uiColor = UIColor(
@@ -477,7 +699,7 @@ struct AnalysisResultView: View {
         }
     }
     
-    private var colorSpacePoints: [ColorSpacePoint] {
+    private func computeColorSpacePoints() async -> [ColorSpacePoint] {
         result.photoInfos.flatMap { photoInfo in
             photoInfo.dominantColors.compactMap { dominantColor -> ColorSpacePoint? in
                 let weight = Double(max(0, min(1, dominantColor.weight)))
@@ -1007,7 +1229,19 @@ struct ClusterDetailView: View {
     }
     
     private var photosInCluster: [PhotoColorInfo] {
-        result.photos(in: cluster.index)
+        let photos = result.photos(in: cluster.index)
+        
+        // 按与质心的距离排序（从近到远）
+        return photos.sorted { photo1, photo2 in
+            guard let color1 = photo1.dominantColors.first,
+                  let color2 = photo2.dominantColors.first else {
+                return false
+            }
+            
+            let distance1 = simd_distance(color1.rgb, cluster.centroid)
+            let distance2 = simd_distance(color2.rgb, cluster.centroid)
+            return distance1 < distance2
+        }
     }
 }
 
@@ -1096,3 +1330,31 @@ struct ReasonItem: View {
     }
 }
 
+// MARK: - Color Extension for Hex Parsing
+extension Color {
+    /// 从十六进制字符串创建 Color（支持 6 位格式，如 "FF5733"）
+    init?(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        
+        guard Scanner(string: hex).scanHexInt64(&int) else {
+            return nil
+        }
+        
+        let r, g, b: UInt64
+        switch hex.count {
+        case 6: // RGB (6 位)
+            r = (int >> 16) & 0xFF
+            g = (int >> 8) & 0xFF
+            b = int & 0xFF
+        default:
+            return nil
+        }
+        
+        self.init(
+            red: Double(r) / 255.0,
+            green: Double(g) / 255.0,
+            blue: Double(b) / 255.0
+        )
+    }
+}

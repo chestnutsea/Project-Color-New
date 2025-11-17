@@ -53,6 +53,7 @@
 			explicitFileTypes = {
 				"README/Color Analysis Implementation Roadmap.md" = text;
 				"README/Core Data Structure.md" = text;
+				"README/Extra style anlaysis with SLIC.md" = text;
 				"README/Project Description.md" = text;
 				README/Tasks.md = text;
 				"README/Warm-cold classification.md" = text;

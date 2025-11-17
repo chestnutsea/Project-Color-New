@@ -26,6 +26,8 @@ class SimpleAnalysisPipeline {
     private let settings = AnalysisSettings.shared  // Phase 5: 用户设置
     private let aiEvaluator = ColorAnalysisEvaluator()  // AI 评价
     private let warmCoolCalculator = WarmCoolScoreCalculator()  // 冷暖评分
+    private let imageStatisticsCalculator = ImageStatisticsCalculator()  // 图像统计
+    private let collectionFeatureCalculator = CollectionFeatureCalculator()  // 作品集聚合
     
     // Phase 5: 并发控制
     private let maxConcurrentExtractions = 8  // 最多同时处理8张照片
@@ -134,42 +136,24 @@ class SimpleAnalysisPipeline {
         
         // 阶段1: 并发提取每张照片的主色（仅处理未缓存的）
         await withTaskGroup(of: (Int, PhotoColorInfo?).self) { group in
-            // 为每张未缓存的照片创建一个任务
-            for (index, asset) in assetsToProcess.enumerated() {
+            var pendingCount = 0
+            var nextIndex = 0
+            
+            // 启动初始批次的任务
+            while nextIndex < assetsToProcess.count && pendingCount < maxConcurrentExtractions {
+                let index = nextIndex
+                let asset = assetsToProcess[index]
                 group.addTask {
                     let photoInfo = await self.extractPhotoColors(asset: asset)
                     return (index, photoInfo)
                 }
-                
-                // 限制并发数量
-                if (index + 1) % maxConcurrentExtractions == 0 {
-                    // 等待一批完成
-                    if let (resultIndex, photoInfo) = await group.next() {
-                        await self.processPhotoResult(
-                            index: resultIndex,
-                            photoInfo: photoInfo,
-                            progressTracker: progressTracker,
-                            result: result,
-                            startTime: startTime,
-                            totalPhotos: assets.count,
-                            cachedCount: cachedInfos.count,
-                            progressHandler: progressHandler
-                        )
-                    }
-                }
+                pendingCount += 1
+                nextIndex += 1
             }
             
-            // 收集剩余的所有结果
-            var results: [(Int, PhotoColorInfo?)] = []
-            for await taskResult in group {
-                results.append(taskResult)
-            }
-            
-            // 按索引排序以保持顺序
-            results.sort { $0.0 < $1.0 }
-            
-            // 处理所有结果
-            for (index, photoInfo) in results {
+            // 实时处理结果，每完成一个就启动下一个
+            while let (index, photoInfo) = await group.next() {
+                // 处理完成的结果
                 await self.processPhotoResult(
                     index: index,
                     photoInfo: photoInfo,
@@ -180,6 +164,20 @@ class SimpleAnalysisPipeline {
                     cachedCount: cachedInfos.count,
                     progressHandler: progressHandler
                 )
+                
+                pendingCount -= 1
+                
+                // 如果还有未处理的照片，启动下一个任务
+                if nextIndex < assetsToProcess.count {
+                    let newIndex = nextIndex
+                    let asset = assetsToProcess[newIndex]
+                    group.addTask {
+                        let photoInfo = await self.extractPhotoColors(asset: asset)
+                        return (newIndex, photoInfo)
+                    }
+                    pendingCount += 1
+                    nextIndex += 1
+                }
             }
         }
         
@@ -333,15 +331,15 @@ class SimpleAnalysisPipeline {
             result.allKScores = kResult.allScores
         }
         
-        await MainActor.run {
-            progressHandler(AnalysisProgress(
-                currentPhoto: assets.count,
-                totalPhotos: assets.count,
-                currentStage: "颜色聚类中",
-                overallProgress: 0.75,  // 聚类阶段
-                failedCount: result.failedCount
-            ))
-        }
+            await MainActor.run {
+                progressHandler(AnalysisProgress(
+                    currentPhoto: assets.count,
+                    totalPhotos: assets.count,
+                    currentStage: "颜色聚类中",
+                    overallProgress: 0.72,  // 聚类阶段（缩小跳跃）
+                    failedCount: result.failedCount
+                ))
+            }
         
         // 使用聚类结果（已在上面获取）
         if true {
@@ -370,15 +368,15 @@ class SimpleAnalysisPipeline {
             }
             
             // 阶段3: 为每张照片分配主簇
-            await MainActor.run {
-                progressHandler(AnalysisProgress(
-                    currentPhoto: assets.count,
-                    totalPhotos: assets.count,
-                    currentStage: "计算结果中",
-                    overallProgress: 0.85,  // 聚类完成，开始计算结果
-                    failedCount: result.failedCount
-                ))
-            }
+                await MainActor.run {
+                    progressHandler(AnalysisProgress(
+                        currentPhoto: assets.count,
+                        totalPhotos: assets.count,
+                        currentStage: "计算结果中",
+                        overallProgress: 0.75,  // 聚类完成，开始计算结果
+                        failedCount: result.failedCount
+                    ))
+                }
             
             // Phase 2: 使用 LAB 质心进行分配
             for i in 0..<photoInfos.count {
@@ -429,7 +427,7 @@ class SimpleAnalysisPipeline {
                         currentPhoto: assets.count,
                         totalPhotos: assets.count,
                         currentStage: "优化聚类结果",
-                        overallProgress: 0.88,  // 优化聚类
+                        overallProgress: 0.78,  // 优化聚类
                         failedCount: result.failedCount,
                         cachedCount: cachedInfos.count,
                         isConcurrent: false
@@ -505,7 +503,7 @@ class SimpleAnalysisPipeline {
                         currentPhoto: assets.count,
                         totalPhotos: assets.count,
                         currentStage: "优化聚类结果",
-                        overallProgress: 0.90,  // 优化完成
+                        overallProgress: 0.82,  // 优化完成
                         failedCount: result.failedCount,
                         cachedCount: cachedInfos.count,
                         adaptiveOperations: updateResult.operations
@@ -532,7 +530,7 @@ class SimpleAnalysisPipeline {
                 currentPhoto: assets.count,
                 totalPhotos: assets.count,
                 currentStage: "计算冷暖色调分布",
-                overallProgress: 0.92,  // 开始冷暖分析
+                overallProgress: 0.85,  // 开始冷暖分析
                 failedCount: result.failedCount,
                 cachedCount: cachedInfos.count
             ))
@@ -555,7 +553,7 @@ class SimpleAnalysisPipeline {
                 currentPhoto: assets.count,
                 totalPhotos: assets.count,
                 currentStage: "冷暖色调分析完成",
-                overallProgress: 0.95,  // 冷暖分析完成
+                overallProgress: 0.92,  // 冷暖分析完成
                 failedCount: result.failedCount,
                 cachedCount: cachedInfos.count
             ))
@@ -565,7 +563,19 @@ class SimpleAnalysisPipeline {
         print("   - 直方图档数: \(warmCoolDistribution.histogram.count)")
         print("   - 评分数据: \(warmCoolDistribution.scores.count)")
         
-        // 完成
+        // 完成（前两个 Tab 可以展示了）
+        await MainActor.run {
+            progressHandler(AnalysisProgress(
+                currentPhoto: assets.count,
+                totalPhotos: assets.count,
+                currentStage: "分析完成",
+                overallProgress: 0.98,
+                failedCount: result.failedCount
+            ))
+        }
+        
+        // 最终完成
+        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms 延迟
         await MainActor.run {
             progressHandler(AnalysisProgress(
                 currentPhoto: assets.count,
@@ -595,10 +605,21 @@ class SimpleAnalysisPipeline {
             }
         }
         
-        // AI 颜色评价（后台线程，不阻塞主流程，流式响应）
+        // 风格分析 + AI 评价（后台线程，不阻塞主流程）
+        // 注意：AI 评价需要等待风格分析完成
+        print("📌 创建后台任务：风格分析 + AI 评价")
         Task.detached(priority: .background) {
+            print("🚀 后台任务开始执行")
+            // 1. 先执行风格分析
+            await self.performStyleAnalysis(
+                result: result,
+                photoInfos: photoInfos,
+                progressHandler: progressHandler
+            )
+            
+            // 2. 风格分析完成后，再执行 AI 评价
             do {
-                print("🎨 开始 AI 颜色评价（流式）...")
+                print("🎨 准备调用 AI 评价...")
                 let evaluation = try await self.aiEvaluator.evaluateColorAnalysis(
                     result: result,
                     onUpdate: { @MainActor updatedEvaluation in
@@ -820,30 +841,131 @@ class SimpleAnalysisPipeline {
             await tracker.incrementFailed()
         }
         
-        // 更新进度
+        // 更新进度（节流：每 3 张照片或最后一张才更新）
         let counts = await tracker.getCounts()
         let currentCount = counts.processed + counts.failed
+        let shouldUpdate = (currentCount % 3 == 0) || (currentCount == totalPhotos)
         
-        // 计算预计剩余时间
-        let elapsed: TimeInterval = Date().timeIntervalSince(startTime)
-        let avgTimePerPhoto = currentCount > 0 ? elapsed / Double(currentCount) : 0.0
-        let remainingPhotos = Double(totalPhotos - currentCount)
-        let estimatedRemaining: TimeInterval = avgTimePerPhoto * remainingPhotos + 10.0  // +10秒用于聚类
+        if shouldUpdate {
+            // 计算预计剩余时间
+            let elapsed: TimeInterval = Date().timeIntervalSince(startTime)
+            let avgTimePerPhoto = currentCount > 0 ? elapsed / Double(currentCount) : 0.0
+            let remainingPhotos = Double(totalPhotos - currentCount)
+            let estimatedRemaining: TimeInterval = avgTimePerPhoto * remainingPhotos + 10.0  // +10秒用于聚类
+            
+            await MainActor.run {
+                var progress = AnalysisProgress(
+                    currentPhoto: currentCount,
+                    totalPhotos: totalPhotos,
+                    currentStage: "颜色提取中",
+                    overallProgress: Double(currentCount) / Double(totalPhotos) * 0.7,
+                    failedCount: counts.failed,
+                    cachedCount: cachedCount,
+                    isConcurrent: true
+                )
+                progress.estimatedTimeRemaining = estimatedRemaining
+                progress.startTime = startTime
+                progressHandler(progress)
+            }
+        }
+    }
+    
+    // MARK: - 风格分析（后台）
+    
+    /// 执行风格分析（在后台线程运行，不阻塞主流程）
+    private func performStyleAnalysis(
+        result: AnalysisResult,
+        photoInfos: [PhotoColorInfo],
+        progressHandler: @escaping (AnalysisProgress) -> Void
+    ) async {
+        
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🎨 开始风格分析（后台）")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        
+        // 1. 计算每张照片的 ImageFeature
+        var imageFeatures: [ImageFeature] = []
+        var processedCount = 0
+        
+        for var photoInfo in photoInfos {
+            // 检查是否有冷暖评分数据
+            guard let warmCoolScore = photoInfo.warmCoolScore,
+                  let slicData = warmCoolScore.slicData,
+                  let hslData = warmCoolScore.hslData else {
+                print("⚠️ 照片 \(photoInfo.assetIdentifier.prefix(8))... 缺少 SLIC/HSL 数据，跳过")
+                continue
+            }
+            
+            // 转换数据格式
+            let slicInput = ImageStatisticsCalculator.SLICData(
+                labBuffer: slicData.labBuffer,
+                labels: slicData.labels,
+                width: slicData.width,
+                height: slicData.height
+            )
+            
+            let hslInput = ImageStatisticsCalculator.HSLData(
+                hslList: hslData.hslList
+            )
+            
+            // 计算 ImageFeature
+            let imageFeature = imageStatisticsCalculator.calculateImageFeature(
+                slicData: slicInput,
+                hslData: hslInput,
+                dominantColors: photoInfo.dominantColors,
+                coolWarmScore: warmCoolScore.overallScore
+            )
+            
+            imageFeatures.append(imageFeature)
+            
+            // 更新 photoInfo（注意：需要更新 result.photoInfos）
+            if let index = await MainActor.run(body: {
+                result.photoInfos.firstIndex(where: { $0.assetIdentifier == photoInfo.assetIdentifier })
+            }) {
+                await MainActor.run {
+                    result.photoInfos[index].imageFeature = imageFeature
+                }
+            }
+            
+            processedCount += 1
+            
+            // 每 10 张照片打印一次进度
+            if processedCount % 10 == 0 {
+                print("   已处理 \(processedCount)/\(photoInfos.count) 张照片的风格特征")
+            }
+        }
+        
+        print("✅ 图像特征计算完成: \(imageFeatures.count) 张")
+        
+        // 2. 聚合 CollectionFeature
+        guard !imageFeatures.isEmpty else {
+            print("⚠️ 没有有效的图像特征，跳过作品集聚合")
+            return
+        }
+        
+        print("📊 开始聚合作品集特征...")
+        
+        let clusters = await MainActor.run { result.clusters }
+        let collectionFeature = collectionFeatureCalculator.aggregateCollectionFeature(
+            imageFeatures: imageFeatures,
+            globalPalette: clusters
+        )
         
         await MainActor.run {
-            var progress = AnalysisProgress(
-                currentPhoto: currentCount,
-                totalPhotos: totalPhotos,
-                currentStage: "颜色提取中",
-                overallProgress: Double(currentCount) / Double(totalPhotos) * 0.7,
-                failedCount: counts.failed,
-                cachedCount: cachedCount,
-                isConcurrent: true
-            )
-            progress.estimatedTimeRemaining = estimatedRemaining
-            progress.startTime = startTime
-            progressHandler(progress)
+            result.collectionFeature = collectionFeature
         }
+        
+        print("✅ 作品集特征聚合完成")
+        print("   - 亮度分布: \(collectionFeature.brightnessDistribution.rawValue)")
+        print("   - 对比度分布: \(collectionFeature.contrastDistribution.rawValue)")
+        print("   - 饱和度分布: \(collectionFeature.saturationDistribution.rawValue)")
+        print("   - 平均冷暖分数: \(String(format: "%.3f", collectionFeature.meanCoolWarmScore))")
+        print("   - 情绪标签: \(collectionFeature.aggregatedMoodTags.keys.joined(separator: ", "))")
+        print("   - 风格标签: \(collectionFeature.styleTags.joined(separator: ", "))")
+        
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("🎉 风格分析完成")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 }
 

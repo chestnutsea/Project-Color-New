@@ -18,6 +18,7 @@ struct PhotoColorInfo: Identifiable {
     var primaryClusterIndex: Int?  // 所属主簇
     var clusterMix: [Int: Double] = [:]  // 各簇占比
     var warmCoolScore: WarmCoolScore? = nil  // 冷暖评分
+    var imageFeature: ImageFeature? = nil  // 图像特征（风格分析）
 }
 
 // MARK: - 主色结构
@@ -93,6 +94,9 @@ class AnalysisResult: ObservableObject {
     // 色彩统计数据（按需计算）
     @Published var globalStatistics: GlobalColorStatistics? = nil
     @Published var clusterAnalytics: [ClusterAnalytics]? = nil
+    
+    // 风格分析数据
+    @Published var collectionFeature: CollectionFeature? = nil
     
     // 根据簇索引获取照片
     func photos(in clusterIndex: Int) -> [PhotoColorInfo] {
@@ -204,6 +208,25 @@ struct WarmCoolScore {
     var labBMean: Float            // Lab b通道均值（等同于 labBScore）
     var overallWarmth: Float       // 调试用：代表色暖度
     var overallCoolness: Float     // 调试用：代表色冷度
+    
+    // 风格分析数据（用于后续计算 ImageFeature）
+    var slicData: SLICAnalysisData?   // SLIC 分割数据
+    var hslData: HSLAnalysisData?     // HSL 统计数据
+}
+
+// MARK: - 风格分析辅助数据
+
+/// SLIC 分析数据（用于风格分析）
+struct SLICAnalysisData {
+    let labBuffer: [Float]
+    let labels: [Int]
+    let width: Int
+    let height: Int
+}
+
+/// HSL 分析数据（用于风格分析）
+struct HSLAnalysisData {
+    let hslList: [(h: Float, s: Float, l: Float)]
 }
 
 // MARK: - 所有照片的冷暖分布数据

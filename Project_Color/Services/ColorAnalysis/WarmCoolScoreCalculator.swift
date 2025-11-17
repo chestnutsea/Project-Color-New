@@ -72,10 +72,10 @@ class WarmCoolScoreCalculator {
         print("📐 图像尺寸: \(width) × \(height)")
         #endif
         
-        // 2. 转换为 Lab buffer
-        guard let labBuffer = createLabBuffer(from: resizedImage) else {
+        // 2. 转换为 Lab buffer（同时计算 HSL）
+        guard let (labBuffer, hslList) = createLabBufferWithHSL(from: resizedImage) else {
             #if DEBUG
-            print("❌ Lab 转换失败")
+            print("❌ Lab/HSL 转换失败")
             #endif
             return createEmptyScore()
         }
@@ -125,7 +125,17 @@ class WarmCoolScoreCalculator {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         #endif
         
-        // 7. 构建返回结果
+        // 7. 保存 SLIC 和 HSL 数据（用于后续风格分析）
+        let slicData = SLICAnalysisData(
+            labBuffer: labBuffer,
+            labels: labels,
+            width: width,
+            height: height
+        )
+        
+        let hslData = HSLAnalysisData(hslList: hslList)
+        
+        // 8. 构建返回结果
         return WarmCoolScore(
             overallScore: finalScore,        // 最终融合分数
             labBScore: localScore,           // 局部结构分数
@@ -136,7 +146,9 @@ class WarmCoolScoreCalculator {
             neutralPixelRatio: 0,            // 已废弃
             labBMean: localScore,            // 保持兼容性
             overallWarmth: max(0, paletteScore),   // 调试用
-            overallCoolness: max(0, -paletteScore) // 调试用
+            overallCoolness: max(0, -paletteScore), // 调试用
+            slicData: slicData,              // SLIC 数据
+            hslData: hslData                 // HSL 数据
         )
     }
     
@@ -179,9 +191,62 @@ class WarmCoolScoreCalculator {
         return context.makeImage()
     }
     
-    // MARK: - Lab 转换
+    // MARK: - Lab 和 HSL 转换
     
-    /// 创建 Lab buffer（格式：[L, a, b, L, a, b, ...]）
+    /// 创建 Lab buffer 和 HSL 列表（同时计算，避免重复遍历）
+    private func createLabBufferWithHSL(from cgImage: CGImage) -> ([Float], [(h: Float, s: Float, l: Float)])? {
+        let width = cgImage.width
+        let height = cgImage.height
+        
+        let bytesPerPixel = 4
+        let bytesPerRow = bytesPerPixel * width
+        let totalBytes = bytesPerRow * height
+        
+        var rawData = [UInt8](repeating: 0, count: totalBytes)
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        
+        guard let context = CGContext(
+            data: &rawData,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+        
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        
+        var labBuffer = [Float](repeating: 0, count: width * height * 3)
+        var hslList: [(h: Float, s: Float, l: Float)] = []
+        hslList.reserveCapacity(width * height)
+        
+        for y in 0..<height {
+            for x in 0..<width {
+                let byteIndex = y * bytesPerRow + x * bytesPerPixel
+                let r = Float(rawData[byteIndex + 0]) / 255.0
+                let g = Float(rawData[byteIndex + 1]) / 255.0
+                let b = Float(rawData[byteIndex + 2]) / 255.0
+                
+                // 计算 Lab
+                let (L, a, bLab) = sRGBToLab(r: r, g: g, b: b)
+                let index = (y * width + x) * 3
+                labBuffer[index + 0] = L
+                labBuffer[index + 1] = a
+                labBuffer[index + 2] = bLab
+                
+                // 计算 HSL
+                let hsl = rgbToHSL(r: r, g: g, b: b)
+                hslList.append(hsl)
+            }
+        }
+        
+        return (labBuffer, hslList)
+    }
+    
+    /// 创建 Lab buffer（格式：[L, a, b, L, a, b, ...]）- 保留用于兼容
     private func createLabBuffer(from cgImage: CGImage) -> [Float]? {
         let width = cgImage.width
         let height = cgImage.height
@@ -595,7 +660,45 @@ class WarmCoolScoreCalculator {
             neutralPixelRatio: 0,
             labBMean: 0,
             overallWarmth: 0,
-            overallCoolness: 0
+            overallCoolness: 0,
+            slicData: nil,
+            hslData: nil
         )
+    }
+    
+    // MARK: - RGB 转 HSL
+    
+    /// RGB 转 HSL
+    private func rgbToHSL(r: Float, g: Float, b: Float) -> (h: Float, s: Float, l: Float) {
+        let maxC = max(r, g, b)
+        let minC = min(r, g, b)
+        let delta = maxC - minC
+        
+        // Lightness
+        let l = (maxC + minC) / 2.0
+        
+        // Saturation
+        var s: Float = 0
+        if delta > 0.00001 {
+            s = delta / (1 - abs(2 * l - 1))
+        }
+        
+        // Hue
+        var h: Float = 0
+        if delta > 0.00001 {
+            if maxC == r {
+                h = 60 * fmodf((g - b) / delta, 6)
+            } else if maxC == g {
+                h = 60 * ((b - r) / delta + 2)
+            } else {
+                h = 60 * ((r - g) / delta + 4)
+            }
+        }
+        
+        if h < 0 {
+            h += 360
+        }
+        
+        return (h: h, s: s, l: l)
     }
 }

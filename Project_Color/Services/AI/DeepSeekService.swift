@@ -90,6 +90,7 @@ class DeepSeekService {
         let created: Int
         let model: String
         let choices: [StreamChoice]
+        let usage: StreamUsage?  // 最后一个响应包含 usage
         
         struct StreamChoice: Codable {
             let index: Int
@@ -105,6 +106,18 @@ class DeepSeekService {
             struct Delta: Codable {
                 let role: String?
                 let content: String?
+            }
+        }
+        
+        struct StreamUsage: Codable {
+            let promptTokens: Int
+            let completionTokens: Int
+            let totalTokens: Int
+            
+            enum CodingKeys: String, CodingKey {
+                case promptTokens = "prompt_tokens"
+                case completionTokens = "completion_tokens"
+                case totalTokens = "total_tokens"
             }
         }
     }
@@ -318,6 +331,9 @@ class DeepSeekService {
         
         var fullContent = ""
         var buffer = Data()
+        var totalTokens: Int?
+        var promptTokens: Int?
+        var completionTokens: Int?
         
         // 逐字节读取 SSE 流（使用 Data 以正确处理 UTF-8）
         for try await byte in asyncBytes {
@@ -360,6 +376,13 @@ class DeepSeekService {
                                         onChunk(content)
                                     }
                                 }
+                                
+                                // 记录 token 使用情况（最后一个响应包含 usage）
+                                if let usage = streamResponse.usage {
+                                    totalTokens = usage.totalTokens
+                                    promptTokens = usage.promptTokens
+                                    completionTokens = usage.completionTokens
+                                }
                             } catch {
                                 // 忽略解析错误，继续处理下一行
                                 continue
@@ -368,6 +391,16 @@ class DeepSeekService {
                     }
                 }
             }
+        }
+        
+        // 打印 token 使用情况
+        if let total = totalTokens, let prompt = promptTokens, let completion = completionTokens {
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("📊 Token 使用统计")
+            print("   - Prompt Tokens: \(prompt)")
+            print("   - Completion Tokens: \(completion)")
+            print("   - Total Tokens: \(total)")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         }
         
         print("✅ 流式响应完成，总长度: \(fullContent.count) 字符")

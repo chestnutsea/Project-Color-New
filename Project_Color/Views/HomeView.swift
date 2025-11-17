@@ -358,7 +358,10 @@ struct HomeView: View {
             let result = await analysisPipeline.analyzePhotos(assets: assets) { (progress: AnalysisProgress) in
                 DispatchQueue.main.async {
                     self.analysisProgress = progress
-                    self.processingProgress = progress.overallProgress
+                    // 使用动画平滑过渡进度条
+                    withAnimation(.linear(duration: 0.3)) {
+                        self.processingProgress = progress.overallProgress
+                    }
                 }
             }
             
