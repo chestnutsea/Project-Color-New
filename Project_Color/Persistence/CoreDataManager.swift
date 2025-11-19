@@ -119,8 +119,14 @@ final class CoreDataManager {
     // MARK: - Phase 3: 分析会话管理
     
     /// 保存分析结果到Core Data（使用后台上下文）
+    /// - Parameters:
+    ///   - result: 分析结果
+    ///   - isPersonalWork: 是否为"我的作品"（true=保存，false=不保存）
+    ///   - context: 可选的上下文
+    /// - Returns: 保存的会话实体（如果 isPersonalWork=false 则返回临时实体）
     func saveAnalysisSession(
         from result: AnalysisResult,
+        isPersonalWork: Bool,
         context: NSManagedObjectContext? = nil
     ) throws -> AnalysisSessionEntity {
         // 使用后台上下文避免阻塞主线程
@@ -145,6 +151,8 @@ final class CoreDataManager {
             let session = AnalysisSessionEntity(context: ctx)
             session.id = UUID()
             session.timestamp = timestamp
+            session.createdAt = Date()  // 新增：记录创建时间
+            session.isPersonalWork = isPersonalWork  // 新增：标记是否为个人作品
             session.totalPhotoCount = Int16(totalPhotoCount)
             session.processedCount = Int16(processedCount)
             session.failedCount = Int16(failedCount)
@@ -182,6 +190,13 @@ final class CoreDataManager {
             let photoAnalysis = PhotoAnalysisEntity(context: ctx)
             photoAnalysis.id = UUID()
             photoAnalysis.assetLocalIdentifier = photoInfo.assetIdentifier
+            photoAnalysis.albumIdentifier = photoInfo.albumIdentifier
+            photoAnalysis.albumName = photoInfo.albumName
+            
+            // 调试：记录相册信息保存
+            if let albumId = photoInfo.albumIdentifier, let albumName = photoInfo.albumName {
+                print("   💾 保存相册信息: \(albumName) (ID: \(albumId.prefix(8))...) → 照片 \(photoInfo.assetIdentifier.prefix(8))...")
+            }
 
             if let primaryIndex = photoInfo.primaryClusterIndex {
                 photoAnalysis.primaryClusterIndex = Int16(primaryIndex)
@@ -190,12 +205,68 @@ final class CoreDataManager {
                 }
             }
 
+            // 保存主色信息
             if let dominantColorsData = try? JSONEncoder().encode(photoInfo.dominantColors) {
                 photoAnalysis.dominantColors = dominantColorsData
             }
 
+            // 保存簇混合向量
             if let mixVectorData = try? JSONEncoder().encode(photoInfo.clusterMix) {
                 photoAnalysis.mixVector = mixVectorData
+            }
+
+            // 保存冷暖评分（单张照片）
+            if let warmCoolScore = photoInfo.warmCoolScore {
+                photoAnalysis.warmCoolScore = warmCoolScore.overallScore
+            }
+
+            // 保存 Vision 信息
+            if let visionInfo = photoInfo.visionInfo {
+                if let visionData = try? JSONEncoder().encode(visionInfo) {
+                    photoAnalysis.visionInfo = visionData
+                }
+            }
+
+            // 保存图像特征
+            if let imageFeature = photoInfo.imageFeature {
+                if let featureData = try? JSONEncoder().encode(imageFeature) {
+                    photoAnalysis.imageFeature = featureData
+                }
+            }
+            
+            // 保存照片元数据
+            if let metadata = photoInfo.metadata {
+                let metadataEntity = PhotoMetadataEntity(context: ctx)
+                metadataEntity.id = UUID()
+                metadataEntity.assetLocalIdentifier = photoInfo.assetIdentifier
+                metadataEntity.captureDate = metadata.captureDate
+                metadataEntity.aperture = metadata.aperture ?? 0
+                metadataEntity.shutterSpeed = metadata.shutterSpeed
+                metadataEntity.iso = Int32(metadata.iso ?? 0)
+                metadataEntity.focalLength = metadata.focalLength ?? 0
+                metadataEntity.latitude = metadata.latitude ?? 0
+                metadataEntity.longitude = metadata.longitude ?? 0
+                metadataEntity.locationName = metadata.locationName
+                metadataEntity.cameraMake = metadata.cameraMake
+                metadataEntity.cameraModel = metadata.cameraModel
+                metadataEntity.lensModel = metadata.lensModel
+                
+                if photoAnalysis.entity.relationshipsByName["metadata"]?.isToMany == true {
+                    // Relationship configured as to-many at runtime (safety for older model versions)
+                    let metadataSet = photoAnalysis.mutableSetValue(forKey: "metadata")
+                    metadataSet.removeAllObjects()
+                    metadataSet.add(metadataEntity)
+                } else {
+                    photoAnalysis.metadata = metadataEntity
+                }
+                
+                if metadataEntity.entity.relationshipsByName["photoAnalysis"]?.isToMany == true {
+                    let analysisSet = metadataEntity.mutableSetValue(forKey: "photoAnalysis")
+                    analysisSet.removeAllObjects()
+                    analysisSet.add(photoAnalysis)
+                } else {
+                    metadataEntity.photoAnalysis = photoAnalysis
+                }
             }
 
             photoAnalysis.confidence = 1.0
@@ -205,9 +276,29 @@ final class CoreDataManager {
         }
         session.mutableSetValue(forKey: "photoAnalyses").addObjects(from: photoAnalysisEntities)
         
+        // 保存作品集特征
+        if let collectionFeature = result.collectionFeature {
+            let collectionEntity = CollectionFeatureEntity(context: ctx)
+            collectionEntity.id = UUID()
+            collectionEntity.meanWarmCoolScore = collectionFeature.meanCoolWarmScore
+            
+            // 保存完整的 CollectionFeature 数据
+            if let featureData = try? JSONEncoder().encode(collectionFeature) {
+                collectionEntity.collectionFeatureData = featureData
+            }
+            
+            session.setValue(collectionEntity, forKey: "collectionFeature")
+        }
+        
+            // 保存到 Core Data（无论是"我的作品"还是"其他图像"）
             do {
                 try ctx.save()
                 savedSession = session
+                if isPersonalWork {
+                    print("✅ 我的作品模式：已保存到 Core Data（永久保存）")
+                } else {
+                    print("✅ 其他图像模式：已保存到 Core Data（7天后自动删除）")
+                }
             } catch {
                 saveError = error
             }
@@ -265,5 +356,148 @@ final class CoreDataManager {
         viewContext.delete(session)
         try viewContext.save()
     }
+    
+    // MARK: - Phase 3: 数据清理
+    
+    /// 获取近 7 天内的所有会话
+    func fetchSessionsWithinDays(_ days: Int = 7) -> [AnalysisSessionEntity] {
+        let request = AnalysisSessionEntity.fetchRequest()
+        let calendar = Calendar.current
+        let daysAgo = calendar.date(byAdding: .day, value: -days, to: Date()) ?? Date()
+        
+        request.predicate = NSPredicate(format: "createdAt >= %@", daysAgo as NSDate)
+        request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
+        
+        do {
+            return try viewContext.fetch(request)
+        } catch {
+            print("❌ 获取近 \(days) 天会话失败: \(error)")
+            return []
+        }
+    }
+    
+    /// 清理超过 7 天的"其他图像"数据
+    /// - Returns: 删除的会话数量
+    @discardableResult
+    func cleanupOldOtherImageSessions(olderThanDays days: Int = 7) -> Int {
+        let request = AnalysisSessionEntity.fetchRequest()
+        let calendar = Calendar.current
+        let daysAgo = calendar.date(byAdding: .day, value: -days, to: Date()) ?? Date()
+        
+        // 查询条件：超过 7 天 且 不是"我的作品"
+        request.predicate = NSPredicate(
+            format: "createdAt < %@ AND isPersonalWork == NO",
+            daysAgo as NSDate
+        )
+        
+        do {
+            let oldSessions = try viewContext.fetch(request)
+            let count = oldSessions.count
+            
+            if count > 0 {
+                print("🗑️ 开始清理超过 \(days) 天的\"其他图像\"数据...")
+                print("   找到 \(count) 个会话需要删除")
+                
+                for session in oldSessions {
+                    viewContext.delete(session)
+                }
+                
+                try viewContext.save()
+                print("✅ 已删除 \(count) 个旧会话")
+            } else {
+                print("✅ 没有需要清理的旧数据")
+            }
+            
+            return count
+        } catch {
+            print("❌ 清理旧数据失败: \(error)")
+            return 0
+        }
+    }
+    
+    /// 获取数据统计信息
+    func getDataStatistics() -> (total: Int, personalWork: Int, otherImage: Int, within7Days: Int) {
+        let request = AnalysisSessionEntity.fetchRequest()
+        
+        do {
+            let allSessions = try viewContext.fetch(request)
+            let total = allSessions.count
+            let personalWork = allSessions.filter { $0.isPersonalWork }.count
+            let otherImage = allSessions.filter { !$0.isPersonalWork }.count
+            
+            let calendar = Calendar.current
+            let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+            let within7Days = allSessions.filter { ($0.createdAt ?? Date()) >= sevenDaysAgo }.count
+            
+            return (total, personalWork, otherImage, within7Days)
+        } catch {
+            print("❌ 获取统计信息失败: \(error)")
+            return (0, 0, 0, 0)
+        }
+    }
+    
+    // MARK: - Phase 3: 清空功能
+    
+    /// 清空所有"其他图像"数据（从 Core Data 删除）
+    /// - Returns: 删除的会话数量
+    @discardableResult
+    func clearAllOtherImageSessions() -> Int {
+        let request = AnalysisSessionEntity.fetchRequest()
+        request.predicate = NSPredicate(format: "isPersonalWork == NO")
+        
+        do {
+            let sessions = try viewContext.fetch(request)
+            let count = sessions.count
+            
+            if count > 0 {
+                print("🗑️ 开始清空所有\"其他图像\"数据...")
+                print("   找到 \(count) 个会话需要删除")
+                
+                for session in sessions {
+                    viewContext.delete(session)
+                }
+                
+                try viewContext.save()
+                print("✅ 已删除 \(count) 个\"其他图像\"会话")
+            } else {
+                print("✅ 没有\"其他图像\"数据需要清空")
+            }
+            
+            return count
+        } catch {
+            print("❌ 清空\"其他图像\"数据失败: \(error)")
+            return 0
+        }
+    }
+    
+    /// 清空所有 Vision 标签数据（从 Core Data 删除）
+    /// - Returns: 删除的标签数量
+    @discardableResult
+    func clearAllVisionTags() -> Int {
+        let request = VisionTagEntity.fetchRequest()
+        
+        do {
+            let tags = try viewContext.fetch(request)
+            let count = tags.count
+            
+            if count > 0 {
+                print("🗑️ 开始清空所有 Vision 标签数据...")
+                print("   找到 \(count) 个标签需要删除")
+                
+                for tag in tags {
+                    viewContext.delete(tag)
+                }
+                
+                try viewContext.save()
+                print("✅ 已删除 \(count) 个 Vision 标签")
+            } else {
+                print("✅ 没有 Vision 标签数据需要清空")
+            }
+            
+            return count
+        } catch {
+            print("❌ 清空 Vision 标签数据失败: \(error)")
+            return 0
+        }
+    }
 }
-

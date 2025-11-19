@@ -2,315 +2,261 @@
 //  AlbumPhotosView.swift
 //  Project_Color
 //
-//  Created by Linya Huang on 2025/11/9.
+//  Created by AI Assistant on 2025/11/19.
+//  相册照片网格：显示某个相册内的所有"我的作品"照片
 //
 
 import SwiftUI
 import Photos
+import CoreData
+import Combine
 
 struct AlbumPhotosView: View {
-    let album: Album
-    
-    @State private var photos: [PHAsset] = []
-    @State private var thumbnails: [String: UIImage] = [:]
-    @State private var selectedPhotoIndex: Int? = nil
+    let album: AlbumInfo
+    @StateObject private var viewModel: AlbumPhotosViewModel
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedPhotoIndex: Int?
     
-    // MARK: - 布局常量
-    private let columns = [
-        GridItem(.flexible(), spacing: 2),
-        GridItem(.flexible(), spacing: 2),
-        GridItem(.flexible(), spacing: 2)
-    ]
+    init(album: AlbumInfo) {
+        self.album = album
+        self._viewModel = StateObject(wrappedValue: AlbumPhotosViewModel(albumIdentifier: album.id))
+    }
     
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 2) {
-                ForEach(Array(photos.enumerated()), id: \.element.localIdentifier) { index, asset in
-                    PhotoThumbnailView(
-                        asset: asset,
-                        thumbnail: thumbnails[asset.localIdentifier],
-                        isSelected: false
-                    )
-                    .onTapGesture {
-                        selectedPhotoIndex = index
-                    }
-                    .onAppear {
-                        loadThumbnail(for: asset)
+        NavigationView {
+            Group {
+                if viewModel.photos.isEmpty {
+                    emptyStateView
+                } else {
+                    photoGridView
+                }
+            }
+            .navigationTitle(album.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("关闭") {
+                        dismiss()
                     }
                 }
             }
         }
-        .navigationTitle(album.title)
-        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            loadPhotos()
+            viewModel.loadPhotos()
         }
         .fullScreenCover(item: Binding(
-            get: { selectedPhotoIndex.map { PhotoViewerItem(index: $0, photos: photos) } },
+            get: { selectedPhotoIndex.map { PhotoDetailWrapper(index: $0) } },
             set: { selectedPhotoIndex = $0?.index }
-        )) { item in
-            PhotoDetailView(photos: item.photos, currentIndex: item.index)
+        )) { wrapper in
+            PhotoDetailView(
+                photos: viewModel.photos,
+                initialIndex: wrapper.index,
+                onDismiss: { selectedPhotoIndex = nil }
+            )
         }
     }
     
-    // MARK: - 加载照片
-    private func loadPhotos() {
-        let fetchOptions = PHFetchOptions()
-        fetchOptions.predicate = NSPredicate(format: "mediaType = %d", PHAssetMediaType.image.rawValue)
-        fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        
-        let fetchResult: PHFetchResult<PHAsset>
-        if let collection = album.assetCollection {
-            fetchResult = PHAsset.fetchAssets(in: collection, options: fetchOptions)
-        } else {
-            // "全部"相册
-            fetchResult = PHAsset.fetchAssets(with: .image, options: fetchOptions)
+    // MARK: - 空状态
+    private var emptyStateView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "photo")
+                .font(.system(size: 60))
+                .foregroundColor(.gray)
+            
+            Text("暂无照片")
+                .font(.title2)
+                .foregroundColor(.primary)
+            
+            Text("该相册中的照片可能已被删除")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
         }
-        
-        var assets: [PHAsset] = []
-        fetchResult.enumerateObjects { asset, _, _ in
-            assets.append(asset)
-        }
-        photos = assets
+        .padding(40)
     }
     
-    // MARK: - 加载缩略图
-    private func loadThumbnail(for asset: PHAsset) {
-        guard thumbnails[asset.localIdentifier] == nil else { return }
+    // MARK: - 照片网格（紧密排列的正方形，像原生相册）
+    private var photoGridView: some View {
+        GeometryReader { geometry in
+            let columns = 3
+            let spacing: CGFloat = 1
+            let totalSpacing = spacing * CGFloat(columns - 1)
+            let width = floor((geometry.size.width - totalSpacing) / CGFloat(columns))
+            
+            ScrollView {
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(), spacing: spacing), count: columns),
+                    spacing: spacing
+                ) {
+                    ForEach(Array(viewModel.photos.enumerated()), id: \.element.id) { index, photo in
+                        PhotoThumbnail(photo: photo, side: width)
+                            .frame(width: width, height: width)
+                            .onTapGesture {
+                                selectedPhotoIndex = index
+                            }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - 照片缩略图
+struct PhotoThumbnail: View {
+    let photo: PhotoItem
+    let side: CGFloat
+    @State private var thumbnailImage: UIImage?
+    
+    var body: some View {
+        Group {
+            if let image = thumbnailImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.2))
+                    .overlay(
+                        ProgressView()
+                    )
+            }
+        }
+        .frame(width: side, height: side)
+        .clipped()
+        .onAppear {
+            loadThumbnail()
+        }
+    }
+    
+    private func loadThumbnail() {
+        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [photo.assetIdentifier], options: nil)
+        guard let asset = fetchResult.firstObject else { return }
         
-        let manager = PHImageManager.default()
         let options = PHImageRequestOptions()
         options.deliveryMode = .opportunistic
-        options.isNetworkAccessAllowed = true
+        options.resizeMode = .fast
+        options.isNetworkAccessAllowed = false
         
-        let targetSize = CGSize(width: 300, height: 300)
-        
-        manager.requestImage(
+        PHImageManager.default().requestImage(
             for: asset,
-            targetSize: targetSize,
+            targetSize: CGSize(width: 200, height: 200),
             contentMode: .aspectFill,
             options: options
         ) { image, _ in
             if let image = image {
                 DispatchQueue.main.async {
-                    thumbnails[asset.localIdentifier] = image
+                    self.thumbnailImage = image
                 }
             }
         }
     }
 }
 
-// MARK: - 照片缩略图视图
-struct PhotoThumbnailView: View {
-    let asset: PHAsset
-    let thumbnail: UIImage?
-    let isSelected: Bool
+// MARK: - 照片项
+struct PhotoItem: Identifiable {
+    let id: String  // assetLocalIdentifier
+    let assetIdentifier: String
+    let visionInfo: PhotoVisionInfo?
+}
+
+// MARK: - ViewModel
+class AlbumPhotosViewModel: ObservableObject {
+    @Published var photos: [PhotoItem] = []
     
-    var body: some View {
-        GeometryReader { geometry in
-            if let thumbnail = thumbnail {
-                Image(uiImage: thumbnail)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: geometry.size.width, height: geometry.size.width)
-                    .clipped()
-            } else {
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: geometry.size.width, height: geometry.size.width)
+    private let albumIdentifier: String
+    private let coreDataManager = CoreDataManager.shared
+    
+    init(albumIdentifier: String) {
+        self.albumIdentifier = albumIdentifier
+    }
+    
+    func loadPhotos() {
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
+            let context = self.coreDataManager.viewContext
+            let request = PhotoAnalysisEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "albumIdentifier == %@", self.albumIdentifier)
+            
+            do {
+                let entities = try context.fetch(request)
+                let assetIds: [String] = entities.compactMap { $0.assetLocalIdentifier }
+                let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: assetIds, options: nil)
+                var assetMap: [String: PHAsset] = [:]
+                fetchResult.enumerateObjects { asset, _, _ in
+                    assetMap[asset.localIdentifier] = asset
+                }
+                
+                let decoder = JSONDecoder()
+                let sortedEntities = entities.sorted {
+                    (self.primarySession(for: $0)?.timestamp ?? Date.distantPast) >
+                    (self.primarySession(for: $1)?.timestamp ?? Date.distantPast)
+                }
+                
+                let validPhotos: [PhotoItem] = sortedEntities.compactMap { entity in
+                    guard let assetId = entity.assetLocalIdentifier,
+                          let asset = assetMap[assetId],
+                          self.isPersonalWork(for: entity) else {
+                        return nil
+                    }
+                    
+                    var visionInfo: PhotoVisionInfo?
+                    if let data = entity.visionInfo {
+                        visionInfo = try? decoder.decode(PhotoVisionInfo.self, from: data)
+                    }
+                    
+                    return PhotoItem(
+                        id: asset.localIdentifier,
+                        assetIdentifier: asset.localIdentifier,
+                        visionInfo: visionInfo
+                    )
+                }
+                
+                await MainActor.run {
+                    self.photos = validPhotos
+                }
+                
+                print("✅ 加载了 \(validPhotos.count) 张照片（相册: \(self.albumIdentifier)）")
+            } catch {
+                print("❌ 加载照片失败: \(error.localizedDescription)")
             }
         }
-        .aspectRatio(1, contentMode: .fit)
+    }
+    
+    private func primarySession(for photo: PhotoAnalysisEntity) -> AnalysisSessionEntity? {
+        let rawValue = photo.value(forKey: "session")
+        if let session = rawValue as? AnalysisSessionEntity {
+            return session
+        }
+        if let sessionSet = rawValue as? NSSet,
+           let session = sessionSet.anyObject() as? AnalysisSessionEntity {
+            return session
+        }
+        if let sessions = rawValue as? Set<AnalysisSessionEntity> {
+            return sessions.first
+        }
+        return nil
+    }
+    
+    private func isPersonalWork(for photo: PhotoAnalysisEntity) -> Bool {
+        if let session = primarySession(for: photo) {
+            return session.isPersonalWork
+        }
+        return false
     }
 }
 
-// MARK: - 照片查看器数据模型
-struct PhotoViewerItem: Identifiable {
+// MARK: - 辅助结构
+struct PhotoDetailWrapper: Identifiable {
     let id = UUID()
     let index: Int
-    let photos: [PHAsset]
 }
 
-// MARK: - 照片详情查看
-struct PhotoDetailView: View {
-    let photos: [PHAsset]
-    @State var currentIndex: Int
-    @State private var loadedImages: [String: UIImage] = [:]
-    @Environment(\.dismiss) private var dismiss
-    
-    var body: some View {
-        ZStack {
-            Color.black.edgesIgnoringSafeArea(.all)
-            
-            // 使用 TabView 实现自然的滑动效果
-            TabView(selection: $currentIndex) {
-                ForEach(Array(photos.enumerated()), id: \.offset) { index, asset in
-                    ZoomableImageView(image: loadedImages[asset.localIdentifier])
-                        .onAppear {
-                            if loadedImages[asset.localIdentifier] == nil {
-                                loadImage(for: asset, at: index)
-                            }
-                        }
-                        .tag(index)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .ignoresSafeArea()
-            
-            // 顶部关闭按钮
-            VStack {
-                HStack {
-                    Spacer()
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(.white)
-                            .padding()
-                            .background(Color.black.opacity(0.5))
-                            .clipShape(Circle())
-                    }
-                    .padding()
-                }
-                Spacer()
-            }
-        }
-        .onAppear {
-            // 预加载当前和相邻的图片
-            loadImage(for: photos[currentIndex], at: currentIndex)
-            if currentIndex > 0 {
-                loadImage(for: photos[currentIndex - 1], at: currentIndex - 1)
-            }
-            if currentIndex < photos.count - 1 {
-                loadImage(for: photos[currentIndex + 1], at: currentIndex + 1)
-            }
-        }
-        .onChange(of: currentIndex) { newIndex in
-            // 预加载相邻图片
-            if newIndex > 0 && loadedImages[photos[newIndex - 1].localIdentifier] == nil {
-                loadImage(for: photos[newIndex - 1], at: newIndex - 1)
-            }
-            if newIndex < photos.count - 1 && loadedImages[photos[newIndex + 1].localIdentifier] == nil {
-                loadImage(for: photos[newIndex + 1], at: newIndex + 1)
-            }
-        }
-    }
-    
-    private func loadImage(for asset: PHAsset, at index: Int) {
-        guard loadedImages[asset.localIdentifier] == nil else { return }
-        
-        let manager = PHImageManager.default()
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .highQualityFormat
-        options.isNetworkAccessAllowed = true
-        
-        let targetSize = CGSize(width: 2000, height: 2000)
-        
-        manager.requestImage(
-            for: asset,
-            targetSize: targetSize,
-            contentMode: .aspectFit,
-            options: options
-        ) { image, _ in
-            if let image = image {
-                DispatchQueue.main.async {
-                    loadedImages[asset.localIdentifier] = image
-                }
-            }
-        }
-    }
-}
-
-// MARK: - 可缩放的图片视图
-struct ZoomableImageView: View {
-    let image: UIImage?
-    
-    @State private var scale: CGFloat = 1.0
-    @State private var lastScale: CGFloat = 1.0
-    @State private var offset: CGSize = .zero
-    @State private var lastOffset: CGSize = .zero
-    
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                if let image = image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .scaleEffect(scale)
-                        .offset(offset)
-                        .simultaneousGesture(
-                            MagnificationGesture()
-                                .onChanged { value in
-                                    let delta = value / lastScale
-                                    lastScale = value
-                                    scale = min(max(scale * delta, 1.0), 5.0)
-                                }
-                                .onEnded { _ in
-                                    lastScale = 1.0
-                                    if scale < 1.0 {
-                                        withAnimation {
-                                            scale = 1.0
-                                            offset = .zero
-                                            lastOffset = .zero
-                                        }
-                                    }
-                                }
-                        )
-                        .gesture(
-                            DragGesture(minimumDistance: scale > 1.0 ? 0 : 30)
-                                .onChanged { value in
-                                    if scale > 1.0 {
-                                        offset = CGSize(
-                                            width: lastOffset.width + value.translation.width,
-                                            height: lastOffset.height + value.translation.height
-                                        )
-                                    }
-                                }
-                                .onEnded { _ in
-                                    if scale > 1.0 {
-                                        lastOffset = offset
-                                    }
-                                }
-                        )
-                        .onTapGesture(count: 2) {
-                            // 双击切换缩放
-                            withAnimation {
-                                if scale > 1.0 {
-                                    scale = 1.0
-                                    offset = .zero
-                                    lastOffset = .zero
-                                } else {
-                                    scale = 2.0
-                                }
-                            }
-                        }
-                        .onChange(of: image) { _ in
-                            // 切换图片时重置缩放
-                            scale = 1.0
-                            offset = .zero
-                            lastOffset = .zero
-                            lastScale = 1.0
-                        }
-                } else {
-                    ProgressView()
-                        .tint(.white)
-                }
-            }
-            .frame(width: geometry.size.width, height: geometry.size.height)
-        }
-    }
-}
-
+// MARK: - Preview
 #Preview {
-    NavigationStack {
-        AlbumPhotosView(album: Album(
-            id: "preview",
-            title: "预览相册",
-            assetCollection: nil,
-            coverImage: nil,
-            photosCount: 10
-        ))
-    }
+    AlbumPhotosView(album: AlbumInfo(
+        id: "test-album-id",
+        name: "测试相册",
+        photoCount: 10,
+        coverAssetIdentifier: nil
+    ))
 }
-

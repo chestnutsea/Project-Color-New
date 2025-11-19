@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="24299" systemVersion="24G84" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithCloudKit="YES" userDefinedModelVersionIdentifier="">
     <entity name="AnalysisSessionEntity" representedClassName="AnalysisSessionEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="createdAt" attributeType="Date" defaultDateTimeInterval="0" usesScalarValueType="NO"/>
         <attribute name="failedCount" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
+        <attribute name="isPersonalWork" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
         <attribute name="optimalK" attributeType="Integer 16" defaultValueString="5" usesScalarValueType="YES"/>
         <attribute name="processedCount" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="silhouetteScore" optional="YES" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
@@ -10,6 +12,7 @@
         <attribute name="timestamp" attributeType="Date" defaultDateTimeInterval="0" usesScalarValueType="NO"/>
         <attribute name="totalPhotoCount" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <relationship name="clusters" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="ColorClusterEntity" inverseName="session" inverseEntity="ColorClusterEntity"/>
+        <relationship name="collectionFeature" optional="YES" toMany="NO" deletionRule="Cascade" destinationEntity="CollectionFeatureEntity" inverseName="session" inverseEntity="CollectionFeatureEntity"/>
         <relationship name="photoAnalyses" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="PhotoAnalysisEntity" inverseName="session" inverseEntity="PhotoAnalysisEntity"/>
     </entity>
     <entity name="ColorClusterEntity" representedClassName="ColorClusterEntity" syncable="YES" codeGenerationType="class">
@@ -45,15 +48,21 @@
         <relationship name="photo" optional="YES" deletionRule="Nullify" destinationEntity="PhotoEntity" inverseName="features" inverseEntity="PhotoEntity"/>
     </entity>
     <entity name="PhotoAnalysisEntity" representedClassName="PhotoAnalysisEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="albumIdentifier" optional="YES" attributeType="String"/>
+        <attribute name="albumName" optional="YES" attributeType="String"/>
         <attribute name="assetLocalIdentifier" attributeType="String" defaultValueString=""/>
         <attribute name="confidence" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="deltaEToCentroid" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="dominantColors" optional="YES" attributeType="Binary"/>
         <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
+        <attribute name="imageFeature" optional="YES" attributeType="Binary"/>
         <attribute name="mixVector" optional="YES" attributeType="Binary"/>
         <attribute name="primaryClusterIndex" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="primaryColorName" attributeType="String" defaultValueString=""/>
         <attribute name="sha256Hash" optional="YES" attributeType="String"/>
+        <attribute name="visionInfo" optional="YES" attributeType="Binary"/>
+        <attribute name="warmCoolScore" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
+        <relationship name="metadata" optional="YES" toMany="NO" deletionRule="Cascade" destinationEntity="PhotoMetadataEntity" inverseName="photoAnalysis" inverseEntity="PhotoMetadataEntity"/>
         <relationship name="primaryCluster" optional="YES" deletionRule="Nullify" destinationEntity="ColorClusterEntity" inverseName="photoAnalyses" inverseEntity="ColorClusterEntity"/>
         <relationship name="session" optional="YES" deletionRule="Nullify" destinationEntity="AnalysisSessionEntity" inverseName="photoAnalyses" inverseEntity="AnalysisSessionEntity"/>
     </entity>
@@ -89,9 +98,36 @@
         <relationship name="photos" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="PhotoEntity" inverseName="preference" inverseEntity="PhotoEntity"/>
     </entity>
     <entity name="VisionTagEntity" representedClassName="VisionTagEntity" syncable="YES" codeGenerationType="class">
-        <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
-        <attribute name="tag" attributeType="String" defaultValueString=""/>
         <attribute name="count" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
         <attribute name="lastUpdated" attributeType="Date" defaultDateTimeInterval="0" usesScalarValueType="NO"/>
+        <attribute name="source" attributeType="String" defaultValueString="Scene"/>
+        <attribute name="tag" attributeType="String" defaultValueString=""/>
+        <attribute name="confidenceMean" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="confidenceMax" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="confidenceMin" attributeType="Double" defaultValueString="1" usesScalarValueType="YES"/>
+        <attribute name="confidenceVariance" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+    </entity>
+    <entity name="CollectionFeatureEntity" representedClassName="CollectionFeatureEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="collectionFeatureData" optional="YES" attributeType="Binary"/>
+        <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
+        <attribute name="meanWarmCoolScore" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
+        <relationship name="session" optional="YES" toMany="NO" deletionRule="Nullify" destinationEntity="AnalysisSessionEntity" inverseName="collectionFeature" inverseEntity="AnalysisSessionEntity"/>
+    </entity>
+    <entity name="PhotoMetadataEntity" representedClassName="PhotoMetadataEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
+        <attribute name="assetLocalIdentifier" attributeType="String" defaultValueString=""/>
+        <attribute name="captureDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="aperture" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="shutterSpeed" optional="YES" attributeType="String"/>
+        <attribute name="iso" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="focalLength" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="latitude" optional="YES" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="longitude" optional="YES" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="locationName" optional="YES" attributeType="String"/>
+        <attribute name="cameraMake" optional="YES" attributeType="String"/>
+        <attribute name="cameraModel" optional="YES" attributeType="String"/>
+        <attribute name="lensModel" optional="YES" attributeType="String"/>
+        <relationship name="photoAnalysis" optional="YES" toMany="NO" deletionRule="Nullify" destinationEntity="PhotoAnalysisEntity" inverseName="metadata" inverseEntity="PhotoAnalysisEntity"/>
     </entity>
 </model>

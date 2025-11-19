@@ -22,33 +22,29 @@ struct AlbumListView: View {
     var body: some View {
         NavigationStack {
             GeometryReader { geometry in
+                let columns = 2
+                let totalSpacing = spacing * CGFloat(columns - 1)
+                let totalPadding = horizontalPadding * 2
+                let cardSize = max(120, floor((geometry.size.width - totalSpacing - totalPadding) / CGFloat(columns)))
+                
                 ScrollView {
                     LazyVGrid(
-                        columns: [
-                            GridItem(.flexible(), spacing: spacing),
-                            GridItem(.flexible(), spacing: spacing)
-                        ],
+                        columns: Array(repeating: GridItem(.flexible(), spacing: spacing), count: columns),
                         spacing: spacing
                     ) {
                         ForEach(viewModel.albums) { album in
                             AlbumCardView(
                                 album: album,
-                                cardSize: viewModel.calculateCardSize(screenWidth: geometry.size.width),
+                                cardSize: cardSize,
                                 cornerRadius: viewModel.cardCornerRadius,
                                 isSelected: selectionManager.isAlbumSelected(album),
                                 showOptions: showingOptionsForAlbumId == album.id,
                                 onTap: {
                                     if selectionManager.isAlbumSelected(album) {
-                                        // 已选中，取消选中
                                         selectionManager.toggleAlbumSelection(album)
                                         showingOptionsForAlbumId = nil
                                     } else {
-                                        // 未选中，显示选项或切换选项
-                                        if showingOptionsForAlbumId == album.id {
-                                            showingOptionsForAlbumId = nil
-                                        } else {
-                                            showingOptionsForAlbumId = album.id
-                                        }
+                                        showingOptionsForAlbumId = (showingOptionsForAlbumId == album.id) ? nil : album.id
                                     }
                                 },
                                 onSelect: {
@@ -83,6 +79,9 @@ struct AlbumListView: View {
                 }
             }
             .onAppear {
+                // 每次进入相册页时清空之前的选择
+                selectionManager.clearSelection()
+                // 加载相册列表（已按首字母排序）
                 viewModel.loadAlbums()
             }
         }
@@ -156,7 +155,7 @@ struct AlbumCardView: View {
                             .cornerRadius(10)
                         }
                         
-                        NavigationLink(destination: AlbumPhotosView(album: album)) {
+                        NavigationLink(destination: NativeAlbumPhotosView(album: album)) {
                             HStack {
                                 Image(systemName: "eye")
                                     .font(.system(size: 20))
@@ -200,4 +199,3 @@ struct AlbumCardView: View {
         AlbumListView()
     }
 }
-

@@ -38,7 +38,12 @@ class PhotoSelectionManager: ObservableObject {
     
     // 从选中的相册获取最新的 N 张照片（去重）
     func getLatestPhotos(count: Int) -> [PHAsset] {
-        var allAssets: [PHAsset] = []
+        return getLatestPhotosWithAlbums(count: count).map { $0.asset }
+    }
+    
+    /// 返回带有所属相册信息的最新照片（用于记录作品集）
+    func getLatestPhotosWithAlbums(count: Int) -> [(asset: PHAsset, album: Album?)] {
+        var allAssets: [(asset: PHAsset, album: Album?)] = []
         var assetIds = Set<String>() // 用于去重
         
         for album in selectedAlbums {
@@ -55,17 +60,14 @@ class PhotoSelectionManager: ObservableObject {
             }
             
             fetchResult.enumerateObjects { asset, _, _ in
-                // 只添加不重复的照片
-                if !assetIds.contains(asset.localIdentifier) {
-                    allAssets.append(asset)
-                    assetIds.insert(asset.localIdentifier)
+                if assetIds.insert(asset.localIdentifier).inserted {
+                    allAssets.append((asset, album))
                 }
             }
         }
         
-        // 按创建时间排序，获取最新的 N 张
-        let sorted = allAssets.sorted { asset1, asset2 in
-            guard let date1 = asset1.creationDate, let date2 = asset2.creationDate else {
+        let sorted = allAssets.sorted { lhs, rhs in
+            guard let date1 = lhs.asset.creationDate, let date2 = rhs.asset.creationDate else {
                 return false
             }
             return date1 > date2
@@ -74,4 +76,3 @@ class PhotoSelectionManager: ObservableObject {
         return Array(sorted.prefix(count))
     }
 }
-

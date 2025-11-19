@@ -13,17 +13,27 @@ import UIKit
 
 struct CollectedTagsView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var tagStats: [TagStat] = []
+    @State private var tagStatsBySource: [TagSource: [TagStat]] = [:]
+    @State private var selectedSource: TagSource = .sceneClassification
     @State private var searchText: String = ""
     @State private var showShareSheet = false
     @State private var shareURL: URL?
+    @State private var showClearAlert = false
+    
+    var currentTagStats: [TagStat] {
+        tagStatsBySource[selectedSource] ?? []
+    }
     
     var filteredTagStats: [TagStat] {
         if searchText.isEmpty {
-            return tagStats
+            return currentTagStats
         } else {
-            return tagStats.filter { $0.tag.localizedCaseInsensitiveContains(searchText) }
+            return currentTagStats.filter { $0.tag.localizedCaseInsensitiveContains(searchText) }
         }
+    }
+    
+    var totalTagCount: Int {
+        tagStatsBySource.values.flatMap { $0 }.count
     }
     
     var body: some View {
@@ -34,7 +44,7 @@ struct CollectedTagsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("收集到的标签")
                             .font(.headline)
-                        Text("\(tagStats.count) 个唯一标签，共 \(TagCollector.shared.totalCount()) 次")
+                        Text("\(totalTagCount) 个标签，共 \(TagCollector.shared.totalCount()) 次")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -42,7 +52,7 @@ struct CollectedTagsView: View {
                     Spacer()
                     
                     // 导出按钮
-                    if !tagStats.isEmpty {
+                    if totalTagCount > 0 {
                         Button(action: exportTags) {
                             Label("导出", systemImage: "square.and.arrow.down")
                                 .font(.caption)
@@ -53,7 +63,7 @@ struct CollectedTagsView: View {
                     }
                     
                     // 清空按钮
-                    Button(action: clearTags) {
+                    Button(action: { showClearAlert = true }) {
                         Label("清空", systemImage: "trash")
                             .font(.caption)
                             .foregroundColor(.red)
@@ -62,6 +72,15 @@ struct CollectedTagsView: View {
                 }
                 .padding()
                 .background(Color(.systemGray6))
+                
+                // Tab 选择器（移除了"图像"，因为与"场景"重复）
+                Picker("来源", selection: $selectedSource) {
+                    Text("场景").tag(TagSource.sceneClassification)
+                    Text("对象").tag(TagSource.objectRecognition)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.top, 8)
                 
                 // 搜索栏
                 HStack {
@@ -106,14 +125,31 @@ struct CollectedTagsView: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 1) {
                             // 表头
-                            HStack {
+                            HStack(spacing: 8) {
                                 Text("标签")
-                                    .font(.headline)
+                                    .font(.caption)
                                     .foregroundColor(.secondary)
-                                Spacer()
+                                    .frame(width: 80, alignment: .leading)
                                 Text("次数")
-                                    .font(.headline)
+                                    .font(.caption)
                                     .foregroundColor(.secondary)
+                                    .frame(width: 40, alignment: .center)
+                                Text("均值")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 50, alignment: .center)
+                                Text("最大")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 50, alignment: .center)
+                                Text("最小")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 50, alignment: .center)
+                                Text("方差")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 50, alignment: .center)
                             }
                             .padding(.horizontal)
                             .padding(.vertical, 8)
@@ -146,60 +182,72 @@ struct CollectedTagsView: View {
                 #endif
             }
         }
+        .alert("清空 Vision 标签", isPresented: $showClearAlert) {
+            Button("取消", role: .cancel) { }
+            Button("清空", role: .destructive) {
+                clearTags()
+            }
+        } message: {
+            Text("确定要清空所有 Vision 标签吗？此操作会同时清空内存和 Core Data 中的标签数据，不可恢复。")
+        }
         .onAppear {
             loadTags()
         }
     }
     
     private func loadTags() {
-        tagStats = TagCollector.shared.exportStats()
+        tagStatsBySource = TagCollector.shared.exportStatsBySource()
     }
     
     private func clearTags() {
+        // 清空内存中的标签
         TagCollector.shared.clear()
-        tagStats = []
+        
+        // 清空 Core Data 中的标签
+        let count = CoreDataManager.shared.clearAllVisionTags()
+        print("✅ 已清空 \(count) 个 Vision 标签（Core Data）")
+        
+        // 刷新显示
+        tagStatsBySource = [:]
     }
     
     // MARK: - 导出标签
     private func exportTags() {
         #if canImport(UIKit)
-        // 创建文件内容
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        let dateString = dateFormatter.string(from: Date())
-        
-        var content = "Vision 标签导出\n"
-        content += "导出时间: \(dateString)\n"
-        content += "唯一标签数: \(tagStats.count)\n"
-        content += "总标签数: \(TagCollector.shared.totalCount())\n"
-        content += "\n"
-        content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        content += "\n"
-        content += String(format: "%-30s %s\n", "标签", "次数")
-        content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        content += "\n"
-        
-        // 添加所有标签（带次数）
-        for tagStat in tagStats {
-            content += String(format: "%-30s %d\n", tagStat.tag, tagStat.count)
-        }
-        
-        // 创建临时文件
-        let fileDateFormatter = DateFormatter()
-        fileDateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        let fileName = "vision_tags_\(fileDateFormatter.string(from: Date())).txt"
-        let tempDir = FileManager.default.temporaryDirectory
-        let fileURL = tempDir.appendingPathComponent(fileName)
-        
-        do {
-            // 写入文件
-            try content.write(to: fileURL, atomically: true, encoding: .utf8)
+        Task.detached(priority: .userInitiated) {
+            let tagData = await MainActor.run { tagStatsBySource }
             
-            // 显示分享界面
-            shareURL = fileURL
-            showShareSheet = true
-        } catch {
-            print("❌ 导出失败: \(error.localizedDescription)")
+            // 构建 CSV，包含 tag、count、source、mean、max、min、variance
+            var rows: [String] = ["tag,count,source,mean,max,min,variance"]
+            for source in [TagSource.sceneClassification, TagSource.objectRecognition] {
+                guard let stats = tagData[source], !stats.isEmpty else { continue }
+                for stat in stats {
+                    let sanitizedTag = stat.tag.replacingOccurrences(of: ",", with: " ")
+                    let mean = String(format: "%.4f", stat.confidenceMean)
+                    let max = String(format: "%.4f", stat.confidenceMax)
+                    let min = String(format: "%.4f", stat.confidenceMin)
+                    let variance = String(format: "%.6f", stat.confidenceVariance)
+                    rows.append("\(sanitizedTag),\(stat.count),\(source.rawValue),\(mean),\(max),\(min),\(variance)")
+                }
+            }
+            
+            let content = rows.joined(separator: "\n")
+            
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+            let fileURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("vision_tags_\(formatter.string(from: Date())).csv")
+            
+            do {
+                try content.write(to: fileURL, atomically: true, encoding: .utf8)
+                await MainActor.run {
+                    shareURL = fileURL
+                    showShareSheet = true
+                }
+                print("✅ 标签导出成功: \(fileURL.lastPathComponent)")
+            } catch {
+                print("❌ 导出失败: \(error.localizedDescription)")
+            }
         }
         #endif
     }
@@ -209,26 +257,63 @@ struct CollectedTagsView: View {
 struct TagStatRow: View {
     let tagStat: TagStat
     
+    private var sourceIcon: String {
+        switch tagStat.source {
+        case .sceneClassification:
+            return "photo.on.rectangle"
+        case .imageClassification:
+            return "photo"
+        case .objectRecognition:
+            return "cube.box"
+        }
+    }
+    
+    private var sourceColor: Color {
+        switch tagStat.source {
+        case .sceneClassification:
+            return .blue
+        case .imageClassification:
+            return .green
+        case .objectRecognition:
+            return .orange
+        }
+    }
+    
     var body: some View {
-        HStack {
-            Image(systemName: "tag.fill")
-                .font(.caption)
-                .foregroundColor(.blue)
-                .frame(width: 20)
-            
+        HStack(spacing: 8) {
             Text(tagStat.tag)
-                .font(.body)
-            
-            Spacer()
+                .font(.caption)
+                .lineLimit(1)
+                .frame(width: 80, alignment: .leading)
             
             Text("\(tagStat.count)")
-                .font(.body)
+                .font(.caption)
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
-                .frame(minWidth: 50, alignment: .trailing)
+                .frame(width: 40, alignment: .center)
+            
+            Text(String(format: "%.3f", tagStat.confidenceMean))
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .frame(width: 50, alignment: .center)
+            
+            Text(String(format: "%.3f", tagStat.confidenceMax))
+                .font(.caption)
+                .foregroundColor(.green)
+                .frame(width: 50, alignment: .center)
+            
+            Text(String(format: "%.3f", tagStat.confidenceMin))
+                .font(.caption)
+                .foregroundColor(.orange)
+                .frame(width: 50, alignment: .center)
+            
+            Text(String(format: "%.4f", tagStat.confidenceVariance))
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .frame(width: 50, alignment: .center)
         }
         .padding(.horizontal)
-        .padding(.vertical, 12)
+        .padding(.vertical, 8)
         .background(Color(.systemBackground))
         .contentShape(Rectangle())
     }
@@ -258,4 +343,3 @@ struct ShareSheet: UIViewControllerRepresentable {
 #Preview {
     CollectedTagsView()
 }
-

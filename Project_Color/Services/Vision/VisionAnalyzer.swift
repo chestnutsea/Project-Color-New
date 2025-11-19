@@ -11,8 +11,14 @@ import Vision
 #if canImport(UIKit)
 import UIKit
 #endif
+#if canImport(CoreImage)
+import CoreImage
+#endif
 
 class VisionAnalyzer {
+    #if canImport(UIKit)
+    private let ciContext = CIContext()
+    #endif
     
     // MARK: - 主分析方法
     
@@ -21,7 +27,7 @@ class VisionAnalyzer {
     /// - Returns: PhotoVisionInfo 包含所有识别结果
     func analyzeImage(_ image: UIImage) async -> PhotoVisionInfo? {
         #if canImport(UIKit)
-        guard let cgImage = image.cgImage else {
+        guard let cgImage = makeCGImage(from: image) else {
             print("❌ Vision: 无法获取 CGImage")
             return nil
         }
@@ -41,16 +47,16 @@ class VisionAnalyzer {
         let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
         
         // 并发执行所有分析，收集结果
-        let (scenes, saliency, classifications, horizon) = await withTaskGroup(
+        let (scenes, saliency, objects, horizon) = await withTaskGroup(
             of: VisionAnalysisResult.self,
             returning: (
                 [SceneClassification],
                 [SaliencyObject],
-                [ImageClassification],
+                [RecognizedObject],
                 (Float?, String?)?
             ).self
         ) { group in
-            // 场景识别
+            // 场景识别（VNClassifyImageRequest 返回场景分类）
             group.addTask {
                 await self.performSceneClassification(handler: handler)
             }
@@ -60,9 +66,9 @@ class VisionAnalyzer {
                 await self.performSaliencyAnalysis(handler: handler)
             }
             
-            // 图像分类
+            // 对象检测（动物 + 人体）
             group.addTask {
-                await self.performImageClassification(handler: handler)
+                await self.performObjectRecognition(handler: handler)
             }
             
             // 地平线检测
@@ -73,7 +79,7 @@ class VisionAnalyzer {
             // 收集结果
             var scenes: [SceneClassification] = []
             var saliency: [SaliencyObject] = []
-            var classifications: [ImageClassification] = []
+            var objects: [RecognizedObject] = []
             var horizon: (Float?, String?)? = nil
             
             for await result in group {
@@ -83,26 +89,35 @@ class VisionAnalyzer {
                 case .saliencyObjects(let items):
                     saliency = items
                 case .imageClassifications(let items):
-                    classifications = items
+                    // 移除了重复的图像分类，VNClassifyImageRequest 就是场景分类
+                    break
+                case .recognizedObjects(let items):
+                    objects = items
                 case .horizonDetection(let angle, let transform):
                     horizon = (angle, transform)
                 }
             }
             
-            return (scenes, saliency, classifications, horizon)
+            return (scenes, saliency, objects, horizon)
         }
         
         // 构建 visionInfo
         var visionInfo = PhotoVisionInfo()
         visionInfo.sceneClassifications = scenes
         visionInfo.saliencyObjects = saliency
-        visionInfo.imageClassifications = classifications
+        visionInfo.imageClassifications = []  // 不再使用，避免重复
+        visionInfo.recognizedObjects = objects
         visionInfo.horizonAngle = horizon?.0
         visionInfo.horizonTransform = horizon?.1
         
-        // 收集所有标签到 TagCollector
-        let allTags = scenes.map { $0.identifier } + classifications.map { $0.identifier }
-        TagCollector.shared.addMultiple(allTags)
+        // 收集所有标签到 TagCollector（带来源信息和置信度）
+        for scene in scenes {
+            TagCollector.shared.add(scene.identifier, source: .sceneClassification, confidence: Double(scene.confidence))
+        }
+        // 移除了重复的图像分类标签收集
+        for object in objects {
+            TagCollector.shared.add(object.identifier, source: .objectRecognition, confidence: Double(object.confidence))
+        }
         
         // 推断摄影属性
         visionInfo.photographyAttributes = inferPhotographyAttributes(from: visionInfo)
@@ -117,13 +132,32 @@ class VisionAnalyzer {
         return nil
         #endif
     }
-    
+
+    #if canImport(UIKit)
+    private func makeCGImage(from image: UIImage) -> CGImage? {
+        if let cgImage = image.cgImage {
+            return cgImage
+        }
+        if let ciImage = image.ciImage {
+            return ciContext.createCGImage(ciImage, from: ciImage.extent)
+        }
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = image.scale
+        let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
+        let renderedImage = renderer.image { _ in
+            image.draw(at: .zero)
+        }
+        return renderedImage.cgImage
+    }
+    #endif
+
     // MARK: - 分析结果枚举
     
     private enum VisionAnalysisResult {
         case sceneClassifications([SceneClassification])
         case saliencyObjects([SaliencyObject])
         case imageClassifications([ImageClassification])
+        case recognizedObjects([RecognizedObject])
         case horizonDetection(angle: Float?, transform: String?)
     }
     
@@ -252,8 +286,11 @@ class VisionAnalyzer {
         return .saliencyObjects([])
     }
     
-    // MARK: - 图像分类
+    // MARK: - 图像分类（已弃用）
+    // 注意：VNClassifyImageRequest 返回的就是场景分类，与 performSceneClassification 重复
+    // 如需真正的图像分类（如识别物体类别），需要使用自定义 Core ML 模型
     
+    /*
     private func performImageClassification(handler: VNImageRequestHandler) async -> VisionAnalysisResult {
         // 使用回调方式的请求
         var resultObservations: [VNClassificationObservation] = []
@@ -318,6 +355,67 @@ class VisionAnalyzer {
         }
         
         return .imageClassifications([])
+    }
+    */
+    
+    // MARK: - 对象检测
+    
+    private func performObjectRecognition(handler: VNImageRequestHandler) async -> VisionAnalysisResult {
+        print("🔍 开始对象检测...")
+        
+        var allObjects: [RecognizedObject] = []
+        
+        // 1. 动物识别 (VNRecognizeAnimalsRequest)
+        do {
+            let animalRequest = VNRecognizeAnimalsRequest()
+            animalRequest.usesCPUOnly = false
+            
+            try handler.perform([animalRequest])
+            
+            if let observations = animalRequest.results as? [VNRecognizedObjectObservation] {
+                print("   🐾 动物识别: 检测到 \(observations.count) 个动物")
+                for obs in observations {
+                    if let label = obs.labels.first, label.confidence > 0.3 {
+                        print("      - \(label.identifier): \(String(format: "%.3f", label.confidence))")
+                        allObjects.append(RecognizedObject(
+                            identifier: label.identifier,
+                            confidence: label.confidence,
+                            boundingBox: obs.boundingBox
+                        ))
+                    }
+                }
+            }
+        } catch {
+            print("   ⚠️ 动物识别失败: \(error.localizedDescription)")
+        }
+        
+        // 2. 人体检测 (VNDetectHumanRectanglesRequest)
+        do {
+            let humanRequest = VNDetectHumanRectanglesRequest()
+            humanRequest.usesCPUOnly = false
+            
+            try handler.perform([humanRequest])
+            
+            if let observations = humanRequest.results as? [VNHumanObservation] {
+                print("   👤 人体检测: 检测到 \(observations.count) 个人体")
+                for (index, obs) in observations.enumerated() {
+                    print("      - person_\(index + 1): \(String(format: "%.3f", obs.confidence))")
+                    allObjects.append(RecognizedObject(
+                        identifier: "person",
+                        confidence: obs.confidence,
+                        boundingBox: obs.boundingBox
+                    ))
+                }
+            }
+        } catch {
+            print("   ⚠️ 人体检测失败: \(error.localizedDescription)")
+        }
+        
+        print("   ✅ 对象检测完成: 共 \(allObjects.count) 个对象")
+        print("   ℹ️ 注意: Vision 框架仅支持动物和人体检测")
+        print("   ℹ️ 如需检测更多物体(如建筑、车辆等)，需要自定义 Core ML 模型")
+        
+        return .recognizedObjects(allObjects)
     }
     
     // MARK: - 地平线检测
@@ -420,16 +518,16 @@ class VisionAnalyzer {
             print("\n🎯 主体位置识别: 未检测到明显主体")
         }
         
-        // 图像分类
-        if !visionInfo.imageClassifications.isEmpty {
-            print("\n🏷️  图像分类标签（前10个）:")
-            for (index, classification) in visionInfo.imageClassifications.prefix(10).enumerated() {
-                let bar = progressBar(for: classification.confidence)
-                print("   \(index + 1). \(classification.identifier)")
-                print("      置信度: \(String(format: "%.1f%%", classification.confidence * 100)) \(bar)")
+        // 对象检测
+        if !visionInfo.recognizedObjects.isEmpty {
+            print("\n🐾 对象检测（前10个）:")
+            for (index, object) in visionInfo.recognizedObjects.prefix(10).enumerated() {
+                let bar = progressBar(for: object.confidence)
+                print("   \(index + 1). \(object.identifier)")
+                print("      置信度: \(String(format: "%.1f%%", object.confidence * 100)) \(bar)")
             }
         } else {
-            print("\n🏷️  图像分类标签: 未识别到分类")
+            print("\n🐾 对象检测: 未检测到对象（仅支持动物和人体）")
         }
         
         // 地平线检测
@@ -473,4 +571,3 @@ class VisionAnalyzer {
         return String(repeating: "█", count: filled) + String(repeating: "░", count: empty)
     }
 }
-

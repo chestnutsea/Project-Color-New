@@ -16,7 +16,7 @@ import UIKit
 class SimpleAnalysisPipeline {
     
     private let colorExtractor = SimpleColorExtractor()
-    private let colorNamer = ColorNameResolver()  // Phase 2: 使用 CSS 颜色命名
+    private let colorNamer = ColorNameResolver.shared  // Phase 2: 使用 CSS 颜色命名（单例）
     private let kmeans = SimpleKMeans()
     private let converter = ColorSpaceConverter()  // Phase 2: LAB 转换
     private let coreDataManager = CoreDataManager.shared  // Phase 3: 持久化
@@ -29,6 +29,7 @@ class SimpleAnalysisPipeline {
     private let imageStatisticsCalculator = ImageStatisticsCalculator()  // 图像统计
     private let collectionFeatureCalculator = CollectionFeatureCalculator()  // 作品集聚合
     private let visionAnalyzer = VisionAnalyzer()  // Vision 识别
+    private let metadataReader = PhotoMetadataReader()  // 照片元数据读取
     
     // Phase 5: 并发控制
     private let maxConcurrentExtractions = 8  // 最多同时处理8张照片
@@ -63,6 +64,7 @@ class SimpleAnalysisPipeline {
     // MARK: - 主分析方法
     func analyzePhotos(
         assets: [PHAsset],
+        albumInfoMap: [String: (identifier: String, name: String)] = [:],
         progressHandler: @escaping (AnalysisProgress) -> Void
     ) async -> AnalysisResult {
         
@@ -122,6 +124,17 @@ class SimpleAnalysisPipeline {
             // 使用更新后的缓存信息
             cachedInfos = cachedWithScores
             
+            // 将相册信息同步到缓存
+            if !albumInfoMap.isEmpty {
+                for index in 0..<cachedInfos.count {
+                    let assetId = cachedInfos[index].assetIdentifier
+                    if let info = albumInfoMap[assetId] {
+                        cachedInfos[index].albumIdentifier = info.identifier
+                        cachedInfos[index].albumName = info.name
+                    }
+                }
+            }
+            
             // 缓存的结果直接添加到两个地方
             photoInfos.append(contentsOf: cachedInfos)
             
@@ -144,8 +157,9 @@ class SimpleAnalysisPipeline {
             while nextIndex < assetsToProcess.count && pendingCount < maxConcurrentExtractions {
                 let index = nextIndex
                 let asset = assetsToProcess[index]
-                group.addTask {
-                    let photoInfo = await self.extractPhotoColors(asset: asset)
+                let albumInfo = albumInfoMap[asset.localIdentifier]
+                group.addTask { [albumInfo] in
+                    let photoInfo = await self.extractPhotoColors(asset: asset, albumInfo: albumInfo)
                     return (index, photoInfo)
                 }
                 pendingCount += 1
@@ -172,8 +186,9 @@ class SimpleAnalysisPipeline {
                 if nextIndex < assetsToProcess.count {
                     let newIndex = nextIndex
                     let asset = assetsToProcess[newIndex]
-                    group.addTask {
-                        let photoInfo = await self.extractPhotoColors(asset: asset)
+                    let albumInfo = albumInfoMap[asset.localIdentifier]
+                    group.addTask { [albumInfo] in
+                        let photoInfo = await self.extractPhotoColors(asset: asset, albumInfo: albumInfo)
                         return (newIndex, photoInfo)
                     }
                     pendingCount += 1
@@ -590,13 +605,26 @@ class SimpleAnalysisPipeline {
         // Phase 3: 保存到 Core Data (后台线程)
         Task.detached(priority: .background) {
             do {
-                print("📝 开始保存分析结果到Core Data...")
+                let isPersonalWork = await MainActor.run { result.isPersonalWork }
+                
+                if isPersonalWork {
+                    print("📝 开始保存分析结果到Core Data（我的作品）...")
+                } else {
+                    print("📝 创建临时分析会话（其他图像，不保存）...")
+                }
                 print("   - clusters: \(result.clusters.count)")
                 print("   - photoInfos: \(result.photoInfos.count)")
                 
-                let savedSession = try self.coreDataManager.saveAnalysisSession(from: result)
+                let savedSession = try self.coreDataManager.saveAnalysisSession(
+                    from: result,
+                    isPersonalWork: isPersonalWork
+                )
                 await MainActor.run {
-                    print("✅ 分析结果已保存到Core Data (Session ID: \(savedSession.id ?? UUID()))")
+                    if isPersonalWork {
+                        print("✅ 分析结果已保存到Core Data (Session ID: \(savedSession.id ?? UUID()))")
+                    } else {
+                        print("✅ 临时会话已创建（未持久化）")
+                    }
                 }
             } catch {
                 await MainActor.run {
@@ -673,7 +701,7 @@ class SimpleAnalysisPipeline {
                     return
                 }
                 
-                // 并行计算冷暖评分和 Vision 分析
+                // 并行计算冷暖评分、Vision 分析和元数据读取
                 Task {
                     async let warmCoolScore = self.warmCoolCalculator.calculateScore(
                         image: cgImage,
@@ -682,12 +710,15 @@ class SimpleAnalysisPipeline {
                     
                     async let visionInfo = self.visionAnalyzer.analyzeImage(image)
                     
-                    // 等待两个任务完成
-                    let (score, vision) = await (warmCoolScore, visionInfo)
+                    async let metadata = self.metadataReader.readMetadata(from: asset)
+                    
+                    // 等待三个任务完成
+                    let (score, vision, meta) = await (warmCoolScore, visionInfo, metadata)
                     
                     var updatedInfo = photoInfo
                     updatedInfo.warmCoolScore = score
                     updatedInfo.visionInfo = vision
+                    updatedInfo.metadata = meta
                     
                     continuation.resume(returning: updatedInfo)
                 }
@@ -699,9 +730,13 @@ class SimpleAnalysisPipeline {
     }
     
     // MARK: - 提取单张照片的主色
-    private func extractPhotoColors(asset: PHAsset) async -> PhotoColorInfo? {
+    private func extractPhotoColors(
+        asset: PHAsset,
+        albumInfo: (identifier: String, name: String)?
+    ) async -> PhotoColorInfo? {
         #if canImport(UIKit)
-        return await withCheckedContinuation { continuation in
+        // 第一步：快速获取图像（在 PHImageManager 回调中只做最少的工作）
+        let loadedImage = await withCheckedContinuation { (continuation: CheckedContinuation<(UIImage, CGImage)?, Never>) in
             let manager = PHImageManager.default()
             let options = PHImageRequestOptions()
             options.deliveryMode = .highQualityFormat
@@ -716,79 +751,96 @@ class SimpleAnalysisPipeline {
                 targetSize: targetSize,
                 contentMode: .aspectFit,
                 options: options
-            ) { [weak self] image, info in
-                guard let self = self,
-                      let image = image,
-                      let cgImage = image.cgImage else {
+            ) { image, info in
+                if let image = image, let cgImage = image.cgImage {
+                    continuation.resume(returning: (image, cgImage))
+                } else {
                     continuation.resume(returning: nil)
-                    return
-                }
-                
-                // 根据用户设置构建配置
-                let algorithm: SimpleColorExtractor.Config.Algorithm =
-                    self.settings.effectiveColorExtractionAlgorithm == .labWeighted
-                        ? .labWeighted
-                        : .medianCut
-                
-                let quality: SimpleColorExtractor.Config.Quality
-                switch self.settings.effectiveExtractionQuality {
-                case .fast:
-                    quality = .fast
-                case .balanced:
-                    quality = .balanced
-                case .fine:
-                    quality = .fine
-                }
-                
-                let config = SimpleColorExtractor.Config(
-                    algorithm: algorithm,
-                    quality: quality,
-                    autoMergeSimilarColors: self.settings.effectiveAutoMergeSimilarColors
-                )
-                
-                // 提取主色（使用配置）
-                let dominantColors = self.colorExtractor.extractDominantColors(
-                    from: cgImage,
-                    count: 5,
-                    config: config
-                )
-                
-                // 命名主色
-                var namedColors = dominantColors
-                for i in 0..<namedColors.count {
-                    namedColors[i].colorName = self.colorNamer.getColorName(rgb: namedColors[i].rgb)
-                }
-                
-                // 创建 PhotoColorInfo
-                var photoInfo = PhotoColorInfo(
-                    assetIdentifier: asset.localIdentifier,
-                    dominantColors: namedColors
-                )
-                
-                // 并行计算冷暖评分和 Vision 分析
-                Task {
-                    async let warmCoolScore = self.warmCoolCalculator.calculateScore(
-                        image: cgImage,
-                        dominantColors: namedColors
-                    )
-                    
-                    async let visionInfo = self.visionAnalyzer.analyzeImage(image)
-                    
-                    // 等待两个任务完成
-                    let (score, vision) = await (warmCoolScore, visionInfo)
-                    
-                    photoInfo.warmCoolScore = score
-                    photoInfo.visionInfo = vision
-                    
-                    print("🌡️ 照片 \(asset.localIdentifier.prefix(8))... 冷暖评分: \(score.overallScore)")
-                    if vision != nil {
-                        print("🔍 照片 \(asset.localIdentifier.prefix(8))... Vision 分析完成")
-                    }
-                    
-                    continuation.resume(returning: photoInfo)
                 }
             }
         }
+        
+        guard let (image, cgImage) = loadedImage else {
+            return nil
+        }
+        
+        // 第二步：在后台线程执行所有耗时操作
+        return await Task.detached(priority: .userInitiated) {
+            // 根据用户设置构建配置
+            let algorithm: SimpleColorExtractor.Config.Algorithm =
+                self.settings.effectiveColorExtractionAlgorithm == .labWeighted
+                    ? .labWeighted
+                    : .medianCut
+            
+            let quality: SimpleColorExtractor.Config.Quality
+            switch self.settings.effectiveExtractionQuality {
+            case .fast:
+                quality = .fast
+            case .balanced:
+                quality = .balanced
+            case .fine:
+                quality = .fine
+            }
+            
+            let config = SimpleColorExtractor.Config(
+                algorithm: algorithm,
+                quality: quality,
+                autoMergeSimilarColors: self.settings.effectiveAutoMergeSimilarColors
+            )
+            
+            // 提取主色（使用配置）
+            let dominantColors = self.colorExtractor.extractDominantColors(
+                from: cgImage,
+                count: 5,
+                config: config
+            )
+            
+            // 命名主色
+            var namedColors = dominantColors
+            for i in 0..<namedColors.count {
+                namedColors[i].colorName = self.colorNamer.getColorName(rgb: namedColors[i].rgb)
+            }
+            
+            // 创建 PhotoColorInfo
+            var photoInfo = PhotoColorInfo(
+                assetIdentifier: asset.localIdentifier,
+                dominantColors: namedColors
+            )
+            
+            // 设置相册信息
+            photoInfo.albumIdentifier = albumInfo?.identifier
+            photoInfo.albumName = albumInfo?.name
+            if let albumInfo = albumInfo {
+                print("   📂 记录相册: \(albumInfo.name) → 照片 \(asset.localIdentifier.prefix(8))...")
+            }
+            
+            // 并行计算冷暖评分、Vision 分析和元数据读取
+            async let warmCoolScore = self.warmCoolCalculator.calculateScore(
+                image: cgImage,
+                dominantColors: namedColors
+            )
+            
+            async let visionInfo = self.visionAnalyzer.analyzeImage(image)
+            
+            async let metadata = self.metadataReader.readMetadata(from: asset)
+            
+            // 等待三个任务完成
+            let (score, vision, meta) = await (warmCoolScore, visionInfo, metadata)
+            
+            photoInfo.warmCoolScore = score
+            photoInfo.visionInfo = vision
+            photoInfo.metadata = meta
+            
+            print("🌡️ 照片 \(asset.localIdentifier.prefix(8))... 冷暖评分: \(score.overallScore)")
+            if vision != nil {
+                print("🔍 照片 \(asset.localIdentifier.prefix(8))... Vision 分析完成")
+            }
+            if meta != nil {
+                print("📸 照片 \(asset.localIdentifier.prefix(8))... 元数据读取完成")
+            }
+            
+            return photoInfo
+        }.value
         #else
         return nil
         #endif
@@ -984,4 +1036,3 @@ class SimpleAnalysisPipeline {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
 }
-

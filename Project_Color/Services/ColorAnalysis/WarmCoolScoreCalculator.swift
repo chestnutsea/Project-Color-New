@@ -10,6 +10,8 @@ import Foundation
 import CoreGraphics
 import Accelerate
 import simd
+import CoreImage
+import Combine
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -18,6 +20,7 @@ import UIKit
 class WarmCoolScoreCalculator {
     
     private let colorConverter = ColorSpaceConverter()
+    private let preprocessor = ImagePreprocessor()
     
     // MARK: - SLIC 配置参数（优化版）
     
@@ -57,23 +60,39 @@ class WarmCoolScoreCalculator {
         print("🌡️ 冷暖评分（SLIC-based 新算法）")
         #endif
         
-        // 1. Resize 图像
-        guard let resizedImage = resizeImage(cgImage: image, maxDimension: maxDimension) else {
+        // 1. 使用预处理器：缩放 + 转换到 linear sRGB
+        let preprocessConfig = ImagePreprocessor.Config(
+            maxDimension: maxDimension,
+            convertToLinearRGB: true
+        )
+        
+        guard let preprocessed = preprocessor.preprocessForAnalysis(
+            cgImage: image,
+            config: preprocessConfig
+        ) else {
             #if DEBUG
-            print("❌ 图像 resize 失败")
+            print("❌ 图像预处理失败")
             #endif
             return createEmptyScore()
         }
         
-        let width = resizedImage.width
-        let height = resizedImage.height
+        defer {
+            preprocessed.freeBuffer()
+        }
+        
+        let width = preprocessed.width
+        let height = preprocessed.height
         
         #if DEBUG
         print("📐 图像尺寸: \(width) × \(height)")
         #endif
         
-        // 2. 转换为 Lab buffer（同时计算 HSL）
-        guard let (labBuffer, hslList) = createLabBufferWithHSL(from: resizedImage) else {
+        // 2. 从 vImage_Buffer 转换为 Lab buffer（同时计算 HSL）
+        guard let (labBuffer, hslList) = createLabBufferWithHSLFromVImage(
+            buffer: preprocessed.pixelBuffer,
+            width: width,
+            height: height
+        ) else {
             #if DEBUG
             print("❌ Lab/HSL 转换失败")
             #endif
@@ -193,7 +212,45 @@ class WarmCoolScoreCalculator {
     
     // MARK: - Lab 和 HSL 转换
     
-    /// 创建 Lab buffer 和 HSL 列表（同时计算，避免重复遍历）
+    /// 从 vImage_Buffer 创建 Lab buffer 和 HSL 列表（新方法，使用预处理器的输出）
+    private func createLabBufferWithHSLFromVImage(
+        buffer: vImage_Buffer,
+        width: Int,
+        height: Int
+    ) -> ([Float], [(h: Float, s: Float, l: Float)])? {
+        
+        let data = buffer.data.assumingMemoryBound(to: UInt8.self)
+        
+        var labBuffer = [Float](repeating: 0, count: width * height * 3)
+        var hslList: [(h: Float, s: Float, l: Float)] = []
+        hslList.reserveCapacity(width * height)
+        
+        for y in 0..<height {
+            for x in 0..<width {
+                let pixelIndex = y * width + x
+                let byteIndex = pixelIndex * 4
+                
+                let r = Float(data[byteIndex + 0]) / 255.0
+                let g = Float(data[byteIndex + 1]) / 255.0
+                let b = Float(data[byteIndex + 2]) / 255.0
+                
+                // 计算 Lab（注意：输入已经是 linear RGB）
+                let (L, a, bLab) = linearRGBToLab(r: r, g: g, b: b)
+                let labIndex = pixelIndex * 3
+                labBuffer[labIndex + 0] = L
+                labBuffer[labIndex + 1] = a
+                labBuffer[labIndex + 2] = bLab
+                
+                // 计算 HSL
+                let hsl = rgbToHSL(r: r, g: g, b: b)
+                hslList.append(hsl)
+            }
+        }
+        
+        return (labBuffer, hslList)
+    }
+    
+    /// 创建 Lab buffer 和 HSL 列表（同时计算，避免重复遍历）- 保留用于兼容
     private func createLabBufferWithHSL(from cgImage: CGImage) -> ([Float], [(h: Float, s: Float, l: Float)])? {
         let width = cgImage.width
         let height = cgImage.height
@@ -292,7 +349,29 @@ class WarmCoolScoreCalculator {
         return labBuffer
     }
     
-    /// sRGB 转 Lab（标准转换）
+    /// Linear RGB 转 Lab（用于预处理器输出的 linear RGB）
+    private func linearRGBToLab(r: Float, g: Float, b: Float) -> (Float, Float, Float) {
+        // 输入已经是 linear RGB，直接转换到 XYZ
+        let X = (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047
+        let Y = (0.2126729 * r + 0.7151522 * g + 0.0721750 * b) / 1.00000
+        let Z = (0.0193339 * r + 0.1191920 * g + 0.9503041 * b) / 1.08883
+        
+        func f(_ t: Float) -> Float {
+            return (t > 0.008856) ? powf(t, 1.0/3.0) : (7.787 * t + 16.0/116.0)
+        }
+        
+        let fx = f(X)
+        let fy = f(Y)
+        let fz = f(Z)
+        
+        let L = max(0, min(100, (116 * fy - 16)))
+        let a = 500 * (fx - fy)
+        let bLab = 200 * (fy - fz)
+        
+        return (L, a, bLab)
+    }
+    
+    /// sRGB 转 Lab（标准转换）- 保留用于兼容
     private func sRGBToLab(r: Float, g: Float, b: Float) -> (Float, Float, Float) {
         func pivotRGB(_ c: Float) -> Float {
             return (c <= 0.04045) ? (c / 12.92) : powf((c + 0.055) / 1.055, 2.4)

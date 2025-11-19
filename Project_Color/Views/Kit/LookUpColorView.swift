@@ -26,7 +26,7 @@ struct LookUpColorView: View {
     @State private var isValidHex: Bool = false
     
     // MARK: - Services
-    private let colorResolver = ColorNameResolver()
+    private let colorResolver = ColorNameResolver.shared
     private let converter = ColorSpaceConverter()
     
     var body: some View {

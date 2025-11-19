@@ -21,10 +21,13 @@ private final class ColorNameResolverBundleToken: NSObject {}
 
 class ColorNameResolver {
     
+    // 单例模式，避免重复加载
+    static let shared = ColorNameResolver()
+    
     private let converter = ColorSpaceConverter()
     private var palette: [NamedColor] = []
     
-    init() {
+    private init() {
         loadPalette()
     }
     

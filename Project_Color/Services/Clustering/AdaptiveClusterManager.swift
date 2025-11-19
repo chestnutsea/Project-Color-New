@@ -14,7 +14,7 @@ import simd
 class AdaptiveClusterManager {
     
     private let converter = ColorSpaceConverter()
-    private let namer = ColorNameResolver()
+    private let namer = ColorNameResolver.shared
     private let evaluator = ClusterQualityEvaluator()
     
     // MARK: - Configuration

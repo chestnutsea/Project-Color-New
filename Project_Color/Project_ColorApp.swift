@@ -10,6 +10,12 @@ import SwiftUI
 @main
 struct Project_ColorApp: App {
     private let coreDataManager = CoreDataManager.shared
+    private let cleanupScheduler = DataCleanupScheduler.shared
+    
+    init() {
+        // 启动数据清理定时任务
+        cleanupScheduler.startScheduledCleanup()
+    }
 
     var body: some Scene {
         WindowGroup {

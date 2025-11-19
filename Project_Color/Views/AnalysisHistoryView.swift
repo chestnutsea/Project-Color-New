@@ -15,19 +15,50 @@ struct AnalysisHistoryView: View {
     @Environment(\.dismiss) var dismiss
     @StateObject private var viewModel = AnalysisHistoryViewModel()
     @State private var selectedSession: AnalysisSessionEntity? = nil
+    @State private var selectedTab: SessionFilter = .all
+    @State private var showClearAlert = false
+    
+    enum SessionFilter: String, CaseIterable {
+        case all = "全部"
+        case personalWork = "我的作品"
+        case otherImage = "其他图像"
+    }
     
     var body: some View {
         NavigationView {
-            ZStack {
-                if viewModel.sessions.isEmpty {
-                    emptyStateView
-                } else {
-                    sessionListView
+            VStack(spacing: 0) {
+                // Tab 选择器
+                Picker("筛选", selection: $selectedTab) {
+                    ForEach(SessionFilter.allCases, id: \.self) { filter in
+                        Text(filter.rawValue).tag(filter)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding()
+                
+                // 内容区域
+                ZStack {
+                    if filteredSessions.isEmpty {
+                        emptyStateView
+                    } else {
+                        sessionListView
+                    }
                 }
             }
             .navigationTitle("分析历史")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    // 只在"其他图像"Tab显示清空按钮
+                    if selectedTab == .otherImage && !filteredSessions.isEmpty {
+                        Button(role: .destructive) {
+                            showClearAlert = true
+                        } label: {
+                            Label("清空", systemImage: "trash")
+                        }
+                    }
+                }
+                
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("完成") {
                         dismiss()
@@ -37,9 +68,29 @@ struct AnalysisHistoryView: View {
             .sheet(item: $selectedSession) { session in
                 SessionDetailView(session: session)
             }
+            .alert("清空其他图像数据", isPresented: $showClearAlert) {
+                Button("取消", role: .cancel) { }
+                Button("清空", role: .destructive) {
+                    viewModel.clearOtherImageSessions()
+                }
+            } message: {
+                Text("确定要清空所有\"其他图像\"的历史记录吗？此操作不可恢复。")
+            }
         }
         .onAppear {
             viewModel.loadSessions()
+        }
+    }
+    
+    // 根据选中的 Tab 筛选会话
+    private var filteredSessions: [AnalysisSessionEntity] {
+        switch selectedTab {
+        case .all:
+            return viewModel.sessions
+        case .personalWork:
+            return viewModel.sessions.filter { $0.isPersonalWork }
+        case .otherImage:
+            return viewModel.sessions.filter { !$0.isPersonalWork }
         }
     }
     
@@ -65,7 +116,7 @@ struct AnalysisHistoryView: View {
     // MARK: - Session List
     private var sessionListView: some View {
         List {
-            ForEach(viewModel.sessions, id: \.id) { session in
+            ForEach(filteredSessions, id: \.id) { session in
                 SessionCard(session: session)
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -100,6 +151,25 @@ struct SessionCard: View {
                 Text(formattedDate)
                     .font(.headline)
                     .foregroundColor(.primary)
+                
+                // 图像类型标记
+                if session.isPersonalWork {
+                    Label("我的作品", systemImage: "star.fill")
+                        .font(.caption)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.blue)
+                        .cornerRadius(8)
+                } else {
+                    Label("其他图像", systemImage: "photo")
+                        .font(.caption)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.gray)
+                        .cornerRadius(8)
+                }
                 
                 Spacer()
                 
@@ -389,7 +459,13 @@ class AnalysisHistoryViewModel: ObservableObject {
     private let coreDataManager = CoreDataManager.shared
     
     func loadSessions() {
-        sessions = coreDataManager.fetchAllSessions()
+        // 只加载近 7 天内的会话
+        sessions = coreDataManager.fetchSessionsWithinDays(7)
+        
+        print("📋 加载历史记录:")
+        print("   - 7天内会话数: \(sessions.count)")
+        print("   - 我的作品: \(sessions.filter { $0.isPersonalWork }.count)")
+        print("   - 其他图像: \(sessions.filter { !$0.isPersonalWork }.count)")
     }
     
     func deleteSession(_ session: AnalysisSessionEntity) {
@@ -399,6 +475,12 @@ class AnalysisHistoryViewModel: ObservableObject {
         } catch {
             print("Error deleting session: \(error)")
         }
+    }
+    
+    func clearOtherImageSessions() {
+        let count = coreDataManager.clearAllOtherImageSessions()
+        print("✅ 已清空 \(count) 个\"其他图像\"会话")
+        loadSessions()
     }
 }
 

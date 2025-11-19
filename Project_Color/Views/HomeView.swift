@@ -62,6 +62,23 @@ struct HomeView: View {
     @State private var showShareSheet = false  // 导出分享
     @State private var shareURL: URL?  // 分享文件 URL
     private let analysisPipeline = SimpleAnalysisPipeline()
+    private let progressThrottler = ProgressThrottler(interval: 0.15)
+    
+#if DEBUG
+    private let enableVerboseLogging = false
+#endif
+    
+    private func debugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+        if enableVerboseLogging {
+            print(message())
+        }
+#endif
+    }
+    
+    // 图像类型选择弹窗
+    @State private var showImageTypeAlert = false
+    @State private var selectedImageType: ImageType = .personalWork
     
     var body: some View {
         GeometryReader { geometry in
@@ -221,9 +238,8 @@ struct HomeView: View {
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                         
-                        ProgressView(value: processingProgress)
-                            .progressViewStyle(LinearProgressViewStyle())
-                            .frame(width: 250)
+                        AnalysisProgressBar(progress: processingProgress)
+                            .frame(width: 250, height: 8)
                         
                         HStack(spacing: 16) {
                             Text(analysisProgress.percentageText)
@@ -256,14 +272,14 @@ struct HomeView: View {
                     .padding(.top, scannerTopOffset - progressBarTopOffset)
                 }
             }
-            .onPreferenceChange(ScannerPositionKey.self) { rect in
-                print("Scanner frame updated: \(rect)")
-                scannerFrame = rect
-            }
-            .onPreferenceChange(PhotoStackPositionKey.self) { rect in
-                print("Photo stack frame updated: \(rect)")
-                photoStackFrame = rect
-            }
+                .onPreferenceChange(ScannerPositionKey.self) { rect in
+                    debugLog("Scanner frame updated: \(rect)")
+                    scannerFrame = rect
+                }
+                .onPreferenceChange(PhotoStackPositionKey.self) { rect in
+                    debugLog("Photo stack frame updated: \(rect)")
+                    photoStackFrame = rect
+                }
         }
         .sheet(isPresented: $showAlbumList) {
             AlbumListView()
@@ -291,6 +307,9 @@ struct HomeView: View {
                 #endif
             }
         }
+        .imageTypeSelectionAlert(isPresented: $showImageTypeAlert) { result in
+            handleImageTypeSelection(result)
+        }
         .onAppear {
             checkPhotoLibraryStatus()
         }
@@ -307,9 +326,9 @@ struct HomeView: View {
     // MARK: - 拖拽处理
     private func handleDragEnd(geometry: GeometryProxy) {
         // 调试信息
-        print("=== handleDragEnd called ===")
-        print("Screen size: \(geometry.size.width) x \(geometry.size.height)")
-        print("Drag offset: \(dragOffset)")
+        debugLog("=== handleDragEnd called ===")
+        debugLog("Screen size: \(geometry.size.width) x \(geometry.size.height)")
+        debugLog("Drag offset: \(dragOffset)")
         
         let screenWidth = geometry.size.width
         let screenHeight = geometry.size.height
@@ -332,28 +351,28 @@ struct HomeView: View {
         let photoStackDraggedRight = photoStackDraggedX + photoStackWidth
         let photoStackDraggedBottom = photoStackDraggedY + photoStackHeight
         
-        print("Scanner range: X[\(Int(scannerLeft))-\(Int(scannerRight))] Y[\(Int(scannerTop))-\(Int(scannerBottom))]")
-        print("Photo stack dragged: X[\(Int(photoStackDraggedX))-\(Int(photoStackDraggedRight))] Y[\(Int(photoStackDraggedY))-\(Int(photoStackDraggedBottom))]")
+        debugLog("Scanner range: X[\(Int(scannerLeft))-\(Int(scannerRight))] Y[\(Int(scannerTop))-\(Int(scannerBottom))]")
+        debugLog("Photo stack dragged: X[\(Int(photoStackDraggedX))-\(Int(photoStackDraggedRight))] Y[\(Int(photoStackDraggedY))-\(Int(photoStackDraggedBottom))]")
         
         // 判断是否有重合（X轴和Y轴都要检查）
         let hasXOverlap = photoStackDraggedRight > scannerLeft && photoStackDraggedX < scannerRight
         let hasYOverlap = photoStackDraggedBottom > scannerTop && photoStackDraggedY < scannerBottom
         
-        print("X overlap: \(hasXOverlap), Y overlap: \(hasYOverlap)")
+        debugLog("X overlap: \(hasXOverlap), Y overlap: \(hasYOverlap)")
         
         if hasXOverlap && hasYOverlap {
-            print("✅ Photo stack overlaps with scanner! Starting processing...")
+            debugLog("✅ Photo stack overlaps with scanner! Starting processing...")
             startProcessing()
             return
         }
         
         // 如果没有重合，弹回原位
-        print("❌ No overlap detected")
+        debugLog("❌ No overlap detected")
         if !hasYOverlap {
-            print("   Y: Photo stack (\(Int(photoStackDraggedY))) needs to reach scanner (\(Int(scannerBottom)))")
+            debugLog("   Y: Photo stack (\(Int(photoStackDraggedY))) needs to reach scanner (\(Int(scannerBottom)))")
         }
         if !hasXOverlap {
-            print("   X: Photo stack needs better horizontal alignment")
+            debugLog("   X: Photo stack needs better horizontal alignment")
         }
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
             dragOffset = .zero
@@ -361,52 +380,119 @@ struct HomeView: View {
     }
     
     private func startProcessing() {
-        print("=== startProcessing called ===")
-        print("Current opacity: \(photoStackOpacity)")
-        print("Current isProcessing: \(isProcessing)")
+        debugLog("=== startProcessing called ===")
+        debugLog("Current opacity: \(photoStackOpacity)")
+        debugLog("Current isProcessing: \(isProcessing)")
         
-        // 立即设置处理状态
-        DispatchQueue.main.async {
-            // 照片堆渐变消失
-            withAnimation(.easeOut(duration: self.fadeOutDuration)) {
-                self.photoStackOpacity = 0.0
-                self.dragOffset = .zero
+        // 显示图像类型选择弹窗
+        showImageTypeAlert = true
+    }
+    
+    private func handleImageTypeSelection(_ result: ImageTypeSelectionResult) {
+        switch result {
+        case .selected(let imageType):
+            selectedImageType = imageType
+            debugLog("✅ 用户选择: \(imageType == .personalWork ? "我的作品" : "其他图像")")
+            
+            // 开始处理动画
+            DispatchQueue.main.async {
+                // 照片堆渐变消失
+                withAnimation(.easeOut(duration: self.fadeOutDuration)) {
+                    self.photoStackOpacity = 0.0
+                    self.dragOffset = .zero
+                }
+                
+                debugLog("Animation started - opacity set to 0, dragOffset reset")
+                
+                // 延迟后开始显示进度条并开始分析
+                DispatchQueue.main.asyncAfter(deadline: .now() + self.fadeOutDuration) {
+                    debugLog("Starting analysis")
+                    self.isProcessing = true
+                    self.startColorAnalysis()
+                }
             }
             
-            print("Animation started - opacity set to 0, dragOffset reset")
-            
-            // 延迟后开始显示进度条并开始分析
-            DispatchQueue.main.asyncAfter(deadline: .now() + self.fadeOutDuration) {
-                print("Starting analysis")
-                self.isProcessing = true
-                self.startColorAnalysis()
+        case .cancelled:
+            debugLog("❌ 用户取消分析")
+            // 重置拖拽状态
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                dragOffset = .zero
             }
         }
     }
     
     private func startColorAnalysis() {
-        // 获取选中的照片资产
-        let assets = selectionManager.getLatestPhotos(count: 1000)  // 获取所有选中的照片
-        
-        guard !assets.isEmpty else {
-            print("No assets to analyze")
-            isProcessing = false
-            return
-        }
-        
-        // 重置进度状态
-        analysisProgress = AnalysisProgress()
+        // 重置进度状态（立即显示"准备中"）
+        analysisProgress = AnalysisProgress(
+            currentPhoto: 0,
+            totalPhotos: 0,
+            currentStage: "准备照片数据...",
+            overallProgress: 0.0
+        )
         processingProgress = 0.0
+        analysisResult = nil
+        progressThrottler.reset()
         
         Task {
-            let result = await analysisPipeline.analyzePhotos(assets: assets) { (progress: AnalysisProgress) in
-                DispatchQueue.main.async {
-                    self.analysisProgress = progress
-                    // 使用动画平滑过渡进度条
-                    withAnimation(.linear(duration: 0.3)) {
+            // 在后台线程获取照片资产（避免阻塞主线程）
+            let assetsWithAlbums = await Task.detached(priority: .userInitiated) {
+                self.selectionManager.getLatestPhotosWithAlbums(count: 1000)
+            }.value
+            
+            let assets = assetsWithAlbums.map { $0.asset }
+            
+            guard !assets.isEmpty else {
+                print("No assets to analyze")
+                await MainActor.run {
+                    self.isProcessing = false
+                }
+                return
+            }
+            
+            // 更新进度：照片数据准备完成
+            await MainActor.run {
+                self.analysisProgress = AnalysisProgress(
+                    currentPhoto: 0,
+                    totalPhotos: assets.count,
+                    currentStage: "开始分析...",
+                    overallProgress: 0.01
+                )
+                self.processingProgress = 0.01
+            }
+            
+            // 获取相册信息（如果只选中了一个相册）
+            var albumInfoMap: [String: (identifier: String, name: String)] = [:]
+            if selectedImageType == .personalWork {
+                for entry in assetsWithAlbums {
+                    guard let album = entry.album else { continue }
+                    albumInfoMap[entry.asset.localIdentifier] = (album.id, album.title)
+                }
+                if albumInfoMap.isEmpty {
+                    debugLog("📂 未记录相册信息 (选中 \(selectionManager.selectedAlbums.count) 个相册)")
+                } else {
+                    debugLog("📂 记录相册映射: \(albumInfoMap.count) 张")
+                }
+            }
+            
+            let throttledHandler: (AnalysisProgress) -> Void = { progress in
+                let force = progress.overallProgress >= 0.99
+                if self.progressThrottler.shouldEmit(force: force) {
+                    Task { @MainActor in
+                        self.analysisProgress = progress
                         self.processingProgress = progress.overallProgress
                     }
                 }
+            }
+            
+            let result = await analysisPipeline.analyzePhotos(
+                assets: assets,
+                albumInfoMap: albumInfoMap,
+                progressHandler: throttledHandler
+            )
+            
+            // 设置图像类型标记
+            await MainActor.run {
+                result.isPersonalWork = (selectedImageType == .personalWork)
             }
             
             // 分析完成
@@ -704,6 +790,27 @@ struct HomeView: View {
             print("❌ 导出失败: \(error.localizedDescription)")
         }
         #endif
+    }
+}
+
+// MARK: - Custom Views
+private struct AnalysisProgressBar: View {
+    var progress: Double
+    var trackColor: Color = Color.gray.opacity(0.2)
+    var fillColor: Color = Color.blue
+    
+    var body: some View {
+        GeometryReader { geometry in
+            let fraction = max(0, min(progress, 1))
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(trackColor)
+                Capsule()
+                    .fill(fillColor)
+                    .frame(width: geometry.size.width * CGFloat(fraction))
+            }
+        }
+        .frame(height: 8)
     }
 }
 

@@ -18,11 +18,13 @@ struct MainTabView: View {
     
     private enum TabItem: Int, CaseIterable {
         case scanner = 0
-        case palette = 1
+        case album = 1
+        case palette = 2
         
         var iconName: String {
             switch self {
             case .scanner: return "scanner"
+            case .album: return "photo.stack"
             case .palette: return "paintpalette"
             }
         }
@@ -30,7 +32,16 @@ struct MainTabView: View {
         var selectedIconName: String {
             switch self {
             case .scanner: return "scanner.fill"
+            case .album: return "photo.stack.fill"
             case .palette: return "paintpalette.fill"
+            }
+        }
+        
+        var title: String {
+            switch self {
+            case .scanner: return "扫描"
+            case .album: return "相册"
+            case .palette: return "工具"
             }
         }
     }
@@ -41,6 +52,9 @@ struct MainTabView: View {
             TabView(selection: $selectedTab) {
                 HomeView()
                     .tag(TabItem.scanner)
+                
+                AlbumLibraryView()
+                    .tag(TabItem.album)
                 
                 KitView()
                     .tag(TabItem.palette)

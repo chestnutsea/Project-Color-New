@@ -32,7 +32,6 @@ struct Album: Identifiable, Equatable {
 }
 
 // MARK: - 相册 ViewModel
-@MainActor
 class AlbumViewModel: ObservableObject {
     @Published var albums: [Album] = []
     @Published var isLoading = false
@@ -49,19 +48,23 @@ class AlbumViewModel: ObservableObject {
     func loadAlbums() {
         isLoading = true
         
-        Task {
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
+            
             var loadedAlbums: [Album] = []
             
             // 1. 添加"全部"相册
-            let allPhotosAlbum = await createAllPhotosAlbum()
+            let allPhotosAlbum = await self.createAllPhotosAlbum()
             loadedAlbums.append(allPhotosAlbum)
             
             // 2. 获取用户相册
-            let userAlbums = await fetchUserAlbums()
+            let userAlbums = await self.fetchUserAlbums()
             loadedAlbums.append(contentsOf: userAlbums)
             
-            self.albums = loadedAlbums
-            self.isLoading = false
+            await MainActor.run {
+                self.albums = loadedAlbums
+                self.isLoading = false
+            }
         }
     }
     
@@ -111,6 +114,9 @@ class AlbumViewModel: ObservableObject {
         
         // 处理智能相册
         albums.append(contentsOf: await processCollections(smartCollections))
+        
+        // 按首字母排序（不区分大小写）
+        albums.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         
         return albums
     }
@@ -191,4 +197,3 @@ class AlbumViewModel: ObservableObject {
         }
     }
 }
-

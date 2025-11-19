@@ -9,8 +9,13 @@
 import Foundation
 import CoreGraphics
 import Accelerate
+import Combine
 
 class SimpleColorExtractor {
+    
+    // MARK: - 预处理器
+    
+    private let preprocessor = ImagePreprocessor()
     
     // MARK: - Configuration
     
@@ -248,20 +253,44 @@ class SimpleColorExtractor {
         let imageSize = config.quality.imageSize
         let sampleCount = config.quality.sampleCount
         
-        // 1. 缩放图像
-        guard let resizedImage = resizeImage(cgImage, maxDimension: imageSize) else {
+        // 1. 使用预处理器：缩放 + 转换到 linear sRGB
+        let preprocessConfig = ImagePreprocessor.Config(
+            maxDimension: imageSize,
+            convertToLinearRGB: true
+        )
+        
+        guard let preprocessed = preprocessor.preprocessForAnalysis(
+            cgImage: cgImage,
+            config: preprocessConfig
+        ) else {
             return []
         }
         
-        // 2. 提取所有像素
-        guard let allPixels = extractAllPixels(from: resizedImage) else {
-            return []
+        defer {
+            preprocessed.freeBuffer()  // 释放缓冲区
         }
         
-        // 3. 随机采样
+        // 2. 从 vImage_Buffer 提取 RGB 像素
+        let rgbPixels = preprocessor.extractRGBPixels(
+            from: preprocessed.pixelBuffer,
+            sampleCount: 0  // 先提取全部
+        )
+        
+        // 3. 转换为 SIMD3<Float> 格式
+        var allPixels: [SIMD3<Float>] = []
+        allPixels.reserveCapacity(rgbPixels.count)
+        
+        for rgb in rgbPixels {
+            let r = Float(rgb[0]) / 255.0
+            let g = Float(rgb[1]) / 255.0
+            let b = Float(rgb[2]) / 255.0
+            allPixels.append(SIMD3<Float>(r, g, b))
+        }
+        
+        // 4. 随机采样
         let pixels = randomSample(allPixels, count: min(sampleCount, allPixels.count))
         
-        // 4. RGB → Lab 转换
+        // 5. RGB → Lab 转换（注意：输入已经是 linear RGB）
         let converter = ColorSpaceConverter()
         let pixelsLab = pixels.map { converter.rgbToLab($0) }
         
@@ -308,14 +337,38 @@ class SimpleColorExtractor {
     ) -> [DominantColor] {
         let imageSize = config.quality.imageSize
         
-        // 1. 缩放图像（根据精度设置）
-        guard let resizedImage = resizeImage(cgImage, maxDimension: imageSize) else {
+        // 1. 使用预处理器：缩放 + 转换到 linear sRGB
+        let preprocessConfig = ImagePreprocessor.Config(
+            maxDimension: imageSize,
+            convertToLinearRGB: true
+        )
+        
+        guard let preprocessed = preprocessor.preprocessForAnalysis(
+            cgImage: cgImage,
+            config: preprocessConfig
+        ) else {
             return []
         }
         
-        // 2. 提取像素（步进采样）
-        guard let pixels = extractPixels(from: resizedImage) else {
-            return []
+        defer {
+            preprocessed.freeBuffer()
+        }
+        
+        // 2. 从 vImage_Buffer 提取 RGB 像素（步进采样）
+        let rgbPixels = preprocessor.extractRGBPixels(
+            from: preprocessed.pixelBuffer,
+            sampleCount: config.quality.sampleCount
+        )
+        
+        // 3. 转换为 SIMD3<Float> 格式
+        var pixels: [SIMD3<Float>] = []
+        pixels.reserveCapacity(rgbPixels.count)
+        
+        for rgb in rgbPixels {
+            let r = Float(rgb[0]) / 255.0
+            let g = Float(rgb[1]) / 255.0
+            let b = Float(rgb[2]) / 255.0
+            pixels.append(SIMD3<Float>(r, g, b))
         }
         
         // 3. RGB 空间的简单 KMeans

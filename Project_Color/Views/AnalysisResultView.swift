@@ -1037,18 +1037,22 @@ struct AnalysisResultView: View {
     private func getRepresentativePhotos(for cluster: ColorCluster, maxCount: Int = 3) -> [PHAsset] {
         // 筛选属于该聚类的照片
         let clusterPhotos = result.photoInfos.filter { $0.primaryClusterIndex == cluster.index }
+        var seenIdentifiers = Set<String>()
+        let uniqueClusterPhotos = clusterPhotos.filter { photo in
+            seenIdentifiers.insert(photo.assetIdentifier).inserted
+        }
         
-        guard !clusterPhotos.isEmpty else { return [] }
+        guard !uniqueClusterPhotos.isEmpty else { return [] }
         
         // 如果照片数量少于 maxCount，全部返回
-        if clusterPhotos.count <= maxCount {
-            return clusterPhotos.compactMap { photoInfo in
+        if uniqueClusterPhotos.count <= maxCount {
+            return uniqueClusterPhotos.compactMap { photoInfo in
                 fetchAsset(identifier: photoInfo.assetIdentifier)
             }
         }
         
         // 计算每张照片与质心的距离
-        let photosWithDistance = clusterPhotos.compactMap { photo -> (photoInfo: PhotoColorInfo, distance: Float)? in
+        let photosWithDistance = uniqueClusterPhotos.compactMap { photo -> (photoInfo: PhotoColorInfo, distance: Float)? in
             guard let firstColor = photo.dominantColors.first else { return nil }
             let distance = simd_distance(firstColor.rgb, cluster.centroid)
             return (photo, distance)
@@ -1271,9 +1275,17 @@ struct ClusterDetailView: View {
     
     private var photosInCluster: [PhotoColorInfo] {
         let photos = result.photos(in: cluster.index)
+        var seen = Set<String>()
+        var uniquePhotos: [PhotoColorInfo] = []
+        
+        for photo in photos {
+            if seen.insert(photo.assetIdentifier).inserted {
+                uniquePhotos.append(photo)
+            }
+        }
         
         // 按与质心的距离排序（从近到远）
-        return photos.sorted { photo1, photo2 in
+        return uniquePhotos.sorted { photo1, photo2 in
             guard let color1 = photo1.dominantColors.first,
                   let color2 = photo2.dominantColors.first else {
                 return false

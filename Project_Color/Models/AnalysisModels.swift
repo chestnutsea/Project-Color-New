@@ -20,6 +20,9 @@ struct PhotoColorInfo: Identifiable {
     var warmCoolScore: WarmCoolScore? = nil  // 冷暖评分
     var imageFeature: ImageFeature? = nil  // 图像特征（风格分析）
     var visionInfo: PhotoVisionInfo? = nil  // Vision 识别信息
+    var metadata: PhotoMetadata? = nil  // 照片元数据（EXIF、地理、相机）
+    var albumIdentifier: String? = nil  // 相册唯一标识
+    var albumName: String? = nil  // 相册名称
 }
 
 // MARK: - 主色结构
@@ -98,6 +101,9 @@ class AnalysisResult: ObservableObject {
     
     // 风格分析数据
     @Published var collectionFeature: CollectionFeature? = nil
+    
+    // 图像类型标记（是否为"我的作品"）
+    @Published var isPersonalWork: Bool = true  // 默认为 true
     
     // 根据簇索引获取照片
     func photos(in clusterIndex: Int) -> [PhotoColorInfo] {
@@ -250,6 +256,9 @@ struct PhotoVisionInfo: Codable {
     // 图像分类标签
     var imageClassifications: [ImageClassification] = []
     
+    // 对象检测
+    var recognizedObjects: [RecognizedObject] = []
+    
     // 地平线检测
     var horizonAngle: Float? = nil
     var horizonTransform: String? = nil
@@ -282,6 +291,14 @@ struct ImageClassification: Codable, Identifiable {
     var id: String { identifier }
     var identifier: String  // 分类标识符
     var confidence: Float
+}
+
+// 识别的对象（对象检测）
+struct RecognizedObject: Codable, Identifiable {
+    var id = UUID()
+    var identifier: String  // 对象标识符（如 "dog", "cat"）
+    var confidence: Float   // 置信度 0-1
+    var boundingBox: CGRect // 归一化坐标 (0-1)
 }
 
 /// 摄影属性推断
