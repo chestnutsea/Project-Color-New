@@ -1,0 +1,43 @@
+{
+  "Skin_Asian": {
+    "hue": [15, 35],
+    "saturation": [0.20, 0.55],
+    "value": [0.55, 0.90]
+  },
+  "Hair_Black": {
+    "hue": [0, 40],
+    "saturation": [0.05, 0.25],
+    "value": [0.10, 0.30]
+  },
+  "Sky_Clear": {
+    "hue": [180, 240],
+    "saturation": [0.25, 0.70],
+    "value": [0.50, 0.90]
+  },
+  "Green_Plants": {
+    "hue": [80, 140],
+    "saturation": [0.30, 0.70],
+    "value": [0.30, 0.80]
+  },
+  "CatDog_Fur": {
+    "hue": [0, 45],
+    "saturation": [0.10, 0.40],
+    "value": [0.40, 0.85]
+  },
+  "Food_Generic": {
+    "hue": [0, 360],
+    "saturation": [0.35, 1.00],
+    "value": [0.40, 0.75]
+  },
+  "Road_Asphalt": {
+    "hue": [0, 20],
+    "saturation": [0.05, 0.20],
+    "value": [0.20, 0.40]
+  },
+  "Clothing_Generic": {
+    "hue": [0, 360],
+    "saturation": [0.00, 0.65],
+    "value": [0.00, 0.85]
+  }
+}
+

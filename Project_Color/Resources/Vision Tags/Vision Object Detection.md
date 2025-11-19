@@ -1,0 +1,10 @@
+person, car, bus, truck, bicycle, motorcycle,
+cat, dog, horse, sheep, cow, bird,
+bottle, cup, bowl, plate, wineglass,
+chair, sofa, table, bed, tv, laptop, mouse, keyboard,
+remote, cell_phone, book, backpack, umbrella,
+shoe, hat, glove, tie,
+traffic_light, fire_hydrant, stop_sign, parking_meter,
+bench, potted_plant, vase,
+sports_ball, kite, skateboard, surfboard,
+frisbee, suitcase, sandwich, pizza, donut, cake

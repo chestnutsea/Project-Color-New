@@ -28,6 +28,7 @@ class SimpleAnalysisPipeline {
     private let warmCoolCalculator = WarmCoolScoreCalculator()  // 冷暖评分
     private let imageStatisticsCalculator = ImageStatisticsCalculator()  // 图像统计
     private let collectionFeatureCalculator = CollectionFeatureCalculator()  // 作品集聚合
+    private let visionAnalyzer = VisionAnalyzer()  // Vision 识别
     
     // Phase 5: 并发控制
     private let maxConcurrentExtractions = 8  // 最多同时处理8张照片
@@ -646,7 +647,7 @@ class SimpleAnalysisPipeline {
         return result
     }
     
-    // MARK: - 为缓存的照片更新冷暖评分
+    // MARK: - 为缓存的照片更新冷暖评分和 Vision 信息
     private func updateWarmCoolScore(asset: PHAsset, photoInfo: PhotoColorInfo) async -> PhotoColorInfo? {
         #if canImport(UIKit)
         return await withCheckedContinuation { continuation in
@@ -672,15 +673,21 @@ class SimpleAnalysisPipeline {
                     return
                 }
                 
-                // 计算冷暖评分
+                // 并行计算冷暖评分和 Vision 分析
                 Task {
-                    let warmCoolScore = await self.warmCoolCalculator.calculateScore(
+                    async let warmCoolScore = self.warmCoolCalculator.calculateScore(
                         image: cgImage,
                         dominantColors: photoInfo.dominantColors
                     )
                     
+                    async let visionInfo = self.visionAnalyzer.analyzeImage(image)
+                    
+                    // 等待两个任务完成
+                    let (score, vision) = await (warmCoolScore, visionInfo)
+                    
                     var updatedInfo = photoInfo
-                    updatedInfo.warmCoolScore = warmCoolScore
+                    updatedInfo.warmCoolScore = score
+                    updatedInfo.visionInfo = vision
                     
                     continuation.resume(returning: updatedInfo)
                 }
@@ -758,16 +765,25 @@ class SimpleAnalysisPipeline {
                     dominantColors: namedColors
                 )
                 
-                // 计算冷暖评分（在 Task 中异步计算，但确保在 resume 前完成）
+                // 并行计算冷暖评分和 Vision 分析
                 Task {
-                    let warmCoolScore = await self.warmCoolCalculator.calculateScore(
+                    async let warmCoolScore = self.warmCoolCalculator.calculateScore(
                         image: cgImage,
                         dominantColors: namedColors
                     )
                     
-                    photoInfo.warmCoolScore = warmCoolScore
+                    async let visionInfo = self.visionAnalyzer.analyzeImage(image)
                     
-                    print("🌡️ 照片 \(asset.localIdentifier) 冷暖评分已设置: \(warmCoolScore.overallScore)")
+                    // 等待两个任务完成
+                    let (score, vision) = await (warmCoolScore, visionInfo)
+                    
+                    photoInfo.warmCoolScore = score
+                    photoInfo.visionInfo = vision
+                    
+                    print("🌡️ 照片 \(asset.localIdentifier.prefix(8))... 冷暖评分: \(score.overallScore)")
+                    if vision != nil {
+                        print("🔍 照片 \(asset.localIdentifier.prefix(8))... Vision 分析完成")
+                    }
                     
                     continuation.resume(returning: photoInfo)
                 }

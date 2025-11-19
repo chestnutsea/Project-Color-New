@@ -579,14 +579,14 @@ class WarmCoolScoreCalculator {
             
             warmSum += bLab * w
             weightSum += w
-            
-            #if DEBUG
+        
+        #if DEBUG
             let hexColor = String(format: "#%02X%02X%02X",
                                 Int(color.rgb.x * 255),
                                 Int(color.rgb.y * 255),
                                 Int(color.rgb.z * 255))
             print("     \(hexColor): L=\(String(format: "%.1f", L)), C=\(String(format: "%.1f", C)), b*=\(String(format: "%.1f", bLab)), 权重=\(String(format: "%.3f", w))")
-            #endif
+        #endif
         }
         
         guard weightSum > 0 else { return 0 }

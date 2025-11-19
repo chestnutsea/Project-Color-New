@@ -1,0 +1,193 @@
+{
+    "indoor_warm_light": [
+    "indoor","interior","warm light","yellow light","incandescent","ambient lighting","table lamp","desk lamp","floor lamp","pendant lamp","chandelier","warm lamp",
+    "orange light","soft warm light","candle","cozy","cozy room","restaurant interior","cafe interior","bar interior","living room","bedroom","hotel room","hallway",
+    "corridor","sofa","couch","armchair","curtain","drapes","cotton curtain","window drape","wood","wooden floor","wooden table","wooden chair","bookshelf",
+    "picture frame","wall art","wall decor","table decor","ceramic cup","vase","potted plant","indoor plant","fabric texture","linen","carpet","rug",
+    "warm shadow","soft shadow","dim light","low light","warm reflection","reflected glow","lamp glow","desk setup","TV stand","dining table","dining chair",
+    "restaurant table","restaurant plate","bar shelf","wine bottles","interior design","patterned wall","textured wall","brick wall","yellow tone",
+    "gold tone","brown tone","amber tone","golden tone","mahogany","wood grain","soft fabric","home interior","indoor cozy","glowing lamp","warm ceiling light",
+    "warm ambiance","glow","soft orange hue"
+    ],
+
+    "indoor_white_light": [
+    "indoor","interior","white light","LED light","tube light","fluorescent light","cool light","office lighting","studio lighting","white ceiling light",
+    "overhead light","bright interior","neutral light","workplace","office room","conference room","meeting room","classroom","kitchen interior","bathroom interior",
+    "white wall","white tile","white furniture","monitor","computer desk","office desk","office chair","workspace","cubicle","open office","clean interior",
+    "retail interior","shopping aisle","supermarket interior","mall interior","clinic interior","hospital hallway","reception desk","bookshelf","white curtain",
+    "glass table","metal table","metallic surface","white floor","marble floor","tile floor","indoor bright","ceiling panel","LED strip","white shadow",
+    "faint shadow","neutral tone","cold tone","gray tone","white balance neutral","display shelf","product shelf","shopping shelf","cashier area",
+    "store interior","pharmacy interior","electronics store","studio backdrop","white backdrop","mirror reflection","glass reflection","fluorescent tube",
+    "cabinet","storage rack","store aisle","sanitized room","bright workspace","neutral interior","office corner"
+    ],
+    
+    "daylight_sunny": [
+    "sunny","daytime","clear sky","blue sky","bright sunlight","sunlit","harsh sunlight","strong shadow","hard shadow","sun beam","sunlit street","sunlit building",
+    "sunlit tree","sky","cloud","white cloud","blue tone","cyan tone","sunny day","outdoor","exterior","urban outdoor","rural outdoor","greenery","tree","grass",
+    "bush","foliage","pathway","road","street","sidewalk","open area","park","public park","garden","playground","square","cityscape","urban area","downtown",
+    "residential area","village","hill","mountain","river","lake","pond","bridge","walking path","trail","coast","seaside","shore","harbor","boat","pier",
+    "field","open field","meadow","wild grass","flowers","blossom","sunlit flower","sunlit portrait","backlit hair","sun flare","sun glow","blue sky background",
+    "sunny landscape","glare","lens flare","shadow on ground","shadow from tree","bright outdoor","natural daylight"
+    ],
+    
+    "daylight_overcast": [
+    "overcast","cloudy day","gray sky","soft light","diffused light","flat light","no shadow","dim daylight","fog","haze","mist","white sky","low contrast",
+    "soft scene","soft background","overcast lighting","dull sky","cloud cover","cloud layer","muted color","desaturated day","outdoor","gray environment",
+    "pale sky","cool daylight","soft ambient","no direct sun","shadowless","flat tone","misty park","misty forest","foggy street","foggy road","hazy mountain",
+    "gray building","fog valley","humid air","wet ground","mist trail","rain cloud","drizzle","light rain","water droplets","gray tone","cool tone",
+    "blue-gray sky","soft tree color","soft foliage","pale green","low saturation","muted greens","muted urban","overcast lake","overcast river"
+    ],
+    
+    "golden_hour": [
+    "sunset","sunrise","golden hour","warm sunset","orange sky","pink sky","yellow sky","sun flare","lens flare","warm glow","low sun angle","long shadow",
+    "soft warm shadow","warm tone","warm backlight","silhouette","backlit subject","sunset light","warm sky","twilight","dusk","evening glow","horizon sun",
+    "orange light","peach light","sunlit cloud","warm cast","golden highlight","late afternoon","sunset landscape","warm foliage","warm city glow","sunset reflection",
+    "reflecting sun","sunset over water","sunset hills","warm portrait light","gold hair light","soft golden glow","sun beams","sunrays","warm haze","dreamy light",
+    "pink light","amber sky","sun dip","warm rim light","warm sky gradient","evening pastel","sunset gradient"
+    ],
+    
+    "night_city": [
+    "night","nighttime","city night","city lights","neon","street light","lamp post","headlights","car lights","building lights","window lights","glow",
+    "urban night","downtown night","night alley","night street","neon sign","light streak","long exposure","bright sign","LED sign","shop lights","bar lights",
+    "club lights","street shadows","dark street","dark road","night rain","wet asphalt","wet reflections","puddle reflection","night sky","dark sky","blue night",
+    "purple night","urban glow","city glow","night silhouette","light trails","traffic trails","bokeh lights","night bokeh","night bus","night crowd","night car",
+    "high ISO scene","grainy night","dim street","spotlit subject","mixed lights","color cast night","metallic night"
+    ],
+    
+    "shade": [
+    "shade","shadowed area","cool shadow","blue shadow","under tree","under awning","under balcony","no direct sun","soft shadow","darkened area","partial shade",
+    "sidewalk shade","building shadow","tree shadow","soft cool light","shadow tone","cool cast","blue cast","indirect daylight","diffused daylight",
+    "cool environment","shadow lines","shadow pattern","shadow texture"
+    ],
+    
+    "food_indoor": [
+    "food","dish","plate","bowl","cuisine","restaurant table","cutlery","spoon","fork","knife","tableware","meal","lunch","dinner","breakfast","cafe food",
+    "coffee","latte","espresso","dessert","cake","croissant","pastry","noodles","rice","meat","vegetable dish","fruit bowl","table shot","overhead food",
+    "food photography","flatlay","top-down food","garnish","sauce","drink","beverage","cup","mug","glass","cafe interior","restaurant interior","napkin","tray"
+    ],
+    
+    "cafe_warm_ambient": [
+    "cafe","coffee shop","barista","counter","menu board","espresso machine","wood table","cozy seating","warm lamp","cafe interior","brick wall","books",
+    "baked goods","pastry","warm decor","potted plant","cafe window","latte art","table number","dessert shelf"
+    ],
+    
+    "landscape": [
+    "forest","tree","mountain","hill","valley","river","lake","pond","field","grassland","meadow","open nature","natural scenery","wildflower","rock",
+    "cliff","shore","sand","trail","path","stream","waterfall","skyline","horizon","distant hills","distant trees","bushes","forest path","forest clearing",
+    "mountain ridge","greenery","foliage","scenic view"
+    ],
+    
+    "sky_heavy": [
+    "sky","blue sky","clear sky","wide sky","open sky","high sky",
+    "sky dominant","cloud","white cloud","cumulus","cirrus","sky gradient",
+    "cyan sky","azure sky","blue tone","sky background","horizon line",
+    "skyscape","sky field","vast sky","wide angle sky","aerial openness",
+    "sunlit sky","bright sky","high exposure sky","backlit cloud",
+    "sun behind cloud","sky reflection","sky color gradient","soft cloud",
+    "sky panorama","cloud bed","thin cloud","deep blue sky","sky mass",
+    "open atmosphere","upper frame sky","headroom sky","sky-heavy scene",
+    "bird in sky","airplane in sky","sky silhouette","tree top + sky",
+    "building + sky","minimal foreground","sky emphasis",
+    "negative space sky","wide blue field","sky framed",
+    "mountain outline + sky","sea horizon + sky"
+    ],
+    
+    "seaside": [
+    "beach","sea","ocean","shore","coast","waves","sand","seawater",
+    "foam","surf","tide","rocks by sea","harbor","pier","dock","jetty",
+    "seaside path","boardwalk","seaside bench","lighthouse","cliff coast",
+    "seaside sunset","seaside sunrise","blue water","turquoise water",
+    "sea horizon","coastal grass","driftwood","shells","beach towel",
+    "umbrella beach","swimmers","boat","fishing boat","harbor boats",
+    "sea reflection","sand patterns","wet sand","tidal pool","coastal sky",
+    "windy sea","sea breeze","foam cast","wave splash","sea spray"
+    ],
+    
+    "street_day": [
+    "street","road","avenue","boulevard","intersection",
+    "crosswalk","sidewalk","pedestrian","crowd","people","passerby",
+    "cyclist","bicycle","motorbike","scooter","car","vehicle","bus","truck",
+    "street vendor","stall","kiosk","outdoor shop","storefront","shop window",
+    "signboard","street sign","traffic light","lamp post","utility pole",
+    "urban street","downtown street","residential street","old street",
+    "pavement","brick pavement","curb","roundabout","public square",
+    "tram rail","bus stop","metro entrance","retail street","street trees",
+    "urban greenery","building facade","glass building","brick building",
+    "street bench","trash bin","mailbox","bike rack","delivery man",
+    "street market","flower stand","fruit stand","street fashion",
+    "street portrait","street shadow","street sunlight","harsh sidewalk shadow",
+    "street reflection","puddle reflection","sunlit street","blue sky street",
+    "daytime urban","city crowd","street activity","walking people",
+    "street atmosphere","daytime commute","street photography"
+    ],
+    
+    "street_night": [
+    "night street","night city","street lights","lamp post","neon sign",
+    "LED sign","shop lights","traffic lights at night","light streak",
+    "long exposure","car lights","headlights","tail lights","neon glow",
+    "wet road reflection","puddle reflection","night crowd","night pedestrians",
+    "dark alley","narrow alley","night kiosk","night vendor","club lights",
+    "bar lights","blue neon","purple neon","pink neon","warm street lamp",
+    "mixed color lights","high ISO night","grainy night","spotlit subject",
+    "dark street corner","night traffic","bus at night","night crosswalk",
+    "street shadows night","building window lights","urban glow","city glow",
+    "night bokeh","neon bokeh","cinematic night","cyberpunk tone"
+    ],
+    
+    "mall_retail": [
+    "mall interior","shopping mall","retail store","store aisle","product shelf",
+    "display shelf","showcase","glass display","clothing rack","fitting room",
+    "store entrance","shopping aisle","checkout counter","cashier","store lighting",
+    "overhead light","bright interior","product lighting","commercial lighting",
+    "fashion store","tech store","cosmetics store","perfume counter","brand wall",
+    "shopping sign","promotion banner","price tag","shopping trolley","shopping cart",
+    "mannequin","display mannequin","retail floor","marble floor","tile floor",
+    "mall corridor","mall directory","mall escalator","shopping bags",
+    "retail environment","mall ambience","indoor bright white","store window"
+    ],
+    
+    "portrait_indoor": [
+    "portrait","face","human face","person","indoor portrait","selfie",
+    "half body","upper body","shoulder portrait","studio portrait",
+    "indoor background","room portrait","bedroom portrait","mirror selfie",
+    "soft indoor light","warm portrait","cool portrait","desk lamp portrait",
+    "window light portrait","skin highlight","hair highlight","bokeh background",
+    "indoor wall background","fabric background","poster wall","mirror reflection",
+    "close-up face","headshot","beauty portrait","casual portrait","model portrait",
+    "shoulder light","hair rim light","soft shadow","catchlight"
+    ],
+    
+    "studio_white": [
+    "studio","white background","white wall","plain backdrop",
+    "seamless paper","studio lighting","softbox","ring light","continuous light",
+    "product shot","catalog shot","model shot","fashion studio","white floor",
+    "clean background","shadowless background","key light","fill light",
+    "neutral lighting","controlled lighting","studio flash","diffused flash",
+    "high key lighting","overexposed background","minimal scene","minimalist portrait",
+    "studio still life","flat background","white environment"
+    ],
+    
+    "window_light": [
+    "window","window frame","daylight window","side light","natural shadow",
+    "soft window light","diffused window","window curtain","sheer curtain",
+    "indoor daylight","near window","window portrait","rim light",
+    "window cast shadow","window highlight","ambient daylight","home window",
+    "cafe window","window reflection","soft falloff light","daylight interior"
+    ],
+    
+    "plain_background": [
+    "solid background","plain wall","monochrome background","solid color",
+    "neutral background","flat wall","smooth backdrop","product background",
+    "simple scene","minimalist","empty wall","no texture","flat color",
+    "studio plain","mockup background","simple surface","clean backdrop",
+    "uncluttered","minimal frame"
+    ],
+    
+    "high_saturation": [
+    "flowers","bright flowers","market stall","fruit display","vegetable display",
+    "colorful fabrics","neon colors","colorful sign","bright mural","painted wall",
+    "festival lights","vivid poster","graffiti wall","vibrant clothes","colorful sweets",
+    "market produce","neon decor","festival ornaments","bright toys","art installation",
+    "rainbow palette","saturated background","color bomb","intense hue"
+    ]
+}

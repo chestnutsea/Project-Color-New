@@ -102,11 +102,11 @@ class AlbumViewModel: ObservableObject {
         // 获取智能相册（如最近项目、个人收藏等）
         let smartCollections = PHAssetCollection.fetchAssetCollections(
             with: .smartAlbum,
-            subtype: .albumRegular,
+            subtype: .any,  // 修复：使用 .any 而不是 .albumRegular
             options: nil
         )
         
-        // 处理用户相册
+        // 处理用户相册（优先显示）
         albums.append(contentsOf: await processCollections(userCollections))
         
         // 处理智能相册
@@ -119,41 +119,51 @@ class AlbumViewModel: ObservableObject {
     private func processCollections(_ collections: PHFetchResult<PHAssetCollection>) async -> [Album] {
         var albums: [Album] = []
         
+        // 先收集所有相册到数组中
+        var collectionArray: [PHAssetCollection] = []
         collections.enumerateObjects { collection, _, _ in
-            // 不排序，使用相册原始顺序，第一张就是系统显示的封面
-            let fetchOptions = PHFetchOptions()
-            fetchOptions.predicate = NSPredicate(format: "mediaType = %d", PHAssetMediaType.image.rawValue)
-            
-            let assets = PHAsset.fetchAssets(in: collection, options: fetchOptions)
-            let count = assets.count
-            
-            // 只显示有照片的相册
-            guard count > 0 else { return }
-            
-            // 创建 Task 来获取封面
-            Task {
-                var coverImage: UIImage?
-                // 使用第一张照片作为封面（相册的原始封面）
-                if let firstAsset = assets.firstObject {
-                    coverImage = await self.fetchThumbnail(for: firstAsset)
+            collectionArray.append(collection)
+        }
+        
+        // 使用 TaskGroup 并发处理所有相册
+        await withTaskGroup(of: Album?.self) { group in
+            for collection in collectionArray {
+                group.addTask {
+                    // 不排序，使用相册原始顺序，第一张就是系统显示的封面
+                    let fetchOptions = PHFetchOptions()
+                    fetchOptions.predicate = NSPredicate(format: "mediaType = %d", PHAssetMediaType.image.rawValue)
+                    
+                    let assets = PHAsset.fetchAssets(in: collection, options: fetchOptions)
+                    let count = assets.count
+                    
+                    // 只显示有照片的相册
+                    guard count > 0 else { return nil }
+                    
+                    var coverImage: UIImage?
+                    // 使用第一张照片作为封面（相册的原始封面）
+                    if let firstAsset = assets.firstObject {
+                        coverImage = await self.fetchThumbnail(for: firstAsset)
+                    }
+                    
+                    let album = Album(
+                        id: collection.localIdentifier,
+                        title: collection.localizedTitle ?? "未命名相册",
+                        assetCollection: collection,
+                        coverImage: coverImage,
+                        photosCount: count
+                    )
+                    
+                    return album
                 }
-                
-                let album = Album(
-                    id: collection.localIdentifier,
-                    title: collection.localizedTitle ?? "未命名相册",
-                    assetCollection: collection,
-                    coverImage: coverImage,
-                    photosCount: count
-                )
-                
-                await MainActor.run {
+            }
+            
+            // 收集所有结果
+            for await album in group {
+                if let album = album {
                     albums.append(album)
                 }
             }
         }
-        
-        // 等待一小段时间让所有 Task 完成
-        try? await Task.sleep(nanoseconds: 100_000_000) // 0.1秒
         
         return albums
     }

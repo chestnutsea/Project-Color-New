@@ -188,10 +188,24 @@ struct AnalysisResultView: View {
                 .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
             }
             
-            Text("3D 视图展示的是 Lab 色彩空间，拥有比 sRGB 更广阔的色域。三维坐标已做归一化处理，便于不同照片的色彩对比。")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("3D 视图展示的是 LCh 色彩空间（Lab 的极坐标形式），这种表示方式更符合人眼对颜色的感知。")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                
+                Text("• H (色相): 0-360°，表示颜色类型（红、橙、黄、绿、青、蓝、紫）")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                
+                Text("• C (色度): 0-110，表示颜色的鲜艳程度（饱和感）")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                
+                Text("• L (亮度): 0-100，表示颜色的明暗程度")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
     
@@ -317,7 +331,7 @@ struct AnalysisResultView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding()
                     .background(dominantColor.opacity(0.08))
-                    .cornerRadius(15)
+                    .cornerRadius(KeywordTagLayout.cornerRadius)
             }
         }
     }
@@ -449,18 +463,25 @@ struct AnalysisResultView: View {
                     // 计算该行内容的总宽度
                     let totalContentWidth = sizes.reduce(0) { $0 + $1.width }
                     
-                    var x: CGFloat = 0
                     let isLastLine = (lineIndex == lines.count - 1)
                     let itemCount = lineIndices.count
                     
-                    // 计算间距
+                    // 计算间距和起始位置
                     var actualSpacing = spacing
+                    var startX: CGFloat = 0
+                    
                     if justify && !isLastLine && itemCount > 1 {
-                        // 分散对齐：计算调整后的间距
+                        // 非最后一行：分散对齐
                         let availableSpace = maxWidth - totalContentWidth
                         actualSpacing = availableSpace / CGFloat(itemCount - 1)
+                        startX = 0
+                    } else if itemCount > 1 {
+                        // 最后一行或未启用分散对齐：居中对齐
+                        let totalLineWidth = totalContentWidth + spacing * CGFloat(itemCount - 1)
+                        startX = (maxWidth - totalLineWidth) / 2
                     }
                     
+                    var x = startX
                     for (i, index) in lineIndices.enumerated() {
                         positions.append(CGPoint(x: x, y: y))
                         x += sizes[i].width
@@ -709,7 +730,7 @@ struct AnalysisResultView: View {
                 let percentage = Int(round(weight * 100))
                 let info = "\(hex) • \(percentage)%"
                 
-                let position = normalizedLabPosition(for: dominantColor.rgb)
+                let position = normalizedLChPosition(for: dominantColor.rgb)
                 let uiColor = UIColor(
                     red: CGFloat(dominantColor.rgb.x),
                     green: CGFloat(dominantColor.rgb.y),
@@ -726,18 +747,38 @@ struct AnalysisResultView: View {
         }
     }
     
-    private func normalizedLabPosition(for rgb: SIMD3<Float>) -> SIMD3<Float> {
+    private func normalizedLChPosition(for rgb: SIMD3<Float>) -> SIMD3<Float> {
+        // 1. RGB → Lab
         let lab = labConverter.rgbToLab(rgb)
         
-        let clampedL = max(0.0, min(100.0, lab.x))
-        let clampedA = max(-128.0, min(127.0, lab.y))
-        let clampedB = max(-128.0, min(127.0, lab.z))
+        // 2. Lab → LCh
+        let L = lab.x  // 亮度 (0-100)
+        let a = lab.y
+        let b = lab.z
         
-        let normalizedL = (clampedL - 50.0) / 100.0
-        let normalizedA = clampedA / 255.0
-        let normalizedB = clampedB / 255.0
+        // C (色度) = sqrt(a² + b²)
+        let C = sqrtf(a * a + b * b)  // 通常 0-110
         
-        let normalized = SIMD3<Float>(normalizedL, normalizedA, normalizedB)
+        // h (色相角度) = atan2(b, a) 转为 0-360°
+        var h = atan2(b, a) * (180.0 / Float.pi)
+        if h < 0 {
+            h += 360.0
+        }
+        
+        // 3. 归一化到 [-0.5, 0.5] 范围
+        // X = h (0-360°) → [-0.5, 0.5]
+        // 色相是圆周，映射到整个 X 轴范围
+        let normalizedH = (h / 360.0) - 0.5
+        
+        // Y = C (0-110) → [-0.5, 0.5]
+        // 色度：0 在底部 (-0.5)，110 在顶部 (0.5)
+        let normalizedC = (C / 110.0) - 0.5
+        
+        // Z = L (0-100) → [-0.5, 0.5]
+        // 亮度：0 在后方 (-0.5)，100 在前方 (0.5)
+        let normalizedL = (L / 100.0) - 0.5
+        
+        let normalized = SIMD3<Float>(normalizedH, normalizedC, normalizedL)
         return simd_clamp(normalized, normalizedLabBounds.min, normalizedLabBounds.max)
     }
     

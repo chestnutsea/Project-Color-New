@@ -4,7 +4,7 @@ import simd
 
 struct ColorSpacePoint: Identifiable {
     let id = UUID()
-    let position: SIMD3<Float>   // Normalized Lab coordinates in [-0.5, 0.5]
+    let position: SIMD3<Float>   // Normalized LCh coordinates in [-0.5, 0.5]: (h, C, L)
     let weight: Double           // 0 ~ 1
     let label: String
     let displayColor: CGColor
@@ -83,11 +83,13 @@ struct ColorSpace3DView: UIViewRepresentable {
     }
     
     // MARK: - 工具函数
-    private func colorToPosition(_ normalizedLab: SIMD3<Float>) -> SCNVector3 {
+    private func colorToPosition(_ normalizedLCh: SIMD3<Float>) -> SCNVector3 {
+        // normalizedLCh: (h, C, L) in [-0.5, 0.5]
+        // X = h (色相), Y = C (色度), Z = L (亮度)
         let edgeLength = Float(LayoutConstants.cubeEdgeWidth)
-        let x = normalizedLab.x * edgeLength
-        let y = normalizedLab.y * edgeLength
-        let z = normalizedLab.z * edgeLength
+        let x = normalizedLCh.x * edgeLength  // 色相
+        let y = normalizedLCh.y * edgeLength  // 色度
+        let z = normalizedLCh.z * edgeLength  // 亮度
         return SCNVector3(x, y, z)
     }
 
@@ -144,6 +146,8 @@ struct ColorSpace3DView: UIViewRepresentable {
     
     private func makeAxisHelper(length: CGFloat) -> SCNNode {
         let node = SCNNode()
+        let axisColor = CGColor(gray: 0.8, alpha: 1.0)  // 统一的轴颜色
+        
         func line(from: SCNVector3, to: SCNVector3, color: CGColor) -> SCNNode {
             let source = SCNGeometrySource(vertices: [from, to])
             let indices: [Int32] = [0, 1]
@@ -152,10 +156,38 @@ struct ColorSpace3DView: UIViewRepresentable {
             geometry.firstMaterial?.diffuse.contents = color
             return SCNNode(geometry: geometry)
         }
-        let origin = SCNVector3(0, 0, 0)
-        node.addChildNode(line(from: origin, to: SCNVector3(Float(length/2), 0, 0), color: CGColor(red: 1, green: 0, blue: 0, alpha: 1)))
-        node.addChildNode(line(from: origin, to: SCNVector3(0, Float(length/2), 0), color: CGColor(red: 0, green: 1, blue: 0, alpha: 1)))
-        node.addChildNode(line(from: origin, to: SCNVector3(0, 0, Float(length/2)), color: CGColor(red: 0, green: 0, blue: 1, alpha: 1)))
+        
+        func makeAxisLabel(text: String, position: SCNVector3) -> SCNNode {
+            let textGeometry = SCNText(string: text, extrusionDepth: 0)
+            textGeometry.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+            textGeometry.flatness = 0.1
+            textGeometry.firstMaterial?.diffuse.contents = UIColor.white
+            textGeometry.firstMaterial?.lightingModel = .constant
+            
+            let textNode = SCNNode(geometry: textGeometry)
+            textNode.position = position
+            textNode.scale = SCNVector3(0.5, 0.5, 0.5)
+            
+            // 让文字始终面向摄像机
+            textNode.constraints = [SCNBillboardConstraint()]
+            
+            return textNode
+        }
+        
+        let axisLength = Float(length/2)
+        
+        // X 轴 (H - 色相) - 从负到正覆盖整个范围
+        node.addChildNode(line(from: SCNVector3(-axisLength, 0, 0), to: SCNVector3(axisLength, 0, 0), color: axisColor))
+        node.addChildNode(makeAxisLabel(text: "H", position: SCNVector3(axisLength + 15, 0, 0)))
+        
+        // Y 轴 (C - 色度) - 从负到正覆盖整个范围
+        node.addChildNode(line(from: SCNVector3(0, -axisLength, 0), to: SCNVector3(0, axisLength, 0), color: axisColor))
+        node.addChildNode(makeAxisLabel(text: "C", position: SCNVector3(0, axisLength + 15, 0)))
+        
+        // Z 轴 (L - 亮度) - 从负到正覆盖整个范围
+        node.addChildNode(line(from: SCNVector3(0, 0, -axisLength), to: SCNVector3(0, 0, axisLength), color: axisColor))
+        node.addChildNode(makeAxisLabel(text: "L", position: SCNVector3(0, 0, axisLength + 15)))
+        
         return node
     }
     
@@ -239,7 +271,7 @@ struct threeDView: View {
                     .foregroundColor(.secondary)
                 Text("暂无 3D 数据")
                     .font(.headline)
-                Text("完成色彩分析后，将可在此查看所有主色在归一化 Lab 空间中的分布。")
+                Text("完成色彩分析后，将可在此查看所有主色在 LCh 色彩空间中的分布。")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)

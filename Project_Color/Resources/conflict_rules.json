@@ -1,0 +1,260 @@
+{
+    "indoor_warm_light": {
+      "dominance": [
+        "cafe_warm", "indoor_food", "indoor_white_light",
+        "portrait_indoor", "mall_retail", "window_light"
+      ],
+      "exclude": [
+        "daylight_sunny", "daylight_overcast", "golden_hour",
+        "street_night", "street_day", "landscape", "sky_heavy",
+        "seaside"
+      ],
+      "override_subject": [
+        "food: indoor_food",
+        "latte/cup/mug: cafe_warm",
+        "portrait/face/selfie: portrait_indoor"
+      ],
+      "override_weather": [
+        "blue_sky: not_indoor",
+        "strong_sunlight: not_indoor"
+      ],
+      "hard_rules": [
+        "如果出现太阳光直射 → 绝不判 indoor_warm",
+        "如果出现蓝天/云/道路 → 场景冲突 → 排除",
+        "如果出现木桌+杯子+浅景深 → 优先 cafe_warm",
+        "暖光比例 > 60% 且无户外标签 → 强制 indoor_warm"
+      ]
+    },
+
+    "indoor_white_light": {
+      "dominance": [
+        "studio_white", "portrait_indoor", "mall_retail",
+        "indoor_food", "window_light"
+      ],
+      "exclude": [
+        "daylight_sunny", "street_day", "street_night",
+        "landscape", "sky_heavy"
+      ],
+      "override_subject": [
+        "products → mall_retail",
+        "human_face → portrait_indoor",
+        "white_wall+diffuse_light → studio_white"
+      ],
+      "override_weather": [
+        "sunny → exclude_indoor",
+        "sky → exclude_indoor"
+      ],
+      "hard_rules": [
+        "白光+商品构图 → mall_retail",
+        "大面积白墙+低对比度 → studio_white",
+        "无显著光色温 → fallback indoor_white"
+      ]
+    },
+    
+    "indoor_white_light": {
+      "dominance": [
+        "studio_white", "portrait_indoor", "mall_retail",
+        "indoor_food", "window_light"
+      ],
+      "exclude": [
+        "daylight_sunny", "street_day", "street_night",
+        "landscape", "sky_heavy"
+      ],
+      "override_subject": [
+        "products → mall_retail",
+        "human_face → portrait_indoor",
+        "white_wall+diffuse_light → studio_white"
+      ],
+      "override_weather": [
+        "sunny → exclude_indoor",
+        "sky → exclude_indoor"
+      ],
+      "hard_rules": [
+        "白光+商品构图 → mall_retail",
+        "大面积白墙+低对比度 → studio_white",
+        "无显著光色温 → fallback indoor_white"
+      ]
+    },
+    
+    "daylight_sunny": {
+      "dominance": [
+        "street_day", "landscape", "sky_heavy", "seaside"
+      ],
+      "exclude": [
+        "indoor_warm_light", "indoor_white_light",
+        "street_night", "night_city"
+      ],
+      "override_subject": [
+        "person_closeup+shallow_dof → portrait_outdoor",
+        "large_body_of_water → seaside",
+        "mountain/forest → landscape"
+      ],
+      "override_weather": [
+        "hard_shadows → force_sunny",
+        "blue_sky → boost_sunny"
+      ],
+      "hard_rules": [
+        "只要出现强烈硬阴影 → 必晴天",
+        "蓝天>30% → 必晴天",
+        "反光/镜面光强烈 → boost sunny",
+        "建筑主导 → 交给 street_day"
+      ]
+    },
+    
+    "daylight_overcast": {
+      "dominance": [
+        "street_day", "landscape", "sky_heavy"
+      ],
+      "exclude": [
+        "golden_hour", "night_city", "indoor_*"
+      ],
+      "override_subject": [
+        "forest/greenery → landscape",
+        "street_elements → street_day"
+      ],
+      "override_weather": [
+        "thick_cloud → force_overcast",
+        "flat_light → strong_weight_overcast"
+      ],
+      "hard_rules": [
+        "若对比度过低+无人工光源 → 必阴天",
+        "若天空是白色而非蓝色 → 优先 overcast",
+        "可见湿地面但无灯光 → overcast not rainy"
+      ]
+    },
+    
+    "golden_hour": {
+      "dominance": [
+        "portrait_outdoor", "landscape", "seaside",
+        "street_day"
+      ],
+      "exclude": [
+        "indoor_warm_light", "night_city", "street_night"
+      ],
+      "override_subject": [
+        "sunset_sky → golden_hour",
+        "silhouette_person → golden_hour",
+        "orange_rim_light → golden_hour"
+      ],
+      "override_weather": [
+        "warm_sky_gradient → strong_boost_golden",
+        "low_sun_angle → force_golden"
+      ],
+      "hard_rules": [
+        "暖色光线+长阴影 → 必黄金时段",
+        "太阳位于低角度 → 强制 golden_hour",
+        "若室外并出现粉橙紫色天光 → golden_hour"
+      ]
+    },
+    
+    "night_city": {
+      "dominance": [
+        "street_night", "neon_scene", "high_saturation"
+      ],
+      "exclude": [
+        "daylight_*", "indoor_warm_light", "indoor_white_light"
+      ],
+      "override_subject": [
+        "neon_sign → neon_scene",
+        "car_light_trail → night_city",
+        "glass_reflection_city → night_city"
+      ],
+      "override_weather": [
+        "dark_sky → boost_night",
+        "wet_pavement_reflect → boost_night_city"
+      ],
+      "hard_rules": [
+        "只要出现路灯+黑天 → night_city",
+        "出现车灯轨迹 → 不可能是 street_night（而是 night_city）",
+        "高对比度人工光源 > 3 种 → night_city"
+      ]
+    },
+    
+    "shade": {
+      "dominance": [
+        "portrait_outdoor", "street_day"
+      ],
+      "exclude": [
+        "indoor_*", "night_city"
+      ],
+      "override_subject": [
+        "person_close → portrait_outdoor_shade"
+      ],
+      "override_weather": [
+        "blue_cast → strong_shade_signal",
+        "low_brightness_daylight → shade"
+      ],
+      "hard_rules": [
+        "蓝偏日光+软光+无直射阴影 → 必 shade",
+        "背景仍可见户外但主体在暗处 → shade",
+        "肤色偏冷但环境偏暖 → shade not color grading"
+      ]
+    },
+    
+    "indoor_food": {
+      "dominance": [
+        "cafe_warm", "indoor_warm_light", "indoor_white_light"
+      ],
+      "exclude": [
+        "landscape", "street_*", "seaside"
+      ],
+      "override_subject": [
+        "latte/cup → cafe_warm",
+        "plate+wood_table → food_scene",
+        "closeup_food → indoor_food"
+      ],
+      "override_weather": [
+        "NA"
+      ],
+      "hard_rules": [
+        "食物占比>30% → indoor_food",
+        "浅景深+餐具 → 必 food",
+        "咖啡杯+木桌 → cafe_warm not generic_indoor"
+      ]
+    },
+    
+    "cafe_warm": {
+      "dominance": [
+        "indoor_warm_light", "indoor_food", "portrait_indoor"
+      ],
+      "exclude": [
+        "daylight_sunny", "street_*"
+      ],
+      "override_subject": [
+        "coffee/latte/cup → cafe_warm",
+        "barista/espresso_machine → cafe_warm"
+      ],
+      "override_weather": [],
+      "hard_rules": [
+        "木桌+拉花+暖光 → cafe",
+        "布艺沙发+暖灯 → cafe",
+        "墙上菜单板+咖啡机 → cafe"
+      ]
+    },
+    
+    "landscape": {
+      "dominance": [
+        "daylight_sunny", "daylight_overcast", "golden_hour",
+        "sky_heavy", "seaside"
+      ],
+      "exclude": [
+        "indoor_*", "mall_retail", "portrait_indoor"
+      ],
+      "override_subject": [
+        "mountain → landscape",
+        "lake/river → landscape",
+        "forest/grassland → landscape"
+      ],
+      "override_weather": [
+        "heavy_haze → soft_landscape",
+        "pink_sky → golden_hour_override"
+      ],
+      "hard_rules": [
+        "若自然元素>50% → 强制 landscape",
+        "出现山/海/湖之一 → 强制 landscape",
+        "若人物占比低于20% → landscape"
+      ]
+    }
+
+}
+

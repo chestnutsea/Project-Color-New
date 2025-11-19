@@ -1,0 +1,281 @@
+{
+    "secondary_weather": [
+        "sunny","bright sun","clear sky","blue sky","direct sunlight","sun-drenched","sunlit","sunbeam","sun rays",
+        "sun flare","lens flare","glare","harsh light","hard shadow","strong shadow","deep shadow","shade","partial shade",
+
+        "overcast","cloudy","cloud cover","gray sky","flat light","diffuse light","soft light","low-contrast light",
+        "white sky","thick clouds","thin clouds","broken clouds","dark clouds","storm clouds","pre-storm sky",
+
+        "haze","hazy","mist","misty","fog","foggy","low visibility","atmospheric haze","morning fog","smoke haze",
+        "smog","air pollution","dusty air","low clarity","soft haze","heavy haze","light haze",
+
+        "rain","rainy","drizzle","raindrops","rain streaks","rain puddle","wet pavement","wet asphalt","wet ground",
+        "rain reflection","wet reflection","water beading","storm rain","thunderstorm","overcast rain","rain mist",
+        "rain clouds","rain curtain",
+
+        "snow","snowfall","snowing","blizzard","snow drift","snowflakes","fresh snow","powder snow","melting snow",
+        "frost","frosty","icy ground","ice patches","whiteout","snow fog","winter storm",
+
+        "wind","windy","breeze","strong wind","gust","dust blown","leaves blown","trees swaying","hair blowing",
+        "fabric blowing","wind ripples","wind wave","coastal wind","desert wind",
+
+        "humidity","humid","moist air","dew","dew drops","condensation","fog condensation","wet leaf","wet surface",
+        "evaporation","heat shimmer","mirage","hot air","thermal haze","warm atmosphere","cool atmosphere",
+
+        "dawn","dusk","twilight","early morning light","late afternoon light","evening glow","golden sky",
+        "pink sky","blue hour","sunrise glow","sunset glow","solar glow","sky gradient","atmospheric light",
+
+        "storm","pre-storm","darkening sky","incoming rain","storm front","heavy cloud mass","lightning",
+        "light beam through clouds","crepuscular rays","god rays","rainbow","partial rainbow","double rainbow",
+
+        "environment tone","warm tone","cool tone","neutral sky","blue cast","cyan cast","orange cast",
+        "purple cast","magenta cast","sun color bleed","atmospheric scattering"
+        ],
+    
+    "secondary_human_body_action": [
+    "person","people","human","adult","woman","man","girl","boy","child","teen","elderly","crowd",
+    "group","couple","friends","family","portrait","selfie","face","front view","side view","back view",
+    "profile","silhouette","upper body","lower body","full body","torso","shoulder","arm","hand","finger",
+    "palm","wrist","elbow","leg","thigh","knee","ankle","foot","toe","neck","hair","long hair","short hair",
+    "curly hair","straight hair","bangs","bun","ponytail","beard","mustache","eyebrow","eye","nose","mouth",
+    "lip","ear","skin","face skin","hand skin","nail","fingernail","lipstick","makeup","eyeshadow","blush",
+
+    "gesture","pose","standing","sitting","lying","kneeling","squatting","leaning","reclining","stretching",
+    "walking","running","jogging","jumping","dancing","posing","balancing","bending","twisting","turning",
+    "reaching","touching","grabbing","holding","carrying","lifting","pushing","pulling","throwing","catching",
+    "waving","pointing","clapping","snapping","typing","writing","reading","using phone","taking photo",
+    "picking","pouring","cooking","eating","drinking","brushing hair","tying hair","fixing clothes",
+
+    "emotion","smiling","laughing","frowning","serious","neutral expression","surprised","shouting",
+    "singing","crying","focused","concentrated","relaxed","tired","sleepy",
+
+    "interaction","talking","conversing","arguing","hugging","kissing","handshake","high five","holding hands",
+    "carrying child","child on shoulders","feeding","grooming","helping","guiding","waiting","queuing",
+
+    "activity","sports","yoga","push-up","sit-up","stretch","dance pose","martial arts","boxing","skating",
+    "biking","cycling","swimming","surfing","climbing","hiking","camping","fishing","driving","riding",
+
+    "state","blurry person","motion blur","occluded face","partially visible","backlit person","shadow person",
+    "silhouetted person","reflection person","mirror selfie","mirror reflection","double exposure figure"
+    ]
+
+    ],
+    
+    "secondary_objects": [
+        "secondary_objects": [
+        "chair","armchair","bench","stool","sofa","couch","beanbag","rocking chair",
+        "table","coffee table","dining table","side table","desk","counter","bar counter",
+
+        "lamp","table lamp","desk lamp","floor lamp","lantern","spotlight","flashlight","torch",
+        "ceiling light","chandelier","pendant light","string lights","LED strip","reading lamp",
+
+        "cup","mug","glass","wine glass","bottle","water bottle","thermos","teacup","tea pot",
+        "plate","bowl","tray","cutlery","fork","knife","spoon","chopsticks","napkin","tableware",
+
+        "book","notebook","journal","magazine","paper","folder","document","file","pen","pencil",
+        "marker","highlighter","eraser","ruler","stapler","stationery","calculator","diary",
+
+        "bag","handbag","backpack","tote bag","shoulder bag","sling bag","shopping bag",
+        "briefcase","camera bag","luggage","suitcase",
+
+        "phone","smartphone","tablet","laptop","computer","monitor","keyboard","mouse","headphones",
+        "earphones","speaker","smartwatch","charger","power bank","USB cable","adapter",
+
+        "camera","DSLR","mirrorless camera","lens","tripod","monopod","camera strap","flash unit",
+
+        "watch","bracelet","necklace","ring","earring","jewelry","glasses","sunglasses",
+
+        "bicycle","bike","electric bike","motorcycle","scooter","skateboard","rollerblade",
+        "helmet","bike lock","bicycle rack",
+
+        "car","truck","bus","taxi","van","pickup","vehicle","license plate","side mirror",
+        "headlight","taillight","car door","car wheel","tire","dashboard","windshield",
+
+        "plant","potted plant","indoor plant","flower","bouquet","vase","succulent","leaf",
+        "branch","tree stump","soil","watering can","plant pot",
+
+        "food","fruit","vegetable","banana","apple","orange","grape","strawberry","blueberry",
+        "bread","croissant","pastry","cake","dessert","chocolate","candy","cookie",
+        "noodles","rice","soup","steak","pizza","burger","fries","salad","sandwich",
+        "coffee","latte","espresso","tea","juice","beer","wine","cocktail",
+
+        "bottle opener","corkscrew","salt shaker","pepper shaker","olive oil bottle","condiment bottle",
+
+        "makeup","cosmetic palette","lipstick","foundation","brush","powder","mirror","compact mirror",
+        "perfume bottle","skincare bottle","serum","lotion tube",
+
+        "clothes","shirt","t-shirt","jacket","coat","pants","jeans","skirt","dress","scarf",
+        "gloves","hat","cap","beanie","belt","shoe","sneaker","boot","sock","hanger","clothing rack",
+
+        "toy","plush toy","action figure","board game","lego","doll","ball","rubber ball",
+
+        "electronics","speaker","microwave","toaster","kettle","oven","refrigerator","fan",
+        "air conditioner","washing machine","remote control","alarm clock","digital clock",
+
+        "tools","hammer","screwdriver","wrench","pliers","nails","screws","toolbox","drill",
+        "tape measure","level","saw","cutter","adhesive tape","rope","zip ties",
+
+        "decor","painting","picture frame","poster","wall art","sculpture","candlestick","candle",
+        "carpet","rug","curtain","sheer curtain","tablecloth","coaster","placemat",
+
+        "sign","signboard","billboard","menu board","lightbox sign","price tag","label","QR code",
+
+        "furniture","shelf","bookshelf","cabinet","drawer","closet","wardrobe","mirror",
+        "full-length mirror","glass door","wooden floor","tile floor","marble floor","brick","concrete",
+        "fence","gate","railing","pillar","column"
+        ]
+
+    ],
+    
+    "secondary_geometry_lines": [
+    "line","straight line","curve","curved line","diagonal line","horizontal line","vertical line",
+    "parallel lines","perpendicular lines","intersecting lines","crossing lines","leading lines",
+    "guiding lines","contour","outline","edge","boundary","border","shape","circle","oval","ellipse",
+    "square","rectangle","triangle","polygon","hexagon","octagon","star shape","organic shape",
+    "abstract shape","symmetry","asymmetry","axis","mirror symmetry","radial symmetry","centered composition",
+    "framing","frame within frame","rule of thirds","grid","pattern","texture pattern","stripe pattern",
+    "check pattern","dot pattern","repetitive pattern","geometric pattern","zigzag",
+
+    "perspective","one-point perspective","two-point perspective","three-point perspective","vanishing point",
+    "depth","foreground","midground","background","overlapping shapes","layers","composition lines",
+    "leading perspective","converging lines","expanding lines","recursion","reflection symmetry",
+
+    "structural geometry","beam line","column line","wall line","roof line","window grid","door frame",
+    "panel lines","tile grid","brick pattern","pavement lines","crosswalk lines","road lane",
+    "lane marking","road divider lines","street geometry","bridge lines","stair geometry","railing lines",
+
+    "natural geometry","tree branch lines","leaf veins","wave lines","ripple pattern","mountain silhouette",
+    "horizon line","coastline shape","cloud shape","sun halo","moon shape",
+
+    "abstract visual","light streak","light trail","bokeh circle","blur line","motion line","shadow line",
+    "shadow pattern","reflection line","diffraction pattern","refraction pattern","light ray","god rays",
+
+    "composition markers","central line","anchor point","balance","visual weight","negative space",
+    "minimal lines","strong geometry","graphic contrast","high structure","grid alignment"
+    ],
+    
+    "secondary_material_texture": [
+    "wood","wood grain","oak","walnut","pine","birch","dark wood","light wood","varnished wood","polished wood",
+    "carved wood","bamboo","plywood",
+
+    "metal","steel","brushed metal","polished metal","chrome","aluminum","iron","rust","rusty surface","oxidized metal",
+    "metal frame","metal grid","wireframe","mesh","stainless steel",
+
+    "glass","window glass","tempered glass","frosted glass","clear glass","reflection","mirror","distorted reflection",
+    "glass panel","glass door","glass table","glass bottle","glass cup","light reflection","refraction",
+
+    "plastic","matte plastic","glossy plastic","transparent plastic","recycled plastic","textured plastic","PVC",
+    "ABS plastic","plastic bag","wrinkled plastic","film","packaging plastic",
+
+    "fabric","cotton","linen","wool","silk","velvet","canvas","denim","leather","synthetic fiber","fleece",
+    "textile","knitted fabric","woven fabric","patterned fabric","striped fabric","checked fabric","embroidery",
+
+    "paper","cardboard","kraft paper","notebook paper","rough paper","smooth paper","wrinkled paper","torn paper",
+    "napkin","tissue","envelope","label paper","newspaper","magazine paper","printed paper",
+
+    "stone","rock","granite","marble","polished stone","rough stone","concrete","cement","stucco",
+    "plaster","tile","ceramic tile","glazed tile","brick","old brick","stone wall","pavement stone","pebble","gravel",
+
+    "organic","leaf texture","bark texture","tree bark","moss","lichen","soil","sand","wet sand","dry sand",
+    "clay","mud","wet mud","snow texture","ice texture","frost texture",
+
+    "surface","matte surface","glossy surface","rough surface","smooth surface","grainy","gritty","porous",
+    "reflective surface","diffuse surface","translucent","opaque",
+
+    "other","foil","aluminum foil","bubble wrap","rope","twine","wire","net","rubber","foam","sponge","ceramic",
+    "porcelain","terracotta"
+    ],
+    
+    "secondary_architecture": [
+    "building","skyscraper","tower","office building","apartment","residential building","villa","cottage",
+    "house","townhouse","warehouse","factory","industrial building","barn","shed",
+
+    "floor","wooden floor","tile floor","stone floor","marble floor","concrete floor","carpet floor",
+    "rug","mat","stair","stairs","staircase","railing","handrail","elevator","escalator",
+
+    "wall","white wall","painted wall","brick wall","stone wall","glass wall","patterned wall",
+    "accent wall","concrete wall","textured wall","panel wall","plaster wall","wall molding","wall panel",
+
+    "ceiling","white ceiling","wood ceiling","decorative ceiling","exposed beam","beam","ceiling light",
+    "recessed light","vent","air duct","air vent",
+
+    "door","wood door","glass door","metal door","sliding door","automatic door","revolving door",
+    "garage door","entrance door","exit door","door frame","door handle","door knob",
+
+    "window","large window","small window","bay window","arched window","glass window","window frame",
+    "curtain","sheer curtain","blinds","roller blind","window grid","window sill","window reflection",
+
+    "corridor","hallway","passage","walkway","balcony","terrace","porch","lobby","atrium","entrance hall",
+    "waiting area","seating area","reception desk","front desk","foyer",
+
+    "kitchen","kitchen counter","cabinet","drawer","sink","faucet","backsplash","stove","range hood",
+    "oven","island counter","pantry","storage cabinet","cupboard",
+
+    "bathroom","mirror","sink basin","toilet","bathtub","shower","shower glass","tiled wall","tiled floor",
+    "soap holder","shower head","bathroom shelf","bathroom light",
+
+    "retail","storefront","display window","shelf","product shelf","checkout counter","cashier desk",
+    "shopping aisle","price tag","signboard","menu board","LED signage","lightbox sign",
+
+    "structural outdoor","bridge","overpass","underpass","tunnel","arch","pillar","column","fence","gate",
+    "iron gate","brick fence","hedge","retaining wall","roof","roof tile","chimney",
+
+    "urban elements","streetlight","traffic light","crosswalk","sidewalk","road divider","traffic sign",
+    "bus stop","metro entrance","mailbox","utility pole","power line","parking lot","parking space"
+    ],
+    
+    "secondary_nature": [
+    "tree","big tree","small tree","pine tree","oak tree","birch tree","palm tree","willow","bamboo",
+    "bush","shrub","hedge","leaf","fallen leaf","new leaves","branch","twigs","root","tree stump",
+
+    "grass","lawn","meadow","field","wild grass","tall grass","dry grass","greenery","dense vegetation",
+    "forest","woods","jungle","rainforest","grove","bamboo forest","underbrush","foliage","canopy",
+
+    "flowers","blossom","bloom","petal","rose","tulip","sunflower","daisy","orchid","lavender",
+    "wildflower","flower bush","flower field","garden flower","bouquet flowers",
+
+    "mountain","hill","cliff","canyon","valley","ridge","rock formation","boulder","peak","summit",
+    "alpine landscape","snow mountain","volcanic rock","mountain trail","hiking trail",
+
+    "water","river","stream","creek","waterfall","pond","lake","reservoir","shore","seaside","coast",
+    "ocean","sea","beach","wave","tide","foam","ripple","reflection on water","wet rock","harbor","dock",
+
+    "sky","cloud","blue sky","overcast sky","storm sky","sunset sky","sunrise sky","pink sky","purple sky",
+    "gradient sky","clear sky","no cloud","cloud streak","thick cloud","thin cloud",
+
+    "weather ground","mud","dirt","soil","sand","desert","dune","dry desert","wet sand","rocky ground",
+    "pebble","gravel","pavement","asphalt","wet pavement","ice","snow","slush","frost lines","snow piles",
+
+    "animals","bird","pigeon","sparrow","crow","seagull","duck","goose","swan","cat","dog","cow","horse","sheep","goat",
+    "butterfly","dragonfly","beetle","insect","bee","squirrel","fish","crab","rabbit","fox",
+
+    "natural objects","shell","coral","driftwood","pinecone","seed","mushroom","lichen","moss rock",
+    "tree bark","fern","cactus","succulent"
+    ],
+    
+    "secondary_commercial": [
+    "storefront","shop entrance","mall interior","shopping aisle","product shelf","rack","hanger rack",
+    "retail display","clothing display","shoe display","jewelry counter","cosmetics counter",
+
+    "price tag","label","tag","barcode","QR code","discount sign","sale sign","menu board","chalkboard menu",
+    "lightbox sign","LED sign","neon sign","store sign","billboard","banner","advertising poster",
+
+    "vending machine","ATM","ticket machine","kiosk","self-checkout","cashier counter","POS terminal","scanner",
+    "turnstile","entrance gate","barrier gate","parking meter","toll booth",
+
+    "restaurant","café","bar","countertop","buffet table","serving tray","bar stool","pub sign","menu card",
+    "food display","cake shelf","pastry case","drink dispenser","coffee machine","espresso machine",
+
+    "public space","bench","public sign","direction sign","street sign","crosswalk sign","road sign","bus stop sign",
+    "subway sign","train sign","station map","route map","information board","directory sign",
+
+    "vehicles urban","taxi sign","bus number sign","train car number","platform board","airport sign","departure board",
+    "arrival board","gate number","flight info display",
+
+    "construction","safety cone","traffic cone","barrier","warning sign","caution sign","fence",
+    "scaffolding","construction tarp","safety tape","metal barrier","roadblock","detour sign"
+    ]
+
+
+}
+

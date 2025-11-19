@@ -58,6 +58,9 @@ struct HomeView: View {
     @State private var showAnalysisResult = false
     @State private var showAnalysisHistory = false  // Phase 3: 历史记录
     @State private var showAnalysisSettings = false  // Phase 5: 分析设置
+    @State private var showCollectedTags = false  // Vision 标签库
+    @State private var showShareSheet = false  // 导出分享
+    @State private var shareURL: URL?  // 分享文件 URL
     private let analysisPipeline = SimpleAnalysisPipeline()
     
     var body: some View {
@@ -148,6 +151,31 @@ struct HomeView: View {
                     VStack {
                         HStack {
                             Spacer()
+                            
+                            // Vision 标签库菜单
+                            Menu {
+                                Button(action: {
+                                    showCollectedTags = true
+                                }) {
+                                    Label("查看标签库", systemImage: "tag.fill")
+                                }
+                                
+                                Button(action: {
+                                    exportTags()
+                                }) {
+                                    Label("导出标签", systemImage: "square.and.arrow.down")
+                                }
+                                .disabled(TagCollector.shared.count() == 0)
+                            } label: {
+                                Image(systemName: "tag.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(.primary)
+                                    .padding(12)
+                                    .background(Color.white.opacity(0.9))
+                                    .clipShape(Circle())
+                                    .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+                            }
+                            .padding(.trailing, 8)
                             
                             // Phase 5: 设置按钮
                             Button(action: {
@@ -250,6 +278,18 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showAnalysisSettings) {
             AnalysisSettingsView()
+        }
+        .sheet(isPresented: $showCollectedTags) {
+            CollectedTagsView()
+        }
+        .sheet(isPresented: $showShareSheet) {
+            if let url = shareURL {
+                #if canImport(UIKit)
+                ShareSheet(activityItems: [url])
+                #else
+                EmptyView()
+                #endif
+            }
         }
         .onAppear {
             checkPhotoLibraryStatus()
@@ -354,6 +394,10 @@ struct HomeView: View {
             return
         }
         
+        // 重置进度状态
+        analysisProgress = AnalysisProgress()
+        processingProgress = 0.0
+        
         Task {
             let result = await analysisPipeline.analyzePhotos(assets: assets) { (progress: AnalysisProgress) in
                 DispatchQueue.main.async {
@@ -383,6 +427,7 @@ struct HomeView: View {
         isProcessing = false
         processingProgress = 0.0
         photoStackOpacity = 1.0
+        analysisProgress = AnalysisProgress()
     }
     
     // MARK: - 照片模板视图
@@ -607,6 +652,57 @@ struct HomeView: View {
         #else
         // macOS 或其他平台
         return Image("PhotoScanner")
+        #endif
+    }
+    
+    // MARK: - 导出标签
+    private func exportTags() {
+        #if canImport(UIKit)
+        let tagStats = TagCollector.shared.exportStats()
+        
+        guard !tagStats.isEmpty else {
+            print("⚠️ 没有标签可导出")
+            return
+        }
+        
+        // 创建文件内容
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let dateString = dateFormatter.string(from: Date())
+        
+        var content = "Vision 标签导出\n"
+        content += "导出时间: \(dateString)\n"
+        content += "唯一标签数: \(tagStats.count)\n"
+        content += "总标签数: \(TagCollector.shared.totalCount())\n"
+        content += "\n"
+        content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        content += "\n"
+        content += String(format: "%-30s %s\n", "标签", "次数")
+        content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        content += "\n"
+        
+        // 添加所有标签（带次数）
+        for tagStat in tagStats {
+            content += String(format: "%-30s %d\n", tagStat.tag, tagStat.count)
+        }
+        
+        // 创建临时文件
+        let fileDateFormatter = DateFormatter()
+        fileDateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        let fileName = "vision_tags_\(fileDateFormatter.string(from: Date())).txt"
+        let tempDir = FileManager.default.temporaryDirectory
+        let fileURL = tempDir.appendingPathComponent(fileName)
+        
+        do {
+            // 写入文件
+            try content.write(to: fileURL, atomically: true, encoding: .utf8)
+            
+            // 显示分享界面
+            shareURL = fileURL
+            showShareSheet = true
+        } catch {
+            print("❌ 导出失败: \(error.localizedDescription)")
+        }
         #endif
     }
 }

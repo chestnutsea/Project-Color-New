@@ -31,14 +31,16 @@ class ColorAnalysisEvaluator {
     - Brightness and contrast statistics
     - Global cool–warm score and color-balance tendencies
     - Aggregated mood tags and style tags (if available)
+    - style_consistency_score (0–1, higher means more visually consistent)
+    - pattern_signals: { has_pattern: true/false, pattern_description: "" }
 
     Your job is to describe WHAT this collection looks and feels like, not to give advice.
 
     Output requirements (Chinese):
-    
+
     使用第二人称，语气温和、专业、细致。输出分为两部分：
-    
-    **正文部分**（纯文本段落，不要小标题）：
+
+    正文部分（纯文本段落，不要小标题）：
     - 用 2–3 个自然段落描述这组照片的整体风格
     - 第一段：描述色彩基调（整体色相、冷暖倾向、饱和度与色彩层次）
       可以自然地提到"在色彩上"、"色调方面"等，但不要单独成行的小标题
@@ -46,8 +48,16 @@ class ColorAnalysisEvaluator {
       可以自然地提到"光线呈现"、"在明暗处理上"等
     - 第三段：描述情绪与氛围（整体感受、情绪倾向、视觉气质）
       可以自然地提到"整体氛围"、"情绪上"等
-    
-    **风格关键词**（独立一行）：
+
+    可选的隐含规律描述（仅当满足以下条件时）：
+    - style_consistency_score ≥ 0.6
+    - pattern_signals.has_pattern = true
+    若满足条件，请在正文最后自然补充 1–2 句：
+    - 用温和、克制的方式指出“在这些照片中，隐约出现的共同倾向”
+    - 绝不定义用户，只描述画面可能呈现的重复节奏
+    - 如果不满足条件，则完全不输出规律内容
+
+    风格关键词（独立一行）：
     - 在正文之后，另起一行输出：风格关键词：
     - 输出 5–8 个中文关键词，长度自然灵活多样（2–6 个字均可，避免全部相同字数）
     - 格式：关键词#颜色值，用逗号分隔
@@ -62,6 +72,7 @@ class ColorAnalysisEvaluator {
     - 不列举具体数值和百分比，所有量化信息都转化为感知描述
     - 用专业摄影评论口吻，简洁、有气质、有画面感
     - 正文总字数建议控制在 250–400 个汉字之间
+    - 避免使用“您”，可以使用“你”
 
     """
     
@@ -242,7 +253,120 @@ class ColorAnalysisEvaluator {
             """
         }
         
+        // 计算 Tendency Inspector 数据
+        let tendencyData = computeTendencyInspectorData(result: result, clusterAnalytics: clusterAnalytics)
+        
+        print("📊 Tendency Inspector 计算结果:")
+        print("   - 风格一致性分数: \(String(format: "%.3f", tendencyData.consistencyScore))")
+        print("   - 检测到规律: \(tendencyData.hasPattern)")
+        if tendencyData.hasPattern {
+            print("   - 规律描述: \(tendencyData.patternDescription)")
+        }
+        
+        prompt += """
+        
+        
+        **风格一致性与规律检测**
+        style_consistency_score: \(String(format: "%.3f", tendencyData.consistencyScore))
+        pattern_signals: { has_pattern: \(tendencyData.hasPattern), pattern_description: "\(tendencyData.patternDescription)" }
+        """
+        
+        // 添加 Vision 识别数据（场景和主体信息）
+        let visionSummary = generateVisionSummary(from: result.photoInfos)
+        if !visionSummary.isEmpty {
+            prompt += """
+            
+            
+            **Vision 图像识别数据**
+            \(visionSummary)
+            """
+        }
+        
         return prompt
+    }
+    
+    /// 生成 Vision 识别数据摘要
+    private func generateVisionSummary(from photoInfos: [PhotoColorInfo]) -> String {
+        // 收集所有有 Vision 数据的照片
+        let photosWithVision = photoInfos.filter { $0.visionInfo != nil }
+        
+        guard !photosWithVision.isEmpty else {
+            return ""
+        }
+        
+        print("📸 Vision 数据汇总: \(photosWithVision.count)/\(photoInfos.count) 张照片有识别数据")
+        
+        var summary = ""
+        
+        // 1. 场景类型统计
+        var sceneCounter: [String: Int] = [:]
+        for photo in photosWithVision {
+            if let topScene = photo.visionInfo?.sceneClassifications.first {
+                sceneCounter[topScene.identifier, default: 0] += 1
+            }
+        }
+        
+        if !sceneCounter.isEmpty {
+            let topScenes = sceneCounter.sorted { $0.value > $1.value }.prefix(5)
+            summary += "场景类型分布: "
+            summary += topScenes.map { "\($0.key)(\($0.value)张)" }.joined(separator: ", ")
+        }
+        
+        // 2. 主体数量统计
+        var subjectCounts: [Int] = []
+        for photo in photosWithVision {
+            if let attrs = photo.visionInfo?.photographyAttributes {
+                subjectCounts.append(attrs.subjectCount)
+            }
+        }
+        
+        if !subjectCounts.isEmpty {
+            let avgSubjects = Double(subjectCounts.reduce(0, +)) / Double(subjectCounts.count)
+            let multiSubjectCount = subjectCounts.filter { $0 > 1 }.count
+            summary += "\n主体分布: 平均\(String(format: "%.1f", avgSubjects))个/张"
+            if multiSubjectCount > 0 {
+                summary += ", \(multiSubjectCount)张多主体构图"
+            }
+        }
+        
+        // 3. 构图类型统计
+        var compositionCounter: [String: Int] = [:]
+        for photo in photosWithVision {
+            if let composition = photo.visionInfo?.photographyAttributes?.compositionType {
+                compositionCounter[composition, default: 0] += 1
+            }
+        }
+        
+        if !compositionCounter.isEmpty {
+            let topCompositions = compositionCounter.sorted { $0.value > $1.value }.prefix(3)
+            summary += "\n构图类型: "
+            summary += topCompositions.map { "\($0.key)(\($0.value)张)" }.joined(separator: ", ")
+        }
+        
+        // 4. 地平线检测统计
+        let horizonCount = photosWithVision.filter { $0.visionInfo?.photographyAttributes?.hasHorizon == true }.count
+        if horizonCount > 0 {
+            summary += "\n地平线检测: \(horizonCount)张照片检测到地平线"
+        }
+        
+        // 5. 图像分类标签（汇总前10个最常见的）
+        var classificationCounter: [String: Int] = [:]
+        for photo in photosWithVision {
+            if let classifications = photo.visionInfo?.imageClassifications.prefix(5) {
+                for classification in classifications {
+                    classificationCounter[classification.identifier, default: 0] += 1
+                }
+            }
+        }
+        
+        if !classificationCounter.isEmpty {
+            let topClassifications = classificationCounter.sorted { $0.value > $1.value }.prefix(10)
+            summary += "\n常见标签: "
+            summary += topClassifications.map { "\($0.key)(\($0.value)次)" }.joined(separator: ", ")
+        }
+        
+        print("✅ Vision 摘要生成完成")
+        return summary
     }
     
     /// 格式化光线方向统计
@@ -265,6 +389,132 @@ class ColorAnalysisEvaluator {
         let sorted = tags.sorted { $0.value > $1.value }
         let formatted = sorted.map { "\($0.key): \(String(format: "%.2f", $0.value))" }
         return formatted.joined(separator: ", ")
+    }
+    
+    // MARK: - Tendency Inspector 计算
+    
+    /// 计算 Tendency Inspector 所需的所有数据
+    private func computeTendencyInspectorData(
+        result: AnalysisResult,
+        clusterAnalytics: [ClusterAnalytics]
+    ) -> (consistencyScore: Float, hasPattern: Bool, patternDescription: String) {
+        // 1. 收集每张照片的 H/S/L 和冷暖分数
+        var hueValues: [Float] = []
+        var saturationValues: [Float] = []
+        var lightnessValues: [Float] = []
+        var warmCoolScores: [Float] = []
+        
+        for photoInfo in result.photoInfos {
+            // 从 HSL 数据提取
+            if let hslData = photoInfo.warmCoolScore?.hslData {
+                for hsl in hslData.hslList {
+                    hueValues.append(hsl.h)
+                    saturationValues.append(hsl.s)
+                    lightnessValues.append(hsl.l)
+                }
+            }
+            
+            // 提取冷暖分数
+            if let warmCoolScore = photoInfo.warmCoolScore {
+                warmCoolScores.append(warmCoolScore.overallScore)
+            }
+        }
+        
+        // 如果数据不足，返回默认值
+        guard !hueValues.isEmpty && !warmCoolScores.isEmpty else {
+            return (0.0, false, "")
+        }
+        
+        // 2. 计算风格一致性分数
+        let consistencyScore = computeStyleConsistencyScore(
+            hueValues: hueValues,
+            saturationValues: saturationValues,
+            lightnessValues: lightnessValues,
+            warmCoolScores: warmCoolScores
+        )
+        
+        // 3. 获取全局主色（从聚类中提取）
+        let dominantColors: [DominantColor] = clusterAnalytics.map { analytics in
+            let cluster = analytics.cluster
+            let weight = Float(cluster.photoCount) / Float(result.totalPhotoCount)
+            return DominantColor(rgb: cluster.centroid, weight: weight)
+        }
+        
+        // 4. 获取全局冷暖分数
+        let globalWarmCoolScore = result.collectionFeature?.meanCoolWarmScore ?? 0.0
+        
+        // 5. 检测规律
+        let (hasPattern, patternDescription) = detectPattern(
+            dominantColors: dominantColors,
+            warmCoolScore: globalWarmCoolScore,
+            styleConsistencyScore: consistencyScore
+        )
+        
+        return (consistencyScore, hasPattern, patternDescription)
+    }
+    
+    /// 计算数组的标准差
+    private func std(_ arr: [Float]) -> Float {
+        guard !arr.isEmpty else { return 0 }
+        let mean = arr.reduce(0, +) / Float(arr.count)
+        let varSum = arr.map { pow($0 - mean, 2) }.reduce(0, +)
+        return sqrt(varSum / Float(arr.count))
+    }
+    
+    /// 计算风格一致性分数（0-1，越高越一致）
+    private func computeStyleConsistencyScore(
+        hueValues: [Float],
+        saturationValues: [Float],
+        lightnessValues: [Float],
+        warmCoolScores: [Float]
+    ) -> Float {
+        let hueStd = std(hueValues)
+        let satStd = std(saturationValues)
+        let lightStd = std(lightnessValues)
+        let warmCoolStd = std(warmCoolScores)
+        
+        // 映射成"越稳定 → 越高分"
+        let invHue = 1 - min(hueStd / 0.25, 1)       // Hue 波动 > 0.25 基本就混乱
+        let invSat = 1 - min(satStd / 0.20, 1)
+        let invLight = 1 - min(lightStd / 0.20, 1)
+        let invWarmCool = 1 - min(warmCoolStd / 0.30, 1)
+        
+        return max(0, min(1, (invHue + invSat + invLight + invWarmCool) / 4))
+    }
+    
+    /// 检测是否有显著规律
+    private func detectPattern(
+        dominantColors: [DominantColor],
+        warmCoolScore: Float,
+        styleConsistencyScore: Float
+    ) -> (hasPattern: Bool, patternDescription: String) {
+        // 规则 1：色系占比是否特别集中（主色超过 45%）
+        let mainColorDominant = dominantColors.contains { $0.weight > 0.45 }
+        
+        // 规则 2：冷暖是否明显偏向
+        let strongWarmCool = abs(warmCoolScore) > 0.25
+        
+        // 规则 3：风格一致性需达到最低阈值
+        let consistent = styleConsistencyScore >= 0.55
+        
+        if consistent && (mainColorDominant || strongWarmCool) {
+            var desc = ""
+            
+            if mainColorDominant {
+                if let dc = dominantColors.first(where: { $0.weight > 0.45 }) {
+                    desc += "主色调集中在 \(dc.colorName)，占比显著偏高；"
+                }
+            }
+            
+            if strongWarmCool {
+                desc += warmCoolScore > 0 ? "整体色温偏暖，呈现稳定暖色倾向；" :
+                                            "整体色温偏冷，呈现持续冷色倾向；"
+            }
+            
+            return (true, desc)
+        }
+        
+        return (false, "")
     }
     
     /// 选择聚类中的代表性照片（最接近质心的照片）

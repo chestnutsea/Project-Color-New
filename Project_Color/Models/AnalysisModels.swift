@@ -19,6 +19,7 @@ struct PhotoColorInfo: Identifiable {
     var clusterMix: [Int: Double] = [:]  // 各簇占比
     var warmCoolScore: WarmCoolScore? = nil  // 冷暖评分
     var imageFeature: ImageFeature? = nil  // 图像特征（风格分析）
+    var visionInfo: PhotoVisionInfo? = nil  // Vision 识别信息
 }
 
 // MARK: - 主色结构
@@ -236,6 +237,60 @@ struct WarmCoolDistribution {
     var histogramBins: Int = 20           // 直方图分档数
     var minScore: Float = -1.0
     var maxScore: Float = 1.0
+}
+
+// MARK: - Vision 识别信息
+struct PhotoVisionInfo: Codable {
+    // 场景识别
+    var sceneClassifications: [SceneClassification] = []
+    
+    // 显著性分析（主体位置）
+    var saliencyObjects: [SaliencyObject] = []
+    
+    // 图像分类标签
+    var imageClassifications: [ImageClassification] = []
+    
+    // 地平线检测
+    var horizonAngle: Float? = nil
+    var horizonTransform: String? = nil
+    
+    // 分析时间戳
+    var analyzedAt: Date = Date()
+    
+    // 摄影相关属性推断
+    var photographyAttributes: PhotographyAttributes? = nil
+}
+
+// MARK: - Vision 子结构
+
+/// 场景分类结果
+struct SceneClassification: Codable, Identifiable {
+    var id: String { identifier }
+    var identifier: String  // 场景标识符（如 "beach", "sunset"）
+    var confidence: Float   // 置信度 0-1
+}
+
+/// 显著性对象（主体位置）
+struct SaliencyObject: Codable, Identifiable {
+    var id = UUID()
+    var boundingBox: CGRect  // 归一化坐标 (0-1)
+    var confidence: Float
+}
+
+/// 图像分类标签
+struct ImageClassification: Codable, Identifiable {
+    var id: String { identifier }
+    var identifier: String  // 分类标识符
+    var confidence: Float
+}
+
+/// 摄影属性推断
+struct PhotographyAttributes: Codable {
+    var hasHorizon: Bool = false
+    var horizonTilt: Float? = nil  // 倾斜角度（弧度）
+    var compositionType: String? = nil  // 构图类型（基于显著性分析）
+    var subjectCount: Int = 0  // 主体数量
+    var sceneType: String? = nil  // 场景类型（最高置信度）
 }
 
 // MARK: - 分析进度

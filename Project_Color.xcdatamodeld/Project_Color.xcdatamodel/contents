@@ -88,4 +88,10 @@
         <attribute name="styleDistribution" optional="YES" attributeType="Binary"/>
         <relationship name="photos" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="PhotoEntity" inverseName="preference" inverseEntity="PhotoEntity"/>
     </entity>
+    <entity name="VisionTagEntity" representedClassName="VisionTagEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
+        <attribute name="tag" attributeType="String" defaultValueString=""/>
+        <attribute name="count" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="lastUpdated" attributeType="Date" defaultDateTimeInterval="0" usesScalarValueType="NO"/>
+    </entity>
 </model>
