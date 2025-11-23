@@ -123,7 +123,7 @@ Double
 平均饱和度
 avgLightness
 Double
-平均明度
+中位明度
 embeddingCenter
 Binary Data
 📜 向量（聚类中心）

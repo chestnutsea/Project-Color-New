@@ -9,10 +9,23 @@
 			<key>orderHint</key>
 			<integer>0</integer>
 		</dict>
-		<key>Project_Color.xcscheme_^#shared#^_</key>
+	</dict>
+	<key>SuppressBuildableAutocreation</key>
+	<dict>
+		<key>F4EE4BEF2EBF82F000EFDF4F</key>
 		<dict>
-			<key>orderHint</key>
-			<integer>0</integer>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>F4EE4C032EBF82F200EFDF4F</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>F4EE4C0D2EBF82F200EFDF4F</key>
+		<dict>
+			<key>primary</key>
+			<true/>
 		</dict>
 	</dict>
 </dict>

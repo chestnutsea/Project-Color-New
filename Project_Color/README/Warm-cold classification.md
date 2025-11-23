@@ -39,7 +39,7 @@ class ColdWarmAnalyzer {
     private let maxDimension: Int = 512
     private let numSegments: Int = 200
     private let compactness: Float = 20.0
-    private let warmScale: Float = 80.0  // 用于把 b* 平均归一化到 [-1,1]
+    private let warmScale: Float = 40.0  // 用于把 b* 平均归一化到 [-1,1]（2025/11/22 更新：从 80.0 调整为 40.0）
     
     func analyze(image: UIImage) -> ColdWarmResult? {
         // 1. 预处理 & 转 Lab
@@ -496,7 +496,7 @@ extension ColdWarmAnalyzer {
         guard weightSum > 0 else { return 0 }
         
         let avgB = warmSum / weightSum      // b* 平均
-        let warmScale: Float = 80           // 与 SLIC 中一致
+        let warmScale: Float = 40           // 与 SLIC 中一致（2025/11/22 更新：从 80 调整为 40）
         
         let clamped = max(-warmScale, min(warmScale, avgB))
         let score = clamped / warmScale     // 映射到 [-1,1]

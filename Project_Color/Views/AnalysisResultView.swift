@@ -147,29 +147,26 @@ struct AnalysisResultView: View {
                     .padding()
             }
             
-            // 冷暖色调直方图
+            // 温度分布图（新版）
             if let warmCoolDist = result.warmCoolDistribution,
                !warmCoolDist.scores.isEmpty,
-               let dominantCluster = dominantCluster,
-               let (hue, saturation, brightness) = getDominantClusterHSB(dominantCluster) {
-                WarmCoolHistogramView(
+               let dominantColor = dominantCluster?.color {
+                TemperatureDistributionView(
                     distribution: warmCoolDist,
-                    dominantClusterHue: hue,
-                    dominantClusterSaturation: saturation,
-                    dominantClusterBrightness: brightness
+                    dominantColor: dominantColor
                 )
             } else if result.isCompleted {
-                // 调试信息：显示为什么没有显示直方图
+                // 调试信息：显示为什么没有显示温度分布
                 VStack(spacing: 8) {
                     HStack {
                         Image(systemName: "thermometer")
                             .foregroundColor(.orange)
-                        Text("冷暖色调分析")
+                        Text("温度分布")
                             .font(.headline)
                     }
                     
                     if result.warmCoolDistribution == nil {
-                        Text("暂无冷暖评分数据")
+                        Text("暂无温度评分数据")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     } else if result.warmCoolDistribution?.scores.isEmpty == true {
@@ -187,6 +184,9 @@ struct AnalysisResultView: View {
                 .cornerRadius(15)
                 .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
             }
+            
+            // 累计亮度分布（CDF）图表
+            BrightnessCDFView(photoInfos: result.photoInfos)
             
             VStack(alignment: .leading, spacing: 4) {
                 Text("3D 视图展示的是 LCh 色彩空间（Lab 的极坐标形式），这种表示方式更符合人眼对颜色的感知。")
@@ -322,12 +322,13 @@ struct AnalysisResultView: View {
                     .padding(.bottom, 10)
             }
             
-            // 正文显示在彩色背景区域内
+            // 正文显示在彩色背景区域内（可选择、可复制）
             if !mainText.isEmpty {
                 Text(mainText)
                     .font(.body)
                     .foregroundColor(.primary)
                     .lineSpacing(6)
+                    .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding()
                     .background(dominantColor.opacity(0.08))
@@ -606,8 +607,8 @@ struct AnalysisResultView: View {
             guard !photo.dominantColors.isEmpty else { return nil }
             
             var weightedSaturation: Float = 0
-            var weightedBrightness: Float = 0
             var totalWeight: Float = 0
+            var brightnessValues: [Float] = []
             
             for dominantColor in photo.dominantColors {
                 let uiColor = UIColor(
@@ -628,14 +629,23 @@ struct AnalysisResultView: View {
                 
                 let weight = max(dominantColor.weight, 0.0001)
                 weightedSaturation += Float(saturation) * weight
-                weightedBrightness += Float(brightness) * weight
+                brightnessValues.append(Float(brightness))  // 收集明度值用于计算中位数
                 totalWeight += weight
             }
             
-            guard totalWeight > 0 else { return nil }
+            guard totalWeight > 0, !brightnessValues.isEmpty else { return nil }
             
             let sat = CGFloat(weightedSaturation / totalWeight) * 255.0
-            let bri = CGFloat(weightedBrightness / totalWeight) * 255.0
+            
+            // 计算明度中位数
+            let sortedBrightness = brightnessValues.sorted()
+            let medianBrightness: Float
+            if sortedBrightness.count % 2 == 0 {
+                medianBrightness = (sortedBrightness[sortedBrightness.count / 2 - 1] + sortedBrightness[sortedBrightness.count / 2]) / 2.0
+            } else {
+                medianBrightness = sortedBrightness[sortedBrightness.count / 2]
+            }
+            let bri = CGFloat(medianBrightness) * 255.0
             
             return SaturationBrightnessPoint(saturation: sat, brightness: bri)
         }
@@ -1411,3 +1421,4 @@ extension Color {
         )
     }
 }
+

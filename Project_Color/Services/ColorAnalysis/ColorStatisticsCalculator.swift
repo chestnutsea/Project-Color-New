@@ -32,13 +32,13 @@ class ColorStatisticsCalculator {
             let hsl = rgbToHSL(repColor.rgb)
             
             allHues.append(hsl.h)
-            allLightness.append(hsl.l * weight)
+            allLightness.append(hsl.l)  // 不再乘以权重，用于计算中位数
             allSaturation.append(hsl.s * weight)
             totalWeight += weight
         }
         
-        // 计算平均值
-        let avgLightness = totalWeight > 0 ? allLightness.reduce(0, +) / totalWeight : 0
+        // 计算中位数和平均值
+        let medianLightness = median(values: allLightness)
         let avgSaturation = totalWeight > 0 ? allSaturation.reduce(0, +) / totalWeight : 0
         
         // 分析色相分布
@@ -47,7 +47,7 @@ class ColorStatisticsCalculator {
         
         // 分析明度分布
         let lightnessDistribution = analyzeLightnessDistribution(lightness: allLightness)
-        let dominantValue = determineDominantValue(avgLightness: avgLightness)
+        let dominantValue = determineDominantValue(avgLightness: medianLightness)
         
         // 分析饱和度分布
         let saturationDistribution = analyzeSaturationDistribution(saturation: allSaturation)
@@ -56,7 +56,7 @@ class ColorStatisticsCalculator {
         return GlobalColorStatistics(
             dominantHueRange: dominantHueRange,
             dominantValue: dominantValue,
-            averageLightness: avgLightness,
+            medianLightness: medianLightness,
             dominantSaturation: dominantSaturation,
             averageSaturation: avgSaturation,
             hueDistribution: hueDistribution,
@@ -291,6 +291,22 @@ class ColorStatisticsCalculator {
         let variance = squaredDiffs.reduce(0, +) / Float(values.count)
         
         return sqrt(variance)
+    }
+    
+    /// 计算中位数
+    private func median(values: [Float]) -> Float {
+        guard !values.isEmpty else { return 0 }
+        
+        let sorted = values.sorted()
+        let count = sorted.count
+        
+        if count % 2 == 0 {
+            // 偶数个元素，取中间两个的平均值
+            return (sorted[count / 2 - 1] + sorted[count / 2]) / 2.0
+        } else {
+            // 奇数个元素，取中间的
+            return sorted[count / 2]
+        }
     }
     
     /// RGB 转 HSL

@@ -215,9 +215,32 @@ final class CoreDataManager {
                 photoAnalysis.mixVector = mixVectorData
             }
 
-            // 保存冷暖评分（单张照片）
-            if let warmCoolScore = photoInfo.warmCoolScore {
-                photoAnalysis.warmCoolScore = warmCoolScore.overallScore
+            // 保存高级色彩分析（单张照片）
+            if let advancedColorAnalysis = photoInfo.advancedColorAnalysis {
+                photoAnalysis.warmCoolScore = advancedColorAnalysis.overallScore
+                
+                // 保存色偏分析数据（新版本：分别保存高光和阴影区域）
+                if let colorCast = advancedColorAnalysis.colorCastResult {
+                    photoAnalysis.colorCastRMS = colorCast.rms
+                    
+                    // 高光区域色偏
+                    photoAnalysis.colorCastHighlightAMean = colorCast.highlightAMean
+                    photoAnalysis.colorCastHighlightBMean = colorCast.highlightBMean
+                    photoAnalysis.colorCastHighlightCast = colorCast.highlightCast
+                    photoAnalysis.colorCastHighlightHue = colorCast.highlightHueDegrees
+                    
+                    // 阴影区域色偏
+                    photoAnalysis.colorCastShadowAMean = colorCast.shadowAMean
+                    photoAnalysis.colorCastShadowBMean = colorCast.shadowBMean
+                    photoAnalysis.colorCastShadowCast = colorCast.shadowCast
+                    photoAnalysis.colorCastShadowHue = colorCast.shadowHueDegrees
+                    
+                    // 兼容性字段（平均值）
+                    photoAnalysis.colorCastAMean = colorCast.aMean
+                    photoAnalysis.colorCastBMean = colorCast.bMean
+                    photoAnalysis.colorCastStrength = colorCast.cast
+                    photoAnalysis.colorCastHue = colorCast.hueAngleDegrees
+                }
             }
 
             // 保存 Vision 信息
@@ -466,6 +489,38 @@ final class CoreDataManager {
             return count
         } catch {
             print("❌ 清空\"其他图像\"数据失败: \(error)")
+            return 0
+        }
+    }
+    
+    /// 清空所有"我的作品"会话（包括 Core Data 中的所有关联数据）
+    /// - Returns: 删除的会话数量
+    @discardableResult
+    func clearAllPersonalWorkSessions() -> Int {
+        let request = AnalysisSessionEntity.fetchRequest()
+        request.predicate = NSPredicate(format: "isPersonalWork == YES")
+        
+        do {
+            let sessions = try viewContext.fetch(request)
+            let count = sessions.count
+            
+            if count > 0 {
+                print("🗑️ 开始清空所有\"我的作品\"数据...")
+                print("   找到 \(count) 个会话需要删除")
+                
+                for session in sessions {
+                    viewContext.delete(session)
+                }
+                
+                try viewContext.save()
+                print("✅ 已删除 \(count) 个\"我的作品\"会话")
+            } else {
+                print("✅ 没有\"我的作品\"数据需要清空")
+            }
+            
+            return count
+        } catch {
+            print("❌ 清空\"我的作品\"数据失败: \(error)")
             return 0
         }
     }

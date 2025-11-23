@@ -14,7 +14,7 @@ import UIKit
 struct HomeView: View {
     // MARK: - 布局常量
     private let imageSize: CGFloat = 300 // 图片大小
-    private let scannerTopOffset: CGFloat = 100 // PhotoScanner 上移距离
+    private let scannerTopOffset: CGFloat = 300 // PhotoScanner 上移距离
     
     // 照片模板布局常量（参考 TestPhotosChannel）
     private let photoCardWidth: CGFloat = 150 // 照片卡片宽度

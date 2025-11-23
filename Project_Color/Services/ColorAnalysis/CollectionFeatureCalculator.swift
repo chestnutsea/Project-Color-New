@@ -44,17 +44,7 @@ class CollectionFeatureCalculator {
             )
         }
         
-        // 4. 聚合情绪标签
-        let aggregatedMoodTags = aggregateMoodTags(imageFeatures: imageFeatures)
-        
-        // 5. 生成风格标签
-        let styleTags = generateStyleTags(
-            brightnessDistribution: brightnessDistribution,
-            contrastDistribution: contrastDistribution,
-            saturationDistribution: saturationDistribution,
-            meanCoolWarmScore: meanCoolWarmScore,
-            colorVariety: colorVariety
-        )
+        // 情绪和风格标签已删除，不再计算
         
         return CollectionFeature(
             brightnessDistribution: brightnessDistribution,
@@ -65,8 +55,8 @@ class CollectionFeatureCalculator {
             saturationDistribution: saturationDistribution,
             colorVariety: colorVariety,
             globalPalette: namedPalette,
-            aggregatedMoodTags: aggregatedMoodTags,
-            styleTags: styleTags
+            aggregatedMoodTags: [:],  // 已删除，返回空字典
+            styleTags: []  // 已删除，返回空数组
         )
     }
     
@@ -104,95 +94,9 @@ class CollectionFeatureCalculator {
         return stats
     }
     
-    // MARK: - 情绪标签聚合
+    // MARK: - 情绪和风格标签（已删除）
     
-    /// 聚合情绪标签（加权平均）
-    private func aggregateMoodTags(imageFeatures: [ImageFeature]) -> [String: Float] {
-        var totalWeights: [String: Float] = [:]
-        
-        for feature in imageFeatures {
-            for (tag, weight) in feature.moodTags {
-                totalWeights[tag, default: 0] += weight
-            }
-        }
-        
-        // 归一化
-        let total = totalWeights.values.reduce(0, +)
-        if total > 0 {
-            for key in totalWeights.keys {
-                totalWeights[key] = totalWeights[key]! / total
-            }
-        }
-        
-        // 只保留权重 > 0.05 的标签
-        return totalWeights.filter { $0.value > 0.05 }
-    }
-    
-    // MARK: - 风格标签生成
-    
-    /// 生成风格标签（基于规则）
-    private func generateStyleTags(
-        brightnessDistribution: BrightnessLevel,
-        contrastDistribution: ContrastLevel,
-        saturationDistribution: SaturationLevel,
-        meanCoolWarmScore: Float,
-        colorVariety: ColorVarietyLevel
-    ) -> [String] {
-        
-        var tags: [String] = []
-        
-        // 冷暖倾向
-        if meanCoolWarmScore < -0.3 {
-            tags.append("cool_toned")
-        } else if meanCoolWarmScore > 0.3 {
-            tags.append("warm_toned")
-        } else {
-            tags.append("neutral_toned")
-        }
-        
-        // 饱和度
-        if saturationDistribution == .low {
-            tags.append("muted_colors")
-        } else if saturationDistribution == .high {
-            tags.append("vibrant_colors")
-        }
-        
-        // 亮度
-        if brightnessDistribution == .low {
-            tags.append("low_key")
-        } else if brightnessDistribution == .high {
-            tags.append("high_key")
-        }
-        
-        // 对比度
-        if contrastDistribution == .low {
-            tags.append("soft_contrast")
-        } else if contrastDistribution == .high {
-            tags.append("high_contrast")
-        }
-        
-        // 色彩丰富度
-        if colorVariety == .low {
-            tags.append("monochromatic")
-        } else if colorVariety == .high {
-            tags.append("colorful")
-        }
-        
-        // 组合标签
-        if saturationDistribution == .low && meanCoolWarmScore < -0.2 {
-            tags.append("film_like")
-        }
-        
-        if contrastDistribution == .high && meanCoolWarmScore < -0.2 {
-            tags.append("cinematic")
-        }
-        
-        if brightnessDistribution == .high && saturationDistribution == .low {
-            tags.append("airy")
-        }
-        
-        return tags
-    }
+    // 情绪标签和风格标签的计算已删除，不再需要这些方法
     
     // MARK: - 辅助函数
     

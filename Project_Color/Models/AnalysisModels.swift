@@ -17,12 +17,13 @@ struct PhotoColorInfo: Identifiable {
     var dominantColors: [DominantColor] = []  // 5个主色
     var primaryClusterIndex: Int?  // 所属主簇
     var clusterMix: [Int: Double] = [:]  // 各簇占比
-    var warmCoolScore: WarmCoolScore? = nil  // 冷暖评分
+    var advancedColorAnalysis: AdvancedColorAnalysis? = nil  // 高级色彩分析（冷暖、色偏等）
     var imageFeature: ImageFeature? = nil  // 图像特征（风格分析）
     var visionInfo: PhotoVisionInfo? = nil  // Vision 识别信息
     var metadata: PhotoMetadata? = nil  // 照片元数据（EXIF、地理、相机）
     var albumIdentifier: String? = nil  // 相册唯一标识
     var albumName: String? = nil  // 相册名称
+    var brightnessCDF: [Float]? = nil  // 亮度累计分布函数（256个值，0-1）
 }
 
 // MARK: - 主色结构
@@ -174,7 +175,7 @@ struct GlobalColorStatistics {
     
     /// 整体影调倾向
     let dominantValue: String  // "高调"、"中调"、"低调"
-    let averageLightness: Float
+    let medianLightness: Float
     
     /// 整体饱和度倾向
     let dominantSaturation: String  // "艳丽"、"柔和"、"灰调"
@@ -196,8 +197,43 @@ struct ClusterAnalytics {
     let statistics: ClusterStatistics
 }
 
-// MARK: - 冷暖色调评分
-struct WarmCoolScore {
+// MARK: - 色偏分析结果
+struct ColorCastResult {
+    let rms: Float              // RMS 对比度
+    
+    // 高光区域色偏
+    let highlightAMean: Float   // 高光区域 Lab a 通道均值
+    let highlightBMean: Float   // 高光区域 Lab b 通道均值
+    let highlightCast: Float    // 高光区域偏色强度
+    let highlightHueDegrees: Float  // 高光区域色偏方向（0-360°）
+    
+    // 阴影区域色偏
+    let shadowAMean: Float      // 阴影区域 Lab a 通道均值
+    let shadowBMean: Float      // 阴影区域 Lab b 通道均值
+    let shadowCast: Float       // 阴影区域偏色强度
+    let shadowHueDegrees: Float // 阴影区域色偏方向（0-360°）
+    
+    // 兼容性字段（保留旧版本，使用高光+阴影的平均值）
+    var aMean: Float {
+        (highlightAMean + shadowAMean) / 2.0
+    }
+    var bMean: Float {
+        (highlightBMean + shadowBMean) / 2.0
+    }
+    var cast: Float {
+        (highlightCast + shadowCast) / 2.0
+    }
+    var hueAngleDegrees: Float {
+        // 使用向量平均的方式计算平均色相
+        let avgA = aMean
+        let avgB = bMean
+        let hue = atan2(avgB, avgA) * 180.0 / Float.pi
+        return hue >= 0 ? hue : hue + 360
+    }
+}
+
+// MARK: - 高级色彩分析（Advanced Color Analysis）
+struct AdvancedColorAnalysis {
     // 核心分数
     var overallScore: Float        // 最终融合得分 [-1, 1]（70% 局部 + 30% 代表色）
     
@@ -219,7 +255,13 @@ struct WarmCoolScore {
     // 风格分析数据（用于后续计算 ImageFeature）
     var slicData: SLICAnalysisData?   // SLIC 分割数据
     var hslData: HSLAnalysisData?     // HSL 统计数据
+    
+    // 色偏分析结果
+    var colorCastResult: ColorCastResult? = nil  // 色偏分析数据
 }
+
+// MARK: - 类型别名（向后兼容）
+typealias WarmCoolScore = AdvancedColorAnalysis
 
 // MARK: - 风格分析辅助数据
 
@@ -238,7 +280,7 @@ struct HSLAnalysisData {
 
 // MARK: - 所有照片的冷暖分布数据
 struct WarmCoolDistribution {
-    var scores: [String: WarmCoolScore]  // assetIdentifier -> score
+    var scores: [String: AdvancedColorAnalysis]  // assetIdentifier -> score
     var histogram: [Float]                // 直方图数据（分档统计）
     var histogramBins: Int = 20           // 直方图分档数
     var minScore: Float = -1.0

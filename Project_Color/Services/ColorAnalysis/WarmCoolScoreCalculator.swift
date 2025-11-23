@@ -16,7 +16,8 @@ import Combine
 import UIKit
 #endif
 
-/// 冷暖色调评分计算器
+/// 高级色彩分析计算器（Advanced Color Analysis Calculator）
+/// 包含冷暖色调、色偏分析等
 class WarmCoolScoreCalculator {
     
     private let colorConverter = ColorSpaceConverter()
@@ -36,8 +37,9 @@ class WarmCoolScoreCalculator {
     /// SLIC 迭代次数（优化：从 5 降到 3）
     private let maxIterations: Int = 3
     
-    /// b* 值归一化缩放因子（统一使用 80.0）
-    private let warmScale: Float = 80.0
+    /// b* 值归一化缩放因子（调整为 40.0，更符合实际照片的 b* 分布）
+    /// 实际照片的 b* 值通常在 -30 到 +30 之间，使用 40.0 可以让分数更好地利用 [-1, 1] 范围
+    private let warmScale: Float = 40.0
     
     // MARK: - 权重配置
     
@@ -49,11 +51,11 @@ class WarmCoolScoreCalculator {
     
     // MARK: - 主入口：计算单张照片的冷暖评分
     
-    /// 为单张照片计算完整的冷暖评分（新算法：SLIC + 代表色融合）
+    /// 为单张照片计算完整的高级色彩分析（新算法：SLIC + 代表色融合 + 色偏分析）
     func calculateScore(
         image: CGImage,
         dominantColors: [DominantColor]
-    ) async -> WarmCoolScore {
+    ) async -> AdvancedColorAnalysis {
         
         #if DEBUG
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -154,8 +156,34 @@ class WarmCoolScoreCalculator {
         
         let hslData = HSLAnalysisData(hslList: hslList)
         
+        // 7.5. 计算色偏分析（ColorCast）
+        let colorCastResult = analyzeColorCast(
+            labBuffer: labBuffer,
+            width: width,
+            height: height
+        )
+        
+        #if DEBUG
+        if let cast = colorCastResult {
+            print("  🎨 色偏分析:")
+            print("     RMS 对比度: \(String(format: "%.2f", cast.rms))")
+            print("     ━━ 高光区域 ━━")
+            print("     a*: \(String(format: "%.2f", cast.highlightAMean)), b*: \(String(format: "%.2f", cast.highlightBMean))")
+            print("     偏色强度: \(String(format: "%.2f", cast.highlightCast))")
+            print("     色偏方向: \(String(format: "%.1f°", cast.highlightHueDegrees))")
+            print("     ━━ 阴影区域 ━━")
+            print("     a*: \(String(format: "%.2f", cast.shadowAMean)), b*: \(String(format: "%.2f", cast.shadowBMean))")
+            print("     偏色强度: \(String(format: "%.2f", cast.shadowCast))")
+            print("     色偏方向: \(String(format: "%.1f°", cast.shadowHueDegrees))")
+            print("     ━━ 平均值（兼容）━━")
+            print("     a*: \(String(format: "%.2f", cast.aMean)), b*: \(String(format: "%.2f", cast.bMean))")
+            print("     偏色强度: \(String(format: "%.2f", cast.cast))")
+            print("     色偏方向: \(String(format: "%.1f°", cast.hueAngleDegrees))")
+        }
+        #endif
+        
         // 8. 构建返回结果
-        return WarmCoolScore(
+        return AdvancedColorAnalysis(
             overallScore: finalScore,        // 最终融合分数
             labBScore: localScore,           // 局部结构分数
             dominantWarmth: paletteScore,    // 代表色分数
@@ -167,7 +195,8 @@ class WarmCoolScoreCalculator {
             overallWarmth: max(0, paletteScore),   // 调试用
             overallCoolness: max(0, -paletteScore), // 调试用
             slicData: slicData,              // SLIC 数据
-            hslData: hslData                 // HSL 数据
+            hslData: hslData,                // HSL 数据
+            colorCastResult: colorCastResult // 色偏分析结果
         )
     }
     
@@ -691,7 +720,7 @@ class WarmCoolScoreCalculator {
         
         // 收集所有得分
         for photoInfo in photoInfos {
-            if let score = photoInfo.warmCoolScore {
+            if let score = photoInfo.advancedColorAnalysis {
                 scores[photoInfo.assetIdentifier] = score
                 allScores.append(score.overallScore)
             }
@@ -728,8 +757,8 @@ class WarmCoolScoreCalculator {
     // MARK: - 辅助函数
     
     /// 创建空的评分结果
-    private func createEmptyScore() -> WarmCoolScore {
-        return WarmCoolScore(
+    private func createEmptyScore() -> AdvancedColorAnalysis {
+        return AdvancedColorAnalysis(
             overallScore: 0,
             labBScore: 0,
             dominantWarmth: 0,
@@ -779,5 +808,131 @@ class WarmCoolScoreCalculator {
         }
         
         return (h: h, s: s, l: l)
+    }
+    
+    // MARK: - 色偏分析（Color Cast Analysis）
+    
+    /// 分析图像的色偏（基于 Lab 色彩空间，分别计算高光和阴影区域）
+    /// - Parameters:
+    ///   - labBuffer: Lab 色彩空间数据 [L, a, b, L, a, b, ...]
+    ///   - width: 图像宽度
+    ///   - height: 图像高度
+    /// - Returns: ColorCastResult 包含 RMS、高光区域色偏、阴影区域色偏
+    private func analyzeColorCast(
+        labBuffer: [Float],
+        width: Int,
+        height: Int
+    ) -> ColorCastResult? {
+        
+        let pixelCount = width * height
+        guard pixelCount > 0 else { return nil }
+        
+        // --- 1. 分离 L, a, b 通道 ---
+        var Ls = [Float](repeating: 0, count: pixelCount)
+        var As = [Float](repeating: 0, count: pixelCount)
+        var Bs = [Float](repeating: 0, count: pixelCount)
+        
+        for i in 0..<pixelCount {
+            let idx = i * 3
+            Ls[i] = labBuffer[idx + 0]
+            As[i] = labBuffer[idx + 1]
+            Bs[i] = labBuffer[idx + 2]
+        }
+        
+        // --- 2. 计算 RMS 对比度（基于 L 通道）---
+        let Lmean = Ls.reduce(0, +) / Float(pixelCount)
+        let variance = Ls.map { ($0 - Lmean) * ($0 - Lmean) }.reduce(0, +) / Float(pixelCount)
+        let rms = sqrt(variance)
+        
+        // --- 3. 固定高光/阴影阈值 ---
+        let shadowT: Float = 30.0      // 阴影：L < 30
+        let highlightT: Float = 70.0   // 高光：L > 70
+        
+        // --- 4. 累加器（分别统计高光和阴影区域）---
+        var shadowASum: Float = 0
+        var shadowBSum: Float = 0
+        var shadowCount: Float = 0
+        var shadowTotalCount: Float = 0  // 统计所有阴影像素（包括被色度过滤的）
+        
+        var highlightASum: Float = 0
+        var highlightBSum: Float = 0
+        var highlightCount: Float = 0
+        var highlightTotalCount: Float = 0  // 统计所有高光像素
+        
+        for i in 0..<pixelCount {
+            let L = Ls[i]
+            let a = As[i]
+            let b = Bs[i]
+            
+            // 先统计总数
+            if L < shadowT {
+                shadowTotalCount += 1
+            }
+            if L > highlightT {
+                highlightTotalCount += 1
+            }
+            
+            let C = a * a + b * b
+            if C > 225 { continue }  // 跳过高饱和像素 (C < 15)
+            
+            if L < shadowT {
+                shadowASum += a
+                shadowBSum += b
+                shadowCount += 1
+            }
+            
+            if L > highlightT {
+                highlightASum += a
+                highlightBSum += b
+                highlightCount += 1
+            }
+        }
+        
+        // 避免空区域
+        guard shadowCount > 0 || highlightCount > 0 else { return nil }
+        
+        #if DEBUG
+        print("     色偏分析统计:")
+        print("       - 平均亮度: \(String(format: "%.1f", Lmean)), RMS: \(String(format: "%.1f", rms))")
+        print("       - 阴影像素: 总数 \(Int(shadowTotalCount)), 低饱和度 \(Int(shadowCount)) (C<15)")
+        print("       - 高光像素: 总数 \(Int(highlightTotalCount)), 低饱和度 \(Int(highlightCount)) (C<15)")
+        print("       - 阴影阈值: L < \(String(format: "%.1f", shadowT))")
+        print("       - 高光阈值: L > \(String(format: "%.1f", highlightT))")
+        if shadowCount == 0 {
+            print("       ⚠️ 阴影区域没有低饱和度像素 (C<15)，无法计算色偏")
+        }
+        #endif
+        
+        // --- 5. 计算平均值 ---
+        let shadowAMean = shadowASum / max(shadowCount, 1)
+        let shadowBMean = shadowBSum / max(shadowCount, 1)
+        
+        let highlightAMean = highlightASum / max(highlightCount, 1)
+        let highlightBMean = highlightBSum / max(highlightCount, 1)
+        
+        // --- 6. 计算色偏强度 ---
+        let shadowCast = sqrt(shadowAMean * shadowAMean + shadowBMean * shadowBMean)
+        let highlightCast = sqrt(highlightAMean * highlightAMean + highlightBMean * highlightBMean)
+        
+        // --- 7. 计算色相角度 ---
+        func computeHue(a: Float, b: Float) -> Float {
+            let h = atan2(b, a) * 180 / .pi
+            return h >= 0 ? h : h + 360
+        }
+        
+        let shadowHue = computeHue(a: shadowAMean, b: shadowBMean)
+        let highlightHue = computeHue(a: highlightAMean, b: highlightBMean)
+        
+        return ColorCastResult(
+            rms: rms,
+            highlightAMean: highlightAMean,
+            highlightBMean: highlightBMean,
+            highlightCast: highlightCast,
+            highlightHueDegrees: highlightHue,
+            shadowAMean: shadowAMean,
+            shadowBMean: shadowBMean,
+            shadowCast: shadowCast,
+            shadowHueDegrees: shadowHue
+        )
     }
 }

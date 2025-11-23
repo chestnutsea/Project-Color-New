@@ -35,7 +35,20 @@ class SimpleAnalysisPipeline {
     private let maxConcurrentExtractions = 8  // 最多同时处理8张照片
     
     // Phase 5: 是否启用缓存
-    var enableCaching = true
+    var enableCaching = true 
+    
+    // 用于收集压缩图片的 Actor（线程安全）
+    private actor CompressedImageCollector {
+        var images: [UIImage] = []
+        
+        func append(_ image: UIImage) {
+            images.append(image)
+        }
+        
+        func getAll() -> [UIImage] {
+            return images
+        }
+    }
     
     // MARK: - Progress Tracker Actor
     
@@ -68,9 +81,11 @@ class SimpleAnalysisPipeline {
         progressHandler: @escaping (AnalysisProgress) -> Void
     ) async -> AnalysisResult {
         
-        print("\n🎨 开始颜色分析...")
-        print("   照片数量: \(assets.count)")
-        print("   📊 用户设置: \(settings.configurationDescription)")
+        NSLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        NSLog("🎨 开始颜色分析")
+        NSLog("   照片数量: \(assets.count)")
+        NSLog("   📊 用户设置: \(settings.configurationDescription)")
+        NSLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         
         let result = AnalysisResult()
         result.totalPhotoCount = assets.count
@@ -96,7 +111,7 @@ class SimpleAnalysisPipeline {
             var cachedNeedingScores: [(asset: PHAsset, info: PhotoColorInfo)] = []
             
             for info in cachedInfos {
-                if info.warmCoolScore != nil {
+                if info.advancedColorAnalysis != nil {
                     cachedWithScores.append(info)
                 } else {
                     // 找到对应的 asset
@@ -106,9 +121,9 @@ class SimpleAnalysisPipeline {
                 }
             }
             
-            print("🌡️ 缓存照片冷暖评分检查:")
-            print("   - 已有评分: \(cachedWithScores.count)")
-            print("   - 需要计算评分: \(cachedNeedingScores.count)")
+            NSLog("🌡️ 缓存照片冷暖评分检查:")
+            NSLog("   - 已有评分: \(cachedWithScores.count)")
+            NSLog("   - 需要计算评分: \(cachedNeedingScores.count)")
             
             // 为缓存的照片计算冷暖评分
             if !cachedNeedingScores.isEmpty {
@@ -148,6 +163,20 @@ class SimpleAnalysisPipeline {
         // 使用 actor 保护共享状态
         let progressTracker = ProgressTracker(initialCount: cachedInfos.count)
         
+        // 创建图片收集器（用于 AI 分析）
+        let imageCollector = CompressedImageCollector()
+        
+        // 为缓存的照片也加载图片（用于 AI 分析）
+        if enableCaching && !cachedInfos.isEmpty {
+            NSLog("📸 为 \(cachedInfos.count) 张缓存照片加载图片（用于 AI 分析）...")
+            for cachedInfo in cachedInfos {
+                if let asset = assets.first(where: { $0.localIdentifier == cachedInfo.assetIdentifier }) {
+                    // 加载图片但不重新分析颜色
+                    await loadImageForAI(asset: asset, imageCollector: imageCollector)
+                }
+            }
+        }
+        
         // 阶段1: 并发提取每张照片的主色（仅处理未缓存的）
         await withTaskGroup(of: (Int, PhotoColorInfo?).self) { group in
             var pendingCount = 0
@@ -158,8 +187,8 @@ class SimpleAnalysisPipeline {
                 let index = nextIndex
                 let asset = assetsToProcess[index]
                 let albumInfo = albumInfoMap[asset.localIdentifier]
-                group.addTask { [albumInfo] in
-                    let photoInfo = await self.extractPhotoColors(asset: asset, albumInfo: albumInfo)
+                group.addTask { [albumInfo, imageCollector] in
+                    let photoInfo = await self.extractPhotoColors(asset: asset, albumInfo: albumInfo, imageCollector: imageCollector)
                     return (index, photoInfo)
                 }
                 pendingCount += 1
@@ -187,14 +216,26 @@ class SimpleAnalysisPipeline {
                     let newIndex = nextIndex
                     let asset = assetsToProcess[newIndex]
                     let albumInfo = albumInfoMap[asset.localIdentifier]
-                    group.addTask { [albumInfo] in
-                        let photoInfo = await self.extractPhotoColors(asset: asset, albumInfo: albumInfo)
+                    group.addTask { [albumInfo, imageCollector] in
+                        let photoInfo = await self.extractPhotoColors(asset: asset, albumInfo: albumInfo, imageCollector: imageCollector)
                         return (newIndex, photoInfo)
                     }
                     pendingCount += 1
                     nextIndex += 1
                 }
             }
+        }
+        
+        // 获取收集的所有压缩图片
+        let compressedImages = await imageCollector.getAll()
+        await MainActor.run {
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("📦 图片收集完成")
+            print("   - 收集到的压缩图片: \(compressedImages.count) 张")
+            print("   - 总照片数: \(assets.count) 张")
+            print("   - 缓存照片: \(cachedInfos.count) 张")
+            print("   - 新分析照片: \(assetsToProcess.count) 张")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         }
         
         // Phase 5: 收集完成后，同步本地 photoInfos（包含缓存 + 新分析）
@@ -556,7 +597,7 @@ class SimpleAnalysisPipeline {
         print("   - 照片总数: \(photoInfos.count)")
         
         // 检查有多少照片有评分
-        let photosWithScores = photoInfos.filter { $0.warmCoolScore != nil }
+        let photosWithScores = photoInfos.filter { $0.advancedColorAnalysis != nil }
         print("   - 有评分的照片: \(photosWithScores.count)")
         
         let warmCoolDistribution = warmCoolCalculator.calculateDistribution(photoInfos: photoInfos)
@@ -634,45 +675,121 @@ class SimpleAnalysisPipeline {
             }
         }
         
-        // 风格分析 + AI 评价（后台线程，不阻塞主流程）
-        // 注意：AI 评价需要等待风格分析完成
-        print("📌 创建后台任务：风格分析 + AI 评价")
-        Task.detached(priority: .background) {
-            print("🚀 后台任务开始执行")
-            // 1. 先执行风格分析
-            await self.performStyleAnalysis(
-                result: result,
-                photoInfos: photoInfos,
-                progressHandler: progressHandler
-            )
+        // 风格分析 + AI 评价（后台线程，不阻塞主流程，并行执行）
+        await MainActor.run {
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("📌 启动后台任务：风格分析 + AI 评价（并行执行）")
+            print("   - 图片数量: \(compressedImages.count)")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        }
+        
+        Task.detached(priority: .background) { [compressedImages] in
+            await MainActor.run {
+                print("🚀 后台任务开始执行")
+                print("   - 风格分析：进行中...")
+                print("   - AI 评价：准备中...")
+            }
             
-            // 2. 风格分析完成后，再执行 AI 评价
-            do {
-                print("🎨 准备调用 AI 评价...")
-                let evaluation = try await self.aiEvaluator.evaluateColorAnalysis(
+            // 并行执行风格分析和 AI 评价
+            async let styleAnalysisTask: Void = {
+                await MainActor.run { print("📊 开始风格分析...") }
+                await self.performStyleAnalysis(
                     result: result,
-                    onUpdate: { @MainActor updatedEvaluation in
-                        // 实时更新 UI
-                        result.aiEvaluation = updatedEvaluation
-                    }
+                    photoInfos: photoInfos,
+                    progressHandler: progressHandler
                 )
-                await MainActor.run {
-                    result.aiEvaluation = evaluation
-                    print("✅ AI 评价完成")
+                await MainActor.run { print("✅ 风格分析完成") }
+            }()
+            
+            async let aiEvaluationTask: Void = {
+                do {
+                    await MainActor.run {
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        print("🎨 开始 AI 评价（Qwen3-VL-Flash）")
+                        print("   - 图片数量: \(compressedImages.count)")
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    }
+                    
+                    let evaluation = try await self.aiEvaluator.evaluateColorAnalysis(
+                        result: result,
+                        compressedImages: compressedImages,
+                        onUpdate: { @MainActor updatedEvaluation in
+                            // 实时更新 UI
+                            result.aiEvaluation = updatedEvaluation
+                        }
+                    )
+                    
+                    await MainActor.run {
+                        result.aiEvaluation = evaluation
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        print("✅ AI 评价完成")
+                        if let text = evaluation.overallEvaluation?.fullText, !text.isEmpty {
+                            print("   - 生成了 \(text.count) 个字符的评论")
+                        }
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    }
+                } catch {
+                    await MainActor.run {
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        print("❌ AI 评价失败")
+                        print("   - 错误: \(error.localizedDescription)")
+                        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        // 创建一个带有错误信息的评价对象
+                        var errorEvaluation = ColorEvaluation()
+                        errorEvaluation.isLoading = false
+                        errorEvaluation.error = error.localizedDescription
+                        result.aiEvaluation = errorEvaluation
+                    }
                 }
-            } catch {
-                await MainActor.run {
-                    print("⚠️ AI 评价失败: \(error.localizedDescription)")
-                    // 创建一个带有错误信息的评价对象
-                    var errorEvaluation = ColorEvaluation()
-                    errorEvaluation.isLoading = false
-                    errorEvaluation.error = error.localizedDescription
-                    result.aiEvaluation = errorEvaluation
-                }
+            }()
+            
+            // 等待两个任务都完成
+            _ = await (styleAnalysisTask, aiEvaluationTask)
+            
+            await MainActor.run {
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("✅ 后台任务全部完成（风格分析 + AI 评价）")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             }
         }
         
         return result
+    }
+    
+    // MARK: - 辅助方法
+    
+    /// 计算基于最长边的目标尺寸（保持宽高比）
+    /// - Parameter maxDimension: 最长边的像素值（默认 400）
+    /// - Returns: 目标尺寸（最长边为 maxDimension，保持宽高比）
+    private func calculateTargetSize(for asset: PHAsset, maxDimension: CGFloat = 400) -> CGSize {
+        let width = CGFloat(asset.pixelWidth)
+        let height = CGFloat(asset.pixelHeight)
+        
+        guard width > 0 && height > 0 else {
+            // 如果无法获取尺寸，返回默认值
+            return CGSize(width: maxDimension, height: maxDimension)
+        }
+        
+        // 确定最长边
+        let longestSide = max(width, height)
+        
+        // 如果图片已经小于目标尺寸，使用原尺寸
+        if longestSide <= maxDimension {
+            return CGSize(width: width, height: height)
+        }
+        
+        // 计算缩放比例（基于最长边）
+        let scale = maxDimension / longestSide
+        
+        // 计算缩放后的尺寸（保持宽高比）
+        let targetWidth = width * scale
+        let targetHeight = height * scale
+        
+        // 验证：最长边应该是 maxDimension
+        let resultLongestSide = max(targetWidth, targetHeight)
+        assert(abs(resultLongestSide - maxDimension) < 1.0, "计算错误：最长边应为 \(maxDimension)，实际为 \(resultLongestSide)")
+        
+        return CGSize(width: targetWidth, height: targetHeight)
     }
     
     // MARK: - 为缓存的照片更新冷暖评分和 Vision 信息
@@ -686,7 +803,8 @@ class SimpleAnalysisPipeline {
             options.isNetworkAccessAllowed = true
             options.resizeMode = .fast
             
-            let targetSize = CGSize(width: 300, height: 300)
+            // 计算目标尺寸：最长边400，保持宽高比
+            let targetSize = self.calculateTargetSize(for: asset, maxDimension: 400)
             
             manager.requestImage(
                 for: asset,
@@ -716,7 +834,7 @@ class SimpleAnalysisPipeline {
                     let (score, vision, meta) = await (warmCoolScore, visionInfo, metadata)
                     
                     var updatedInfo = photoInfo
-                    updatedInfo.warmCoolScore = score
+                    updatedInfo.advancedColorAnalysis = score
                     updatedInfo.visionInfo = vision
                     updatedInfo.metadata = meta
                     
@@ -729,10 +847,44 @@ class SimpleAnalysisPipeline {
         #endif
     }
     
+    // MARK: - 为 AI 分析加载图片（不进行颜色分析）
+    private func loadImageForAI(
+        asset: PHAsset,
+        imageCollector: CompressedImageCollector
+    ) async {
+        #if canImport(UIKit)
+        let loadedImage = await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
+            let manager = PHImageManager.default()
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .highQualityFormat
+            options.isSynchronous = false
+            options.isNetworkAccessAllowed = true
+            options.resizeMode = .fast
+            
+            // 计算目标尺寸：最长边400，保持宽高比
+            let targetSize = self.calculateTargetSize(for: asset, maxDimension: 400)
+            
+            manager.requestImage(
+                for: asset,
+                targetSize: targetSize,
+                contentMode: .aspectFit,
+                options: options
+            ) { image, info in
+                continuation.resume(returning: image)
+            }
+        }
+        
+        if let image = loadedImage {
+            await imageCollector.append(image)
+        }
+        #endif
+    }
+    
     // MARK: - 提取单张照片的主色
     private func extractPhotoColors(
         asset: PHAsset,
-        albumInfo: (identifier: String, name: String)?
+        albumInfo: (identifier: String, name: String)?,
+        imageCollector: CompressedImageCollector? = nil
     ) async -> PhotoColorInfo? {
         #if canImport(UIKit)
         // 第一步：快速获取图像（在 PHImageManager 回调中只做最少的工作）
@@ -744,7 +896,9 @@ class SimpleAnalysisPipeline {
             options.isNetworkAccessAllowed = true
             options.resizeMode = .fast
             
-            let targetSize = CGSize(width: 300, height: 300)
+            // 计算目标尺寸：最长边400，保持宽高比
+            let targetSize = self.calculateTargetSize(for: asset, maxDimension: 400)
+            NSLog("📐 照片 \(asset.localIdentifier.prefix(8))... 原始尺寸: \(asset.pixelWidth)x\(asset.pixelHeight), 目标尺寸: \(Int(targetSize.width))x\(Int(targetSize.height))")
             
             manager.requestImage(
                 for: asset,
@@ -753,6 +907,7 @@ class SimpleAnalysisPipeline {
                 options: options
             ) { image, info in
                 if let image = image, let cgImage = image.cgImage {
+                    NSLog("   ✓ 实际加载尺寸: \(Int(image.size.width))x\(Int(image.size.height)), CGImage: \(cgImage.width)x\(cgImage.height)")
                     continuation.resume(returning: (image, cgImage))
                 } else {
                     continuation.resume(returning: nil)
@@ -762,6 +917,11 @@ class SimpleAnalysisPipeline {
         
         guard let (image, cgImage) = loadedImage else {
             return nil
+        }
+        
+        // 收集压缩图片（用于 AI 分析）
+        if let collector = imageCollector {
+            await collector.append(image)
         }
         
         // 第二步：在后台线程执行所有耗时操作
@@ -788,15 +948,15 @@ class SimpleAnalysisPipeline {
                 autoMergeSimilarColors: self.settings.effectiveAutoMergeSimilarColors
             )
             
-            // 提取主色（使用配置）
-            let dominantColors = self.colorExtractor.extractDominantColors(
+            // 提取主色和亮度 CDF（使用配置）
+            let extractionResult = self.colorExtractor.extractDominantColorsWithCDF(
                 from: cgImage,
                 count: 5,
                 config: config
             )
             
             // 命名主色
-            var namedColors = dominantColors
+            var namedColors = extractionResult.dominantColors
             for i in 0..<namedColors.count {
                 namedColors[i].colorName = self.colorNamer.getColorName(rgb: namedColors[i].rgb)
             }
@@ -804,8 +964,17 @@ class SimpleAnalysisPipeline {
             // 创建 PhotoColorInfo
             var photoInfo = PhotoColorInfo(
                 assetIdentifier: asset.localIdentifier,
-                dominantColors: namedColors
+                dominantColors: namedColors,
+                brightnessCDF: extractionResult.brightnessCDF
             )
+            
+            // 调试日志
+            let cdf = extractionResult.brightnessCDF
+            if !cdf.isEmpty {
+                print("✅ 照片 \(asset.localIdentifier.prefix(8))... CDF 数据已生成（\(cdf.count) 个值）")
+            } else {
+                print("⚠️ 照片 \(asset.localIdentifier.prefix(8))... CDF 数据为空")
+            }
             
             // 设置相册信息
             photoInfo.albumIdentifier = albumInfo?.identifier
@@ -827,7 +996,7 @@ class SimpleAnalysisPipeline {
             // 等待三个任务完成
             let (score, vision, meta) = await (warmCoolScore, visionInfo, metadata)
             
-            photoInfo.warmCoolScore = score
+            photoInfo.advancedColorAnalysis = score
             photoInfo.visionInfo = vision
             photoInfo.metadata = meta
             
@@ -957,9 +1126,9 @@ class SimpleAnalysisPipeline {
         
         for var photoInfo in photoInfos {
             // 检查是否有冷暖评分数据
-            guard let warmCoolScore = photoInfo.warmCoolScore,
-                  let slicData = warmCoolScore.slicData,
-                  let hslData = warmCoolScore.hslData else {
+            guard let advancedColorAnalysis = photoInfo.advancedColorAnalysis,
+                  let slicData = advancedColorAnalysis.slicData,
+                  let hslData = advancedColorAnalysis.hslData else {
                 print("⚠️ 照片 \(photoInfo.assetIdentifier.prefix(8))... 缺少 SLIC/HSL 数据，跳过")
                 continue
             }
@@ -981,7 +1150,7 @@ class SimpleAnalysisPipeline {
                 slicData: slicInput,
                 hslData: hslInput,
                 dominantColors: photoInfo.dominantColors,
-                coolWarmScore: warmCoolScore.overallScore
+                coolWarmScore: advancedColorAnalysis.overallScore
             )
             
             imageFeatures.append(imageFeature)
@@ -1028,8 +1197,7 @@ class SimpleAnalysisPipeline {
         print("   - 对比度分布: \(collectionFeature.contrastDistribution.rawValue)")
         print("   - 饱和度分布: \(collectionFeature.saturationDistribution.rawValue)")
         print("   - 平均冷暖分数: \(String(format: "%.3f", collectionFeature.meanCoolWarmScore))")
-        print("   - 情绪标签: \(collectionFeature.aggregatedMoodTags.keys.joined(separator: ", "))")
-        print("   - 风格标签: \(collectionFeature.styleTags.joined(separator: ", "))")
+        // 情绪和风格标签已删除，不再打印
         
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("🎉 风格分析完成")

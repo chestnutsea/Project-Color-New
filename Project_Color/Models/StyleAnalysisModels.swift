@@ -243,9 +243,8 @@ struct CollectionFeature: Codable {
             "mean_cool_warm_score": meanCoolWarmScore,
             "saturation_distribution": saturationDistribution.rawValue,
             "color_variety": colorVariety.rawValue,
-            "global_palette": globalPalette.map { ["name": $0.name, "ratio": $0.ratio] },
-            "aggregated_mood_tags": aggregatedMoodTags,
-            "style_tags": styleTags
+            "global_palette": globalPalette.map { ["name": $0.name, "ratio": $0.ratio] }
+            // 情绪和风格标签已删除，不再包含在字典中
         ]
     }
 }

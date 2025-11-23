@@ -42,10 +42,12 @@ struct ColorSpace3DView: UIViewRepresentable {
         let scene = SCNScene()
         scnView.scene = scene
         
-        // 摄像机
+        // 摄像机 - 调整位置以观察第一象限
         let cameraNode = SCNNode()
         cameraNode.camera = SCNCamera()
-        cameraNode.position = SCNVector3(0, 0, 400)
+        let halfEdge = Float(LayoutConstants.cubeEdgeWidth) / 2.0
+        // 摄像机位于第一象限外侧，斜向观察立方体中心
+        cameraNode.position = SCNVector3(halfEdge + 200, halfEdge + 200, halfEdge + 400)
         cameraNode.camera?.zFar = 1000
         scene.rootNode.addChildNode(cameraNode)
         
@@ -73,7 +75,8 @@ struct ColorSpace3DView: UIViewRepresentable {
         let tapGesture = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
         scnView.addGestureRecognizer(tapGesture)
         
-        cameraNode.look(at: SCNVector3(0, 0, 0))
+        // 让摄像机看向立方体中心
+        cameraNode.look(at: SCNVector3(halfEdge, halfEdge, halfEdge))
         return scnView
     }
     
@@ -85,11 +88,12 @@ struct ColorSpace3DView: UIViewRepresentable {
     // MARK: - 工具函数
     private func colorToPosition(_ normalizedLCh: SIMD3<Float>) -> SCNVector3 {
         // normalizedLCh: (h, C, L) in [-0.5, 0.5]
+        // 映射到第一象限：[0, edgeLength]
         // X = h (色相), Y = C (色度), Z = L (亮度)
         let edgeLength = Float(LayoutConstants.cubeEdgeWidth)
-        let x = normalizedLCh.x * edgeLength  // 色相
-        let y = normalizedLCh.y * edgeLength  // 色度
-        let z = normalizedLCh.z * edgeLength  // 亮度
+        let x = (normalizedLCh.x + 0.5) * edgeLength  // [-0.5, 0.5] → [0, edgeLength]
+        let y = (normalizedLCh.y + 0.5) * edgeLength  // [-0.5, 0.5] → [0, edgeLength]
+        let z = (normalizedLCh.z + 0.5) * edgeLength  // [-0.5, 0.5] → [0, edgeLength]
         return SCNVector3(x, y, z)
     }
 
@@ -111,6 +115,9 @@ struct ColorSpace3DView: UIViewRepresentable {
         
         let cubeNode = SCNNode(geometry: cube)
         cubeNode.name = "boundingCube"
+        // 将立方体移动到第一象限（中心点在 edgeLength/2）
+        let halfEdge = Float(LayoutConstants.cubeEdgeWidth) / 2.0
+        cubeNode.position = SCNVector3(halfEdge, halfEdge, halfEdge)
         scene.rootNode.addChildNode(cubeNode)
     }
     
@@ -174,18 +181,18 @@ struct ColorSpace3DView: UIViewRepresentable {
             return textNode
         }
         
-        let axisLength = Float(length/2)
+        let axisLength = Float(length)
         
-        // X 轴 (H - 色相) - 从负到正覆盖整个范围
-        node.addChildNode(line(from: SCNVector3(-axisLength, 0, 0), to: SCNVector3(axisLength, 0, 0), color: axisColor))
+        // X 轴 (H - 色相) - 从原点到正方向
+        node.addChildNode(line(from: SCNVector3(0, 0, 0), to: SCNVector3(axisLength, 0, 0), color: axisColor))
         node.addChildNode(makeAxisLabel(text: "H", position: SCNVector3(axisLength + 15, 0, 0)))
         
-        // Y 轴 (C - 色度) - 从负到正覆盖整个范围
-        node.addChildNode(line(from: SCNVector3(0, -axisLength, 0), to: SCNVector3(0, axisLength, 0), color: axisColor))
+        // Y 轴 (C - 色度) - 从原点到正方向
+        node.addChildNode(line(from: SCNVector3(0, 0, 0), to: SCNVector3(0, axisLength, 0), color: axisColor))
         node.addChildNode(makeAxisLabel(text: "C", position: SCNVector3(0, axisLength + 15, 0)))
         
-        // Z 轴 (L - 亮度) - 从负到正覆盖整个范围
-        node.addChildNode(line(from: SCNVector3(0, 0, -axisLength), to: SCNVector3(0, 0, axisLength), color: axisColor))
+        // Z 轴 (L - 亮度) - 从原点到正方向
+        node.addChildNode(line(from: SCNVector3(0, 0, 0), to: SCNVector3(0, 0, axisLength), color: axisColor))
         node.addChildNode(makeAxisLabel(text: "L", position: SCNVector3(0, 0, axisLength + 15)))
         
         return node

@@ -49,8 +49,8 @@ struct AnalysisHistoryView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    // 只在"其他图像"Tab显示清空按钮
-                    if selectedTab == .otherImage && !filteredSessions.isEmpty {
+                    // 在"我的作品"和"其他图像"Tab显示清空按钮
+                    if (selectedTab == .personalWork || selectedTab == .otherImage) && !filteredSessions.isEmpty {
                         Button(role: .destructive) {
                             showClearAlert = true
                         } label: {
@@ -68,13 +68,17 @@ struct AnalysisHistoryView: View {
             .sheet(item: $selectedSession) { session in
                 SessionDetailView(session: session)
             }
-            .alert("清空其他图像数据", isPresented: $showClearAlert) {
+            .alert(alertTitle, isPresented: $showClearAlert) {
                 Button("取消", role: .cancel) { }
                 Button("清空", role: .destructive) {
-                    viewModel.clearOtherImageSessions()
+                    if selectedTab == .personalWork {
+                        viewModel.clearPersonalWorkSessions()
+                    } else {
+                        viewModel.clearOtherImageSessions()
+                    }
                 }
             } message: {
-                Text("确定要清空所有\"其他图像\"的历史记录吗？此操作不可恢复。")
+                Text(alertMessage)
             }
         }
         .onAppear {
@@ -92,6 +96,17 @@ struct AnalysisHistoryView: View {
         case .otherImage:
             return viewModel.sessions.filter { !$0.isPersonalWork }
         }
+    }
+    
+    // 清空提示标题
+    private var alertTitle: String {
+        selectedTab == .personalWork ? "清空我的作品数据" : "清空其他图像数据"
+    }
+    
+    // 清空提示消息
+    private var alertMessage: String {
+        let category = selectedTab == .personalWork ? "\"我的作品\"" : "\"其他图像\""
+        return "确定要清空所有\(category)的历史记录吗？此操作不可恢复。"
     }
     
     // MARK: - Empty State
@@ -480,6 +495,12 @@ class AnalysisHistoryViewModel: ObservableObject {
     func clearOtherImageSessions() {
         let count = coreDataManager.clearAllOtherImageSessions()
         print("✅ 已清空 \(count) 个\"其他图像\"会话")
+        loadSessions()
+    }
+    
+    func clearPersonalWorkSessions() {
+        let count = coreDataManager.clearAllPersonalWorkSessions()
+        print("✅ 已清空 \(count) 个\"我的作品\"会话")
         loadSessions()
     }
 }

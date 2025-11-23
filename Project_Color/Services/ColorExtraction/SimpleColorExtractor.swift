@@ -58,18 +58,66 @@ class SimpleColorExtractor {
         )
     }
     
+    // MARK: - 提取结果
+    struct ExtractionResult {
+        let dominantColors: [DominantColor]
+        let brightnessCDF: [Float]
+    }
+    
     // MARK: - 提取主色（返回5个）
     func extractDominantColors(
         from cgImage: CGImage,
         count: Int = 5,
         config: Config = .default
     ) -> [DominantColor] {
+        let result = extractDominantColorsWithCDF(from: cgImage, count: count, config: config)
+        return result.dominantColors
+    }
+    
+    // MARK: - 提取主色和亮度 CDF
+    func extractDominantColorsWithCDF(
+        from cgImage: CGImage,
+        count: Int = 5,
+        config: Config = .default
+    ) -> ExtractionResult {
         switch config.algorithm {
         case .labWeighted:
-            return extractWithLabKMeans(cgImage, count: count, config: config)
+            return extractWithLabKMeansAndCDF(cgImage, count: count, config: config)
         case .medianCut:
-            return extractWithMedianCut(cgImage, count: count, config: config)
+            return extractWithMedianCutAndCDF(cgImage, count: count, config: config)
         }
+    }
+    
+    // MARK: - 计算亮度累计分布函数（CDF）
+    /// 从已有的像素数据计算亮度 CDF
+    /// - Parameter pixels: RGB 像素数组（0-1 范围）
+    /// - Returns: 256 个累计百分比值（0-1 范围）
+    func calculateBrightnessCDF(from pixels: [SIMD3<Float>]) -> [Float] {
+        guard !pixels.isEmpty else {
+            return Array(repeating: 0, count: 256)
+        }
+        
+        // 1. 计算每个像素的亮度（使用感知亮度公式）
+        var histogram = [Int](repeating: 0, count: 256)
+        
+        for pixel in pixels {
+            // 感知亮度：0.299R + 0.587G + 0.114B
+            let brightness = 0.299 * pixel.x + 0.587 * pixel.y + 0.114 * pixel.z
+            let bin = min(Int(brightness * 255), 255)
+            histogram[bin] += 1
+        }
+        
+        // 2. 计算累计分布
+        var cdf = [Float](repeating: 0, count: 256)
+        var cumulative = 0
+        let totalPixels = pixels.count
+        
+        for i in 0..<256 {
+            cumulative += histogram[i]
+            cdf[i] = Float(cumulative) / Float(totalPixels)
+        }
+        
+        return cdf
     }
     
     // MARK: - 图像缩放
@@ -250,6 +298,15 @@ class SimpleColorExtractor {
         count: Int,
         config: Config
     ) -> [DominantColor] {
+        let result = extractWithLabKMeansAndCDF(cgImage, count: count, config: config)
+        return result.dominantColors
+    }
+    
+    private func extractWithLabKMeansAndCDF(
+        _ cgImage: CGImage,
+        count: Int,
+        config: Config
+    ) -> ExtractionResult {
         let imageSize = config.quality.imageSize
         let sampleCount = config.quality.sampleCount
         
@@ -263,7 +320,7 @@ class SimpleColorExtractor {
             cgImage: cgImage,
             config: preprocessConfig
         ) else {
-            return []
+            return ExtractionResult(dominantColors: [], brightnessCDF: Array(repeating: 0, count: 256))
         }
         
         defer {
@@ -325,7 +382,10 @@ class SimpleColorExtractor {
         // 9. 按占比排序
         results.sort { $0.weight > $1.weight }
         
-        return results
+        // 10. 计算亮度 CDF（使用全部像素，不是采样的）
+        let cdf = calculateBrightnessCDF(from: allPixels)
+        
+        return ExtractionResult(dominantColors: results, brightnessCDF: cdf)
     }
     
     // MARK: - Median Cut Implementation
@@ -335,6 +395,15 @@ class SimpleColorExtractor {
         count: Int,
         config: Config
     ) -> [DominantColor] {
+        let result = extractWithMedianCutAndCDF(cgImage, count: count, config: config)
+        return result.dominantColors
+    }
+    
+    private func extractWithMedianCutAndCDF(
+        _ cgImage: CGImage,
+        count: Int,
+        config: Config
+    ) -> ExtractionResult {
         let imageSize = config.quality.imageSize
         
         // 1. 使用预处理器：缩放 + 转换到 linear sRGB
@@ -347,7 +416,7 @@ class SimpleColorExtractor {
             cgImage: cgImage,
             config: preprocessConfig
         ) else {
-            return []
+            return ExtractionResult(dominantColors: [], brightnessCDF: Array(repeating: 0, count: 256))
         }
         
         defer {
@@ -385,7 +454,10 @@ class SimpleColorExtractor {
             results = mergeSimilarColors(results, threshold: 8.0, converter: converter)
         }
         
-        return results
+        // 6. 计算亮度 CDF
+        let cdf = calculateBrightnessCDF(from: pixels)
+        
+        return ExtractionResult(dominantColors: results, brightnessCDF: cdf)
     }
     
     // MARK: - Helper Methods
