@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import CoreData
 
 /// 数据清理定时任务调度器
 class DataCleanupScheduler {
@@ -68,22 +69,57 @@ class DataCleanupScheduler {
         let beforeStats = coreDataManager.getDataStatistics()
         print("📊 清理前统计:")
         print("   - 总会话数: \(beforeStats.total)")
-        print("   - 我的作品: \(beforeStats.personalWork)")
-        print("   - 其他图像: \(beforeStats.otherImage)")
+        print("   - 收藏数: \(beforeStats.favorites)")
         print("   - 7天内: \(beforeStats.within7Days)")
         
-        // 执行清理
-        let deletedCount = coreDataManager.cleanupOldOtherImageSessions(olderThanDays: retentionDays)
+        // 执行清理：删除超过保留天数且未收藏的会话
+        let deletedCount = cleanupOldUnfavoritedSessions(olderThanDays: retentionDays)
         
         // 获取清理后的统计信息
         let afterStats = coreDataManager.getDataStatistics()
         print("\n📊 清理后统计:")
         print("   - 总会话数: \(afterStats.total)")
-        print("   - 我的作品: \(afterStats.personalWork)")
-        print("   - 其他图像: \(afterStats.otherImage)")
+        print("   - 收藏数: \(afterStats.favorites)")
         print("   - 7天内: \(afterStats.within7Days)")
         print("\n✅ 清理任务完成，删除了 \(deletedCount) 个旧会话")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+    }
+    
+    /// 清理旧的未收藏会话
+    private func cleanupOldUnfavoritedSessions(olderThanDays days: Int) -> Int {
+        let calendar = Calendar.current
+        guard let cutoffDate = calendar.date(byAdding: .day, value: -days, to: Date()) else {
+            print("❌ 无法计算截止日期")
+            return 0
+        }
+        
+        let context = coreDataManager.viewContext
+        let fetchRequest = AnalysisSessionEntity.fetchRequest()
+        
+        // 获取超过保留天数且未收藏的会话
+        fetchRequest.predicate = NSPredicate(
+            format: "customDate < %@ AND isFavorite == NO",
+            cutoffDate as NSDate
+        )
+        
+        do {
+            let sessionsToDelete = try context.fetch(fetchRequest)
+            let count = sessionsToDelete.count
+            
+            for session in sessionsToDelete {
+                context.delete(session)
+            }
+            
+            if count > 0 {
+                try context.save()
+                print("✅ 成功删除 \(count) 个超过 \(days) 天的未收藏会话")
+            }
+            
+            return count
+        } catch {
+            print("❌ 清理旧会话失败: \(error.localizedDescription)")
+            return 0
+        }
     }
     
     /// 手动触发清理（用于测试或用户手动操作）

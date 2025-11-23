@@ -17,11 +17,11 @@ struct AnalysisHistoryView: View {
     @State private var selectedSession: AnalysisSessionEntity? = nil
     @State private var selectedTab: SessionFilter = .all
     @State private var showClearAlert = false
+    @State private var showClearAllAlert = false
     
     enum SessionFilter: String, CaseIterable {
-        case all = "全部"
-        case personalWork = "我的作品"
-        case otherImage = "其他图像"
+        case favorites = "收藏"
+        case all = "素材"
     }
     
     var body: some View {
@@ -49,13 +49,11 @@ struct AnalysisHistoryView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    // 在"我的作品"和"其他图像"Tab显示清空按钮
-                    if (selectedTab == .personalWork || selectedTab == .otherImage) && !filteredSessions.isEmpty {
                         Button(role: .destructive) {
-                            showClearAlert = true
+                        showClearAllAlert = true
                         } label: {
-                            Label("清空", systemImage: "trash")
-                        }
+                        Text("清除全部")
+                            .foregroundColor(.red)
                     }
                 }
                 
@@ -65,20 +63,16 @@ struct AnalysisHistoryView: View {
                     }
                 }
             }
-            .sheet(item: $selectedSession) { session in
-                SessionDetailView(session: session)
-            }
-            .alert(alertTitle, isPresented: $showClearAlert) {
-                Button("取消", role: .cancel) { }
-                Button("清空", role: .destructive) {
-                    if selectedTab == .personalWork {
-                        viewModel.clearPersonalWorkSessions()
-                    } else {
-                        viewModel.clearOtherImageSessions()
-                    }
+            .alert("清除所有记录", isPresented: $showClearAllAlert) {
+                Button("取消", role: .cancel) {}
+                Button("清除", role: .destructive) {
+                    viewModel.clearAllSessions()
                 }
             } message: {
-                Text(alertMessage)
+                Text("此操作将删除所有分析记录，包括收藏的记录。此操作不可撤销。")
+            }
+            .sheet(item: $selectedSession) { session in
+                SessionDetailView(session: session)
             }
         }
         .onAppear {
@@ -89,24 +83,11 @@ struct AnalysisHistoryView: View {
     // 根据选中的 Tab 筛选会话
     private var filteredSessions: [AnalysisSessionEntity] {
         switch selectedTab {
+        case .favorites:
+            return viewModel.sessions.filter { $0.isFavorite }
         case .all:
             return viewModel.sessions
-        case .personalWork:
-            return viewModel.sessions.filter { $0.isPersonalWork }
-        case .otherImage:
-            return viewModel.sessions.filter { !$0.isPersonalWork }
         }
-    }
-    
-    // 清空提示标题
-    private var alertTitle: String {
-        selectedTab == .personalWork ? "清空我的作品数据" : "清空其他图像数据"
-    }
-    
-    // 清空提示消息
-    private var alertMessage: String {
-        let category = selectedTab == .personalWork ? "\"我的作品\"" : "\"其他图像\""
-        return "确定要清空所有\(category)的历史记录吗？此操作不可恢复。"
     }
     
     // MARK: - Empty State
@@ -163,30 +144,22 @@ struct SessionCard: View {
         VStack(alignment: .leading, spacing: 12) {
             // Header
             HStack {
-                Text(formattedDate)
+                Text(session.customName ?? formattedDate)
                     .font(.headline)
                     .foregroundColor(.primary)
                 
-                // 图像类型标记
-                if session.isPersonalWork {
-                    Label("我的作品", systemImage: "star.fill")
+                // 收藏标记
+                if session.isFavorite {
+                    Image(systemName: "heart.fill")
                         .font(.caption)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.blue)
-                        .cornerRadius(8)
-                } else {
-                    Label("其他图像", systemImage: "photo")
-                        .font(.caption)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.gray)
-                        .cornerRadius(8)
+                        .foregroundColor(.red)
                 }
                 
                 Spacer()
+                
+                Text(formatCustomDate(session.customDate ?? session.timestamp ?? Date()))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                 
                 Image(systemName: session.status == "completed" ? "checkmark.circle.fill" : "clock.fill")
                     .foregroundColor(session.status == "completed" ? .green : .orange)
@@ -223,6 +196,12 @@ struct SessionCard: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "MM月dd日 HH:mm"
         return formatter.string(from: session.timestamp ?? Date())
+    }
+    
+    private func formatCustomDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M月d日"
+        return formatter.string(from: date)
     }
 }
 
@@ -479,8 +458,8 @@ class AnalysisHistoryViewModel: ObservableObject {
         
         print("📋 加载历史记录:")
         print("   - 7天内会话数: \(sessions.count)")
-        print("   - 我的作品: \(sessions.filter { $0.isPersonalWork }.count)")
-        print("   - 其他图像: \(sessions.filter { !$0.isPersonalWork }.count)")
+        print("   - 收藏: \(sessions.filter { $0.isFavorite }.count)")
+        print("   - 全部: \(sessions.count)")
     }
     
     func deleteSession(_ session: AnalysisSessionEntity) {
@@ -492,16 +471,14 @@ class AnalysisHistoryViewModel: ObservableObject {
         }
     }
     
-    func clearOtherImageSessions() {
-        let count = coreDataManager.clearAllOtherImageSessions()
-        print("✅ 已清空 \(count) 个\"其他图像\"会话")
+    func clearAllSessions() {
+        do {
+            try coreDataManager.clearAllSessions()
         loadSessions()
+            print("✅ 已清除所有分析记录")
+        } catch {
+            print("❌ 清除所有记录失败: \(error)")
     }
-    
-    func clearPersonalWorkSessions() {
-        let count = coreDataManager.clearAllPersonalWorkSessions()
-        print("✅ 已清空 \(count) 个\"我的作品\"会话")
-        loadSessions()
     }
 }
 

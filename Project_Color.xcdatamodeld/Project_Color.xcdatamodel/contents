@@ -2,15 +2,18 @@
 <model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="24299" systemVersion="24G84" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithCloudKit="YES" userDefinedModelVersionIdentifier="">
     <entity name="AnalysisSessionEntity" representedClassName="AnalysisSessionEntity" syncable="YES" codeGenerationType="class">
         <attribute name="createdAt" attributeType="Date" defaultDateTimeInterval="0" usesScalarValueType="NO"/>
+        <attribute name="customDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="customName" optional="YES" attributeType="String"/>
         <attribute name="failedCount" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
-        <attribute name="isPersonalWork" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
+        <attribute name="isFavorite" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
         <attribute name="optimalK" attributeType="Integer 16" defaultValueString="5" usesScalarValueType="YES"/>
         <attribute name="processedCount" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="silhouetteScore" optional="YES" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="status" attributeType="String" defaultValueString="completed"/>
         <attribute name="timestamp" attributeType="Date" defaultDateTimeInterval="0" usesScalarValueType="NO"/>
         <attribute name="totalPhotoCount" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="aiEvaluationData" optional="YES" attributeType="Binary"/>
         <relationship name="clusters" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="ColorClusterEntity" inverseName="session" inverseEntity="ColorClusterEntity"/>
         <relationship name="collectionFeature" optional="YES" toMany="NO" deletionRule="Cascade" destinationEntity="CollectionFeatureEntity" inverseName="session" inverseEntity="CollectionFeatureEntity"/>
         <relationship name="photoAnalyses" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="PhotoAnalysisEntity" inverseName="session" inverseEntity="PhotoAnalysisEntity"/>
@@ -20,6 +23,9 @@
         <attribute name="centroidB" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="centroidHex" attributeType="String" defaultValueString=""/>
         <attribute name="centroidL" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="centroidR" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="centroidG" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="centroidB_RGB" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="clusterIndex" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="colorName" attributeType="String" defaultValueString=""/>
         <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
@@ -75,6 +81,8 @@
         <attribute name="colorCastBMean" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="colorCastStrength" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="colorCastHue" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="brightnessCDF" optional="YES" attributeType="Binary"/>
+        <attribute name="advancedColorAnalysisData" optional="YES" attributeType="Binary"/>
         <relationship name="metadata" optional="YES" toMany="NO" deletionRule="Cascade" destinationEntity="PhotoMetadataEntity" inverseName="photoAnalysis" inverseEntity="PhotoMetadataEntity"/>
         <relationship name="primaryCluster" optional="YES" deletionRule="Nullify" destinationEntity="ColorClusterEntity" inverseName="photoAnalyses" inverseEntity="ColorClusterEntity"/>
         <relationship name="session" optional="YES" deletionRule="Nullify" destinationEntity="AnalysisSessionEntity" inverseName="photoAnalyses" inverseEntity="AnalysisSessionEntity"/>

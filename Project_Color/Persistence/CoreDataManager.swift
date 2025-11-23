@@ -121,14 +121,12 @@ final class CoreDataManager {
     /// 保存分析结果到Core Data（使用后台上下文）
     /// - Parameters:
     ///   - result: 分析结果
-    ///   - isPersonalWork: 是否为"我的作品"（true=保存，false=不保存）
     ///   - context: 可选的上下文
-    /// - Returns: 保存的会话实体（如果 isPersonalWork=false 则返回临时实体）
+    /// - Returns: 保存的会话实体
     func saveAnalysisSession(
         from result: AnalysisResult,
-        isPersonalWork: Bool,
         context: NSManagedObjectContext? = nil
-    ) throws -> AnalysisSessionEntity {
+    ) throws -> (id: UUID?, name: String?, date: Date?) {
         // 使用后台上下文避免阻塞主线程
         let ctx = context ?? container.newBackgroundContext()
         ctx.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
@@ -146,19 +144,46 @@ final class CoreDataManager {
         
         var savedSession: AnalysisSessionEntity!
         var saveError: Error?
+        var sessionId: UUID?
+        var sessionName: String?
+        var sessionDate: Date?
         
         ctx.performAndWait {
             let session = AnalysisSessionEntity(context: ctx)
             session.id = UUID()
             session.timestamp = timestamp
-            session.createdAt = Date()  // 新增：记录创建时间
-            session.isPersonalWork = isPersonalWork  // 新增：标记是否为个人作品
+            session.createdAt = Date()
+            
+            // 自动生成名称（格式：YYYY 年 M 月 D 日）
+            let generatedName = self.generateSessionName(for: Date(), context: ctx)
+            session.customName = generatedName
+            session.customDate = Date()
+            session.isFavorite = false  // 默认未收藏
+            
             session.totalPhotoCount = Int16(totalPhotoCount)
             session.processedCount = Int16(processedCount)
             session.failedCount = Int16(failedCount)
             session.optimalK = Int16(optimalK)
             session.silhouetteScore = silhouetteScore
             session.status = isCompleted ? "completed" : "processing"
+            
+            // 保存 AI 评价数据
+            if let aiEvaluation = result.aiEvaluation {
+                print("💾 准备保存 AI 评价数据:")
+                print("   - 整体评价: \(aiEvaluation.overallEvaluation != nil ? "有" : "无")")
+                print("   - 聚类评价数: \(aiEvaluation.clusterEvaluations.count)")
+                print("   - isLoading: \(aiEvaluation.isLoading)")
+                print("   - error: \(aiEvaluation.error ?? "无")")
+                
+                if let evaluationData = try? JSONEncoder().encode(aiEvaluation) {
+                    session.aiEvaluationData = evaluationData
+                    print("   ✅ AI 评价数据已编码，大小: \(evaluationData.count) bytes")
+                } else {
+                    print("   ❌ AI 评价数据编码失败")
+                }
+            } else {
+                print("   ⚠️ result.aiEvaluation 为 nil，不保存 AI 评价")
+            }
         
         // 保存聚类信息
         var clusterEntities: [ColorClusterEntity] = []
@@ -170,10 +195,16 @@ final class CoreDataManager {
             clusterEntity.colorName = cluster.colorName
             clusterEntity.centroidHex = cluster.hex
 
+            // 保存 LAB 值
             let lab = converter.rgbToLab(cluster.centroid)
             clusterEntity.centroidL = Double(lab.x)
             clusterEntity.centroidA = Double(lab.y)
             clusterEntity.centroidB = Double(lab.z)
+            
+            // 保存 RGB 值（0-1 范围）
+            clusterEntity.centroidR = cluster.centroid.x
+            clusterEntity.centroidG = cluster.centroid.y
+            clusterEntity.centroidB_RGB = cluster.centroid.z
 
             clusterEntity.sampleCount = Int16(cluster.photoCount)
             let ratio = processedCount > 0 ? Double(cluster.photoCount) / Double(processedCount) : 0
@@ -215,8 +246,20 @@ final class CoreDataManager {
                 photoAnalysis.mixVector = mixVectorData
             }
 
+            // 保存 brightnessCDF
+            if let cdf = photoInfo.brightnessCDF, !cdf.isEmpty {
+                let cdfData = Data(bytes: cdf, count: cdf.count * MemoryLayout<Float>.size)
+                photoAnalysis.brightnessCDF = cdfData
+            }
+            
             // 保存高级色彩分析（单张照片）
             if let advancedColorAnalysis = photoInfo.advancedColorAnalysis {
+                // 保存完整的 AdvancedColorAnalysis 结构（包含所有数据）
+                if let analysisData = try? JSONEncoder().encode(advancedColorAnalysis) {
+                    photoAnalysis.advancedColorAnalysisData = analysisData
+                }
+                
+                // 保留旧字段用于兼容性和快速查询
                 photoAnalysis.warmCoolScore = advancedColorAnalysis.overallScore
                 
                 // 保存色偏分析数据（新版本：分别保存高光和阴影区域）
@@ -313,15 +356,17 @@ final class CoreDataManager {
             session.setValue(collectionEntity, forKey: "collectionFeature")
         }
         
-            // 保存到 Core Data（无论是"我的作品"还是"其他图像"）
+            // 保存到 Core Data
             do {
                 try ctx.save()
                 savedSession = session
-                if isPersonalWork {
-                    print("✅ 我的作品模式：已保存到 Core Data（永久保存）")
-                } else {
-                    print("✅ 其他图像模式：已保存到 Core Data（7天后自动删除）")
-                }
+                // 立即提取值，避免跨上下文访问问题
+                sessionId = session.id
+                sessionName = session.customName
+                sessionDate = session.customDate
+                print("✅ 已保存分析会话到 Core Data")
+                print("   - 提取的 sessionId: \(sessionId?.uuidString ?? "nil")")
+                print("   - 提取的名称: \(sessionName ?? "nil")")
             } catch {
                 saveError = error
             }
@@ -331,7 +376,8 @@ final class CoreDataManager {
             throw error
         }
         
-        return savedSession
+        // 返回提取的值，避免跨上下文访问问题
+        return (id: sessionId, name: sessionName, date: sessionDate)
     }
     
     /// 获取所有分析会话（按时间倒序）
@@ -380,6 +426,20 @@ final class CoreDataManager {
         try viewContext.save()
     }
     
+    /// 清除所有分析会话
+    func clearAllSessions() throws {
+        let request: NSFetchRequest<NSFetchRequestResult> = AnalysisSessionEntity.fetchRequest()
+        let deleteRequest = NSBatchDeleteRequest(fetchRequest: request)
+        deleteRequest.resultType = .resultTypeObjectIDs
+        
+        let result = try viewContext.execute(deleteRequest) as? NSBatchDeleteResult
+        let objectIDArray = result?.result as? [NSManagedObjectID] ?? []
+        let changes = [NSDeletedObjectsKey: objectIDArray]
+        NSManagedObjectContext.mergeChanges(fromRemoteContextSave: changes, into: [viewContext])
+        
+        print("🗑️ 已清除 \(objectIDArray.count) 个分析会话")
+    }
+    
     // MARK: - Phase 3: 数据清理
     
     /// 获取近 7 天内的所有会话
@@ -399,131 +459,28 @@ final class CoreDataManager {
         }
     }
     
-    /// 清理超过 7 天的"其他图像"数据
-    /// - Returns: 删除的会话数量
-    @discardableResult
-    func cleanupOldOtherImageSessions(olderThanDays days: Int = 7) -> Int {
-        let request = AnalysisSessionEntity.fetchRequest()
-        let calendar = Calendar.current
-        let daysAgo = calendar.date(byAdding: .day, value: -days, to: Date()) ?? Date()
-        
-        // 查询条件：超过 7 天 且 不是"我的作品"
-        request.predicate = NSPredicate(
-            format: "createdAt < %@ AND isPersonalWork == NO",
-            daysAgo as NSDate
-        )
-        
-        do {
-            let oldSessions = try viewContext.fetch(request)
-            let count = oldSessions.count
-            
-            if count > 0 {
-                print("🗑️ 开始清理超过 \(days) 天的\"其他图像\"数据...")
-                print("   找到 \(count) 个会话需要删除")
-                
-                for session in oldSessions {
-                    viewContext.delete(session)
-                }
-                
-                try viewContext.save()
-                print("✅ 已删除 \(count) 个旧会话")
-            } else {
-                print("✅ 没有需要清理的旧数据")
-            }
-            
-            return count
-        } catch {
-            print("❌ 清理旧数据失败: \(error)")
-            return 0
-        }
-    }
     
     /// 获取数据统计信息
-    func getDataStatistics() -> (total: Int, personalWork: Int, otherImage: Int, within7Days: Int) {
+    func getDataStatistics() -> (total: Int, favorites: Int, within7Days: Int) {
         let request = AnalysisSessionEntity.fetchRequest()
         
         do {
             let allSessions = try viewContext.fetch(request)
             let total = allSessions.count
-            let personalWork = allSessions.filter { $0.isPersonalWork }.count
-            let otherImage = allSessions.filter { !$0.isPersonalWork }.count
+            let favorites = allSessions.filter { $0.isFavorite }.count
             
             let calendar = Calendar.current
             let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: Date()) ?? Date()
             let within7Days = allSessions.filter { ($0.createdAt ?? Date()) >= sevenDaysAgo }.count
             
-            return (total, personalWork, otherImage, within7Days)
+            return (total, favorites, within7Days)
         } catch {
             print("❌ 获取统计信息失败: \(error)")
-            return (0, 0, 0, 0)
+            return (0, 0, 0)
         }
     }
     
     // MARK: - Phase 3: 清空功能
-    
-    /// 清空所有"其他图像"数据（从 Core Data 删除）
-    /// - Returns: 删除的会话数量
-    @discardableResult
-    func clearAllOtherImageSessions() -> Int {
-        let request = AnalysisSessionEntity.fetchRequest()
-        request.predicate = NSPredicate(format: "isPersonalWork == NO")
-        
-        do {
-            let sessions = try viewContext.fetch(request)
-            let count = sessions.count
-            
-            if count > 0 {
-                print("🗑️ 开始清空所有\"其他图像\"数据...")
-                print("   找到 \(count) 个会话需要删除")
-                
-                for session in sessions {
-                    viewContext.delete(session)
-                }
-                
-                try viewContext.save()
-                print("✅ 已删除 \(count) 个\"其他图像\"会话")
-            } else {
-                print("✅ 没有\"其他图像\"数据需要清空")
-            }
-            
-            return count
-        } catch {
-            print("❌ 清空\"其他图像\"数据失败: \(error)")
-            return 0
-        }
-    }
-    
-    /// 清空所有"我的作品"会话（包括 Core Data 中的所有关联数据）
-    /// - Returns: 删除的会话数量
-    @discardableResult
-    func clearAllPersonalWorkSessions() -> Int {
-        let request = AnalysisSessionEntity.fetchRequest()
-        request.predicate = NSPredicate(format: "isPersonalWork == YES")
-        
-        do {
-            let sessions = try viewContext.fetch(request)
-            let count = sessions.count
-            
-            if count > 0 {
-                print("🗑️ 开始清空所有\"我的作品\"数据...")
-                print("   找到 \(count) 个会话需要删除")
-                
-                for session in sessions {
-                    viewContext.delete(session)
-                }
-                
-                try viewContext.save()
-                print("✅ 已删除 \(count) 个\"我的作品\"会话")
-            } else {
-                print("✅ 没有\"我的作品\"数据需要清空")
-            }
-            
-            return count
-        } catch {
-            print("❌ 清空\"我的作品\"数据失败: \(error)")
-            return 0
-        }
-    }
     
     /// 清空所有 Vision 标签数据（从 Core Data 删除）
     /// - Returns: 删除的标签数量
@@ -554,5 +511,140 @@ final class CoreDataManager {
             print("❌ 清空 Vision 标签数据失败: \(error)")
             return 0
         }
+    }
+    
+    // MARK: - Session Naming Helpers
+    
+    /// 生成分析会话名称（格式：YYYY 年 M 月 D 日）
+    /// 如果同一天有多次分析，自动添加 (2), (3) 等后缀
+    /// - Parameters:
+    ///   - date: 日期
+    ///   - context: Core Data 上下文
+    /// - Returns: 生成的名称
+    private func generateSessionName(for date: Date, context: NSManagedObjectContext) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy.MM.dd"
+        let baseName = formatter.string(from: date)
+        
+        // 查询同一天是否已有分析会话
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        
+        let request: NSFetchRequest<AnalysisSessionEntity> = AnalysisSessionEntity.fetchRequest()
+        request.predicate = NSPredicate(
+            format: "customDate >= %@ AND customDate < %@",
+            startOfDay as NSDate,
+            endOfDay as NSDate
+        )
+        request.sortDescriptors = [NSSortDescriptor(key: "customDate", ascending: true)]
+        
+        do {
+            let existingSessions = try context.fetch(request)
+            
+            // 如果没有同名的，直接返回基础名称
+            if existingSessions.isEmpty {
+                return baseName
+            }
+            
+            // 找出已使用的后缀数字
+            var usedNumbers: Set<Int> = []
+            for session in existingSessions {
+                if let name = session.customName {
+                    if name == baseName {
+                        usedNumbers.insert(1)
+                    } else if name.hasPrefix(baseName + "(") && name.hasSuffix(")") {
+                        let numberPart = name.dropFirst(baseName.count + 1).dropLast()
+                        if let number = Int(numberPart) {
+                            usedNumbers.insert(number)
+                        }
+                    }
+                }
+            }
+            
+            // 找到第一个未使用的数字
+            var nextNumber = 2
+            while usedNumbers.contains(nextNumber) {
+                nextNumber += 1
+            }
+            
+            return "\(baseName)(\(nextNumber))"
+        } catch {
+            print("❌ 查询已有会话失败: \(error)")
+            return baseName
+        }
+    }
+    
+    /// 更新分析会话的收藏状态和自定义信息
+    /// - Parameters:
+    ///   - sessionId: 会话 ID
+    ///   - isFavorite: 是否收藏
+    ///   - customName: 自定义名称（可选）
+    ///   - customDate: 自定义日期（可选）
+    /// 更新会话的 AI 评价数据
+    func updateAIEvaluation(sessionId: UUID, evaluation: ColorEvaluation) async throws {
+        let context = container.newBackgroundContext()
+        
+        try await context.perform {
+            let request: NSFetchRequest<AnalysisSessionEntity> = AnalysisSessionEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "id == %@", sessionId as CVarArg)
+            request.fetchLimit = 1
+            
+            guard let session = try context.fetch(request).first else {
+                throw NSError(domain: "CoreDataManager", code: 404, userInfo: [
+                    NSLocalizedDescriptionKey: "Session not found"
+                ])
+            }
+            
+            // 编码并保存 AI 评价
+            if let evaluationData = try? JSONEncoder().encode(evaluation) {
+                session.aiEvaluationData = evaluationData
+                print("💾 更新 AI 评价数据: \(evaluationData.count) bytes")
+            }
+            
+            try context.save()
+        }
+    }
+    
+    func updateSessionFavoriteStatus(
+        sessionId: UUID,
+        isFavorite: Bool,
+        customName: String? = nil,
+        customDate: Date? = nil
+    ) throws {
+        print("🔧 CoreDataManager.updateSessionFavoriteStatus 被调用")
+        print("   - sessionId: \(sessionId)")
+        print("   - isFavorite: \(isFavorite)")
+        
+        let context = viewContext
+        
+        let request: NSFetchRequest<AnalysisSessionEntity> = AnalysisSessionEntity.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", sessionId as CVarArg)
+        request.fetchLimit = 1
+        
+        let results = try context.fetch(request)
+        print("   - 找到 \(results.count) 个匹配的实体")
+        
+        guard let session = results.first else {
+            print("❌ 未找到 session")
+            throw NSError(domain: "CoreDataManager", code: 404, userInfo: [
+                NSLocalizedDescriptionKey: "Session not found"
+            ])
+        }
+        
+        print("   - 当前 isFavorite: \(session.isFavorite)")
+        session.isFavorite = isFavorite
+        print("   - 更新后 isFavorite: \(session.isFavorite)")
+        
+        if let name = customName {
+            session.customName = name
+        }
+        
+        if let date = customDate {
+            session.customDate = date
+        }
+        
+        try context.save()
+        print("✅ 已保存到 Core Data: isFavorite=\(isFavorite)")
     }
 }

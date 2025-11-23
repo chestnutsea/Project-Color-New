@@ -3,7 +3,7 @@
 //  Project_Color
 //
 //  Created by AI Assistant on 2025/11/19.
-//  相册照片网格：显示某个相册内的所有"我的作品"照片
+//  相册照片网格：显示某个相册内的所有照片
 //
 
 import SwiftUI
@@ -194,8 +194,7 @@ class AlbumPhotosViewModel: ObservableObject {
                 
                 let validPhotos: [PhotoItem] = sortedEntities.compactMap { entity in
                     guard let assetId = entity.assetLocalIdentifier,
-                          let asset = assetMap[assetId],
-                          self.isPersonalWork(for: entity) else {
+                          let asset = assetMap[assetId] else {
                         return nil
                     }
                     
@@ -235,13 +234,6 @@ class AlbumPhotosViewModel: ObservableObject {
             return sessions.first
         }
         return nil
-    }
-    
-    private func isPersonalWork(for photo: PhotoAnalysisEntity) -> Bool {
-        if let session = primarySession(for: photo) {
-            return session.isPersonalWork
-        }
-        return false
     }
 }
 

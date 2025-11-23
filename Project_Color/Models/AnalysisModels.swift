@@ -83,6 +83,9 @@ class AnalysisResult: ObservableObject {
     @Published var isCompleted: Bool = false
     @Published var timestamp: Date = Date()
     
+    // Core Data 会话 ID（保存后设置）
+    @Published var sessionId: UUID? = nil
+    
     // Phase 4: 聚类质量指标
     @Published var silhouetteScore: Double = 0.0
     @Published var optimalK: Int = 5
@@ -103,9 +106,6 @@ class AnalysisResult: ObservableObject {
     // 风格分析数据
     @Published var collectionFeature: CollectionFeature? = nil
     
-    // 图像类型标记（是否为"我的作品"）
-    @Published var isPersonalWork: Bool = true  // 默认为 true
-    
     // 根据簇索引获取照片
     func photos(in clusterIndex: Int) -> [PhotoColorInfo] {
         return photoInfos.filter { $0.primaryClusterIndex == clusterIndex }
@@ -113,7 +113,7 @@ class AnalysisResult: ObservableObject {
 }
 
 // MARK: - AI 颜色评价
-struct ColorEvaluation {
+struct ColorEvaluation: Codable {
     var isLoading: Bool = false
     var error: String? = nil
     var completedAt: Date? = nil
@@ -126,7 +126,7 @@ struct ColorEvaluation {
 }
 
 // MARK: - 整体评价
-struct OverallEvaluation {
+struct OverallEvaluation: Codable {
     var hueAnalysis: String  // 色调分析
     var saturationAnalysis: String  // 饱和度分析
     var brightnessAnalysis: String  // 明度分析
@@ -134,7 +134,7 @@ struct OverallEvaluation {
 }
 
 // MARK: - 单簇评价
-struct ClusterEvaluation: Identifiable {
+struct ClusterEvaluation: Identifiable, Codable {
     var id: Int { clusterIndex }
     var clusterIndex: Int
     var colorName: String
@@ -198,7 +198,7 @@ struct ClusterAnalytics {
 }
 
 // MARK: - 色偏分析结果
-struct ColorCastResult {
+struct ColorCastResult: Codable {
     let rms: Float              // RMS 对比度
     
     // 高光区域色偏
@@ -233,7 +233,7 @@ struct ColorCastResult {
 }
 
 // MARK: - 高级色彩分析（Advanced Color Analysis）
-struct AdvancedColorAnalysis {
+struct AdvancedColorAnalysis: Codable {
     // 核心分数
     var overallScore: Float        // 最终融合得分 [-1, 1]（70% 局部 + 30% 代表色）
     
@@ -266,7 +266,7 @@ typealias WarmCoolScore = AdvancedColorAnalysis
 // MARK: - 风格分析辅助数据
 
 /// SLIC 分析数据（用于风格分析）
-struct SLICAnalysisData {
+struct SLICAnalysisData: Codable {
     let labBuffer: [Float]
     let labels: [Int]
     let width: Int
@@ -274,8 +274,25 @@ struct SLICAnalysisData {
 }
 
 /// HSL 分析数据（用于风格分析）
-struct HSLAnalysisData {
-    let hslList: [(h: Float, s: Float, l: Float)]
+struct HSLAnalysisData: Codable {
+    // 将 tuple 改为结构体以支持 Codable
+    struct HSLValue: Codable {
+        let h: Float
+        let s: Float
+        let l: Float
+    }
+    
+    let hslList: [HSLValue]
+    
+    // 便捷初始化器（从 tuple 数组）
+    init(hslList: [(h: Float, s: Float, l: Float)]) {
+        self.hslList = hslList.map { HSLValue(h: $0.h, s: $0.s, l: $0.l) }
+    }
+    
+    // 便捷访问（返回 tuple 数组）
+    var tuples: [(h: Float, s: Float, l: Float)] {
+        hslList.map { ($0.h, $0.s, $0.l) }
+    }
 }
 
 // MARK: - 所有照片的冷暖分布数据

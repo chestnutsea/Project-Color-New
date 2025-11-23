@@ -8,11 +8,6 @@
 import SwiftUI
 
 struct MainTabView: View {
-    // MARK: - Layout Constants
-    private let tabBarHeight: CGFloat = 60
-    private let tabBarIconSize: CGFloat = 24
-    private let tabBarPadding: CGFloat = 20
-    
     // MARK: - State
     @State private var selectedTab: TabItem = .scanner
     
@@ -29,14 +24,6 @@ struct MainTabView: View {
             }
         }
         
-        var selectedIconName: String {
-            switch self {
-            case .scanner: return "scanner.fill"
-            case .album: return "photo.stack.fill"
-            case .palette: return "paintpalette.fill"
-            }
-        }
-        
         var title: String {
             switch self {
             case .scanner: return "扫描"
@@ -47,56 +34,35 @@ struct MainTabView: View {
     }
     
     var body: some View {
-        ZStack(alignment: .bottom) {
-            // 主内容区域（支持滑动）
-            TabView(selection: $selectedTab) {
-                HomeView()
-                    .tag(TabItem.scanner)
-                
-                AlbumLibraryView()
-                    .tag(TabItem.album)
-                
-                KitView()
-                    .tag(TabItem.palette)
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            
-            // 自定义 Tab Bar（固定在底部，覆盖在内容上方）
-            VStack(spacing: 0) {
-                Divider()
-                customTabBar
-            }
-            .frame(height: tabBarHeight + 1) // +1 for divider
-            .background(
-                Color(.systemBackground)
-                    .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: -2)
-            )
-        }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
-    }
-    
-    // MARK: - Custom Tab Bar
-    private var customTabBar: some View {
-        HStack(spacing: 0) {
-            ForEach(TabItem.allCases, id: \.self) { tab in
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        selectedTab = tab
-                    }
-                }) {
-                    VStack(spacing: 4) {
-                        Image(systemName: selectedTab == tab ? tab.selectedIconName : tab.iconName)
-                            .font(.system(size: tabBarIconSize, weight: .medium))
-                            .foregroundColor(selectedTab == tab ? .blue : .secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: tabBarHeight)
+        TabView(selection: $selectedTab) {
+            HomeView()
+                .tabItem {
+                    Label(TabItem.scanner.title, systemImage: TabItem.scanner.iconName)
                 }
-                .buttonStyle(.plain)
-            }
+                .tag(TabItem.scanner)
+            
+            AnalysisLibraryView()
+                .tabItem {
+                    Label(TabItem.album.title, systemImage: TabItem.album.iconName)
+                }
+                .tag(TabItem.album)
+            
+            KitView()
+                .tabItem {
+                    Label(TabItem.palette.title, systemImage: TabItem.palette.iconName)
+                }
+                .tag(TabItem.palette)
         }
-        .padding(.horizontal, tabBarPadding)
-        .background(Color(.systemBackground))
+        .tint(.black)  // 设置选中颜色为黑色
+        .onAppear {
+            // 设置 TabBar 的外观
+            let appearance = UITabBarAppearance()
+            appearance.configureWithDefaultBackground()
+            appearance.backgroundColor = UIColor.systemBackground
+            
+            UITabBar.appearance().standardAppearance = appearance
+            UITabBar.appearance().scrollEdgeAppearance = appearance
+        }
     }
 }
 

@@ -1,7 +1,9 @@
 #if canImport(UIKit)
 import SwiftUI
 import Photos
+import PhotosUI
 import UIKit
+import Combine
 
 struct SearchColorView: View {
     // MARK: - Layout Constants
@@ -89,11 +91,11 @@ struct SearchColorView: View {
     
     // MARK: - State
     @State private var selectedCategory: ColorCategory? = nil
-    @State private var showAlbumList = false
+    @State private var showPhotoPicker = false
     @State private var showImageViewer = false
     @State private var viewerIndex = 0
     @State private var photoAuthorizationStatus: PHAuthorizationStatus = .notDetermined
-    @StateObject private var selectionManager = PhotoSelectionManager.shared
+    @StateObject private var selectionManager = SelectedPhotosManager.shared
     
     @State private var selectedAssets: [PHAsset] = []
     @State private var selectedImages: [UIImage] = []
@@ -112,18 +114,24 @@ struct SearchColorView: View {
         mainContent
             .navigationTitle("寻色")
             .navigationBarTitleDisplayMode(.inline)
-            .sheet(isPresented: $showAlbumList) {
-                AlbumListView()
+            .sheet(isPresented: $showPhotoPicker) {
+                PhotoPickerView { results in
+                    selectionManager.updateSelectedAssets(with: results)
+                    loadSelectedAssets()
+                }
             }
             .fullScreenCover(isPresented: $showImageViewer) {
                 imageViewer
             }
-            .onAppear(perform: checkPhotoLibraryStatus)
+            .onAppear {
+                checkPhotoLibraryStatus()
+                loadSelectedAssets()
+            }
             .onDisappear {
                 processingTask?.cancel()
                 processingTask = nil
             }
-            .onChange(of: selectionManager.selectedAlbums) { _ in
+            .onChange(of: selectionManager.selectedAssetIdentifiers) { _ in
                 lastCompletedSignature = nil
                 loadSelectedAssets()
             }
@@ -315,13 +323,13 @@ struct SearchColorView: View {
     private func handleAddButtonTapped() {
         switch photoAuthorizationStatus {
         case .authorized, .limited:
-            showAlbumList = true
+            showPhotoPicker = true
         case .notDetermined:
             PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
                 DispatchQueue.main.async {
                     photoAuthorizationStatus = status
                     if status == .authorized || status == .limited {
-                        showAlbumList = true
+                        showPhotoPicker = true
                     }
                 }
             }
@@ -338,11 +346,11 @@ struct SearchColorView: View {
     }
     
     private func loadSelectedAssets() {
-        let assets = selectionManager.getLatestPhotos(count: 500)
+        let assets = selectionManager.selectedAssets
         selectedAssets = assets
         
         Task {
-            let latest = Array(assets.prefix(3))
+            let latest = Array(assets.suffix(3))
             var images: [UIImage] = []
             for asset in latest {
                 if let image = await requestImage(for: asset, targetSize: CGSize(width: 600, height: 600)) {

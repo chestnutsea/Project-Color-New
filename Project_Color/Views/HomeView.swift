@@ -13,11 +13,17 @@ import UIKit
 
 struct HomeView: View {
     // MARK: - 布局常量
-    private let imageSize: CGFloat = 300 // 图片大小
-    private let scannerTopOffset: CGFloat = 300 // PhotoScanner 上移距离
+    private let imageSize: CGFloat = 400 // 图片大小
+    private let scannerTopOffset: CGFloat = 30 // PhotoScanner 上移距离
+    
+    // PhotoScanner 阴影常量
+    private let scannerShadowColor = Color.black.opacity(0.5)
+    private let scannerShadowRadius: CGFloat = 15
+    private let scannerShadowOffsetX: CGFloat = 8
+    private let scannerShadowOffsetY: CGFloat = 8
     
     // 照片模板布局常量（参考 TestPhotosChannel）
-    private let photoCardWidth: CGFloat = 150 // 照片卡片宽度
+    private let photoCardBaseSize: CGFloat = 150 // 照片卡片基础尺寸（纵向图固定宽度，横向图固定高度）
     private let cardCornerRadius: CGFloat = 6
     private let shadowColor = Color.black.opacity(0.25)
     private let shadowRadius: CGFloat = 12
@@ -38,9 +44,9 @@ struct HomeView: View {
     private let photoStackBottomOffset: CGFloat = 80 // 照片堆距离屏幕底部的距离
     
     // MARK: - State
-    @State private var showAlbumList = false
+    @State private var showPhotoPicker = false
     @State private var photoAuthorizationStatus: PHAuthorizationStatus = .notDetermined
-    @StateObject private var selectionManager = PhotoSelectionManager.shared
+    @StateObject private var selectionManager = SelectedPhotosManager.shared
     
     #if canImport(UIKit)
     @State private var selectedImages: [UIImage] = []
@@ -55,7 +61,7 @@ struct HomeView: View {
     // 颜色分析相关
     @State private var analysisProgress = AnalysisProgress()
     @State private var analysisResult: AnalysisResult?
-    @State private var showAnalysisResult = false
+    @State private var showAnalysisResult = false  // 显示分析结果页
     @State private var showAnalysisHistory = false  // Phase 3: 历史记录
     @State private var showAnalysisSettings = false  // Phase 5: 分析设置
     @State private var showCollectedTags = false  // Vision 标签库
@@ -76,17 +82,19 @@ struct HomeView: View {
 #endif
     }
     
-    // 图像类型选择弹窗
-    @State private var showImageTypeAlert = false
-    @State private var selectedImageType: ImageType = .personalWork
+    
+    // 存储位置信息
+    @State private var scannerFrame: CGRect = .zero
+    @State private var photoStackFrame: CGRect = .zero
     
     var body: some View {
         GeometryReader { geometry in
-            ZStack {
-                if selectionManager.selectedAlbums.isEmpty {
-                    // 未选择照片：居中显示 PhotoScanner
+            NavigationStack {
+                ZStack {
+                    // PhotoScanner - 始终显示在同一位置
                     VStack {
                         Spacer()
+                            .frame(height: scannerTopOffset)
                         
                         HStack {
                             Spacer()
@@ -95,24 +103,12 @@ struct HomeView: View {
                                     .resizable()
                                     .scaledToFit()
                                     .frame(width: imageSize, height: imageSize)
-                            }
-                            .buttonStyle(.plain)
-                            Spacer()
-                        }
-                        
-                        Spacer()
-                    }
-                } else {
-                    // 已选择照片：PhotoScanner + 箭头 + 照片堆
-                    VStack(spacing: 0) {
-                        // PhotoScanner - 水平居中
-                        HStack {
-                            Spacer()
-                            Button(action: handleImageTap) {
-                                loadPhotoScannerImage()
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: imageSize, height: imageSize)
+                                    .shadow(
+                                        color: scannerShadowColor,
+                                        radius: scannerShadowRadius,
+                                        x: scannerShadowOffsetX,
+                                        y: scannerShadowOffsetY
+                                    )
                                     .background(
                                         GeometryReader { scannerGeo in
                                             Color.clear.preference(
@@ -125,12 +121,15 @@ struct HomeView: View {
                             .buttonStyle(.plain)
                             Spacer()
                         }
-                        .padding(.top, scannerTopOffset)
                         
                         Spacer()
-                        
-                        // 照片模板展示 - 底部居中
-                        if !isProcessing && photoStackOpacity > 0 {
+                    }
+                    
+                    // 照片模板展示 - 仅在选中照片时显示
+                    if selectionManager.hasSelection && !isProcessing && photoStackOpacity > 0 {
+                        VStack {
+                            Spacer()
+                            
                             HStack {
                                 Spacer()
                                 photoTemplateView
@@ -149,129 +148,128 @@ struct HomeView: View {
                                             .onChanged { value in
                                                 dragOffset = value.translation
                                             }
-                                            .onEnded { value in
+                                            .onEnded { _ in
                                                 handleDragEnd(geometry: geometry)
                                             }
                                     )
                                     .onTapGesture {
-                                        showAlbumList = true
+                                        showPhotoPicker = true
                                     }
                                 Spacer()
                             }
                             .padding(.bottom, photoStackBottomOffset)
                         }
                     }
-                }
-                
-                // Phase 3 & 5: 历史记录和设置按钮
-                if !isProcessing {
-                    VStack {
-                        HStack {
-                            Spacer()
-                            
-                            // Vision 标签库菜单
-                            Menu {
-                                Button(action: {
-                                    showCollectedTags = true
-                                }) {
-                                    Label("查看标签库", systemImage: "tag.fill")
-                                }
+                    
+                    // Phase 3 & 5: 历史记录和设置按钮
+                    if !isProcessing {
+                        VStack {
+                            HStack {
+                                Spacer()
                                 
-                                Button(action: {
-                                    exportTags()
-                                }) {
-                                    Label("导出标签", systemImage: "square.and.arrow.down")
+                                // Vision 标签库菜单
+                                Menu {
+                                    Button(action: {
+                                        showCollectedTags = true
+                                    }) {
+                                        Label("查看标签库", systemImage: "tag.fill")
+                                    }
+                                    
+                                    Button(action: {
+                                        exportTags()
+                                    }) {
+                                        Label("导出标签", systemImage: "square.and.arrow.down")
+                                    }
+                                    .disabled(TagCollector.shared.count() == 0)
+                                } label: {
+                                    Image(systemName: "tag.fill")
+                                        .font(.system(size: 24))
+                                        .foregroundColor(.primary)
+                                        .padding(12)
+                                        .background(Color.white.opacity(0.9))
+                                        .clipShape(Circle())
+                                        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
                                 }
-                                .disabled(TagCollector.shared.count() == 0)
-                            } label: {
-                                Image(systemName: "tag.fill")
-                                    .font(.system(size: 24))
-                                    .foregroundColor(.primary)
-                                    .padding(12)
-                                    .background(Color.white.opacity(0.9))
-                                    .clipShape(Circle())
-                                    .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+                                .padding(.trailing, 8)
+                                
+                                // Phase 5: 设置按钮
+                                Button(action: {
+                                    showAnalysisSettings = true
+                                }) {
+                                    Image(systemName: "slider.horizontal.3")
+                                        .font(.system(size: 24))
+                                        .foregroundColor(.primary)
+                                        .padding(12)
+                                        .background(Color.white.opacity(0.9))
+                                        .clipShape(Circle())
+                                        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+                                }
+                                .padding(.trailing, 8)
+                                
+                                // Phase 3: 历史记录按钮
+                                Button(action: {
+                                    showAnalysisHistory = true
+                                }) {
+                                    Image(systemName: "clock.arrow.circlepath")
+                                        .font(.system(size: 24))
+                                        .foregroundColor(.primary)
+                                        .padding(12)
+                                        .background(Color.white.opacity(0.9))
+                                        .clipShape(Circle())
+                                        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+                                }
+                                .padding(.trailing)
                             }
-                            .padding(.trailing, 8)
-                            
-                            // Phase 5: 设置按钮
-                            Button(action: {
-                                showAnalysisSettings = true
-                            }) {
-                                Image(systemName: "slider.horizontal.3")
-                                    .font(.system(size: 24))
-                                    .foregroundColor(.primary)
-                                    .padding(12)
-                                    .background(Color.white.opacity(0.9))
-                                    .clipShape(Circle())
-                                    .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
-                            }
-                            .padding(.trailing, 8)
-                            
-                            // Phase 3: 历史记录按钮
-                            Button(action: {
-                                showAnalysisHistory = true
-                            }) {
-                                Image(systemName: "clock.arrow.circlepath")
-                                    .font(.system(size: 24))
-                                    .foregroundColor(.primary)
-                                    .padding(12)
-                                    .background(Color.white.opacity(0.9))
-                                    .clipShape(Circle())
-                                    .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
-                            }
-                            .padding(.trailing)
+                            Spacer()
                         }
-                        Spacer()
                     }
-                }
-                
-                // 进度条
-                if isProcessing {
-                    VStack(spacing: 12) {
-                        Text(analysisProgress.currentStage)
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                        
-                        Text(analysisProgress.progressText)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                        
-                        AnalysisProgressBar(progress: processingProgress)
-                            .frame(width: 250, height: 8)
-                        
-                        HStack(spacing: 16) {
-                            Text(analysisProgress.percentageText)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                    
+                    // 进度条
+                    if isProcessing {
+                        VStack(spacing: 12) {
+                            Text(analysisProgress.currentStage)
+                                .font(.headline)
+                                .foregroundColor(.primary)
                             
-                            if !analysisProgress.timeRemainingText.isEmpty {
-                                Text("•")
-                                    .foregroundColor(.secondary)
-                                Text(analysisProgress.timeRemainingText)
-                                    .font(.caption)
-                                    .foregroundColor(.blue)
-                            }
-                        }
-                        
-                        // Phase 5: 详细进度信息
-                        if !analysisProgress.detailText.isEmpty {
-                            Text(analysisProgress.detailText)
-                                .font(.caption2)
+                            Text(analysisProgress.progressText)
+                                .font(.subheadline)
                                 .foregroundColor(.secondary)
                                 .multilineTextAlignment(.center)
-                                .padding(.top, 4)
+                            
+                            AnalysisProgressBar(progress: processingProgress)
+                                .frame(width: 250, height: 8)
+                            
+                            HStack(spacing: 16) {
+                                Text(analysisProgress.percentageText)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                if !analysisProgress.timeRemainingText.isEmpty {
+                                    Text("•")
+                                        .foregroundColor(.secondary)
+                                    Text(analysisProgress.timeRemainingText)
+                                        .font(.caption)
+                                        .foregroundColor(.blue)
+                                }
+                            }
+                            
+                            // Phase 5: 详细进度信息
+                            if !analysisProgress.detailText.isEmpty {
+                                Text(analysisProgress.detailText)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.top, 4)
+                            }
                         }
+                        .padding(20)
+                        .background(Color.white.opacity(0.95))
+                        .cornerRadius(15)
+                        .shadow(radius: 10)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .padding(.top, scannerTopOffset - progressBarTopOffset)
                     }
-                    .padding(20)
-                    .background(Color.white.opacity(0.95))
-                    .cornerRadius(15)
-                    .shadow(radius: 10)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .padding(.top, scannerTopOffset - progressBarTopOffset)
                 }
-            }
                 .onPreferenceChange(ScannerPositionKey.self) { rect in
                     debugLog("Scanner frame updated: \(rect)")
                     scannerFrame = rect
@@ -280,48 +278,49 @@ struct HomeView: View {
                     debugLog("Photo stack frame updated: \(rect)")
                     photoStackFrame = rect
                 }
-        }
-        .sheet(isPresented: $showAlbumList) {
-            AlbumListView()
-        }
-        .sheet(isPresented: $showAnalysisResult) {
-            if let result = analysisResult {
-                AnalysisResultView(result: result)
+                .navigationDestination(isPresented: $showAnalysisResult) {
+                    if let result = analysisResult {
+                        AnalysisResultView(result: result, onDismiss: {
+                            showAnalysisResult = false
+                        })
+                        .navigationBarBackButtonHidden(true)
+                        .toolbar(.hidden, for: .tabBar)
+                    }
+                }
+                .toolbar(showAnalysisResult ? .hidden : .visible, for: .tabBar)  // 根据状态控制 TabBar 显示
             }
-        }
-        .sheet(isPresented: $showAnalysisHistory) {
-            AnalysisHistoryView()
-        }
-        .sheet(isPresented: $showAnalysisSettings) {
-            AnalysisSettingsView()
-        }
-        .sheet(isPresented: $showCollectedTags) {
-            CollectedTagsView()
-        }
-        .sheet(isPresented: $showShareSheet) {
-            if let url = shareURL {
-                #if canImport(UIKit)
-                ShareSheet(activityItems: [url])
-                #else
-                EmptyView()
-                #endif
+            .sheet(isPresented: $showPhotoPicker) {
+                PhotoPickerView { results in
+                    selectionManager.updateSelectedAssets(with: results)
+                }
+                .tint(Color.black) // 设置 sheet 的 tint color 为黑色
             }
-        }
-        .imageTypeSelectionAlert(isPresented: $showImageTypeAlert) { result in
-            handleImageTypeSelection(result)
-        }
-        .onAppear {
-            checkPhotoLibraryStatus()
-        }
-        .onChange(of: selectionManager.selectedAlbums) { _ in
-            loadSelectedImages()
-            resetDragState()
+            .sheet(isPresented: $showAnalysisHistory) {
+                AnalysisHistoryView()
+            }
+            .sheet(isPresented: $showAnalysisSettings) {
+                AnalysisSettingsView()
+            }
+            .sheet(isPresented: $showCollectedTags) {
+                CollectedTagsView()
+            }
+            .sheet(isPresented: $showShareSheet) {
+                if let url = shareURL {
+                    #if canImport(UIKit)
+                    ShareSheet(activityItems: [url])
+                    #else
+                    EmptyView()
+                    #endif
+                }
+            }
+            .onAppear {
+                checkPhotoLibraryStatus()
+            }
+            .onChange(of: selectionManager.selectedAssets) { _ in
+                resetDragState()
+            }
         }
     }
-    
-    // MARK: - 存储位置信息
-    @State private var scannerFrame: CGRect = .zero
-    @State private var photoStackFrame: CGRect = .zero
     
     // MARK: - 拖拽处理
     private func handleDragEnd(geometry: GeometryProxy) {
@@ -340,7 +339,7 @@ struct HomeView: View {
         let scannerRight = scannerLeft + imageSize
         
         // 估算照片堆的初始位置（底部居中）
-        let photoStackWidth: CGFloat = photoCardWidth + 100  // 照片宽度 + 偏移容差
+        let photoStackWidth: CGFloat = photoCardBaseSize + 100  // 照片基础尺寸 + 偏移容差
         let photoStackHeight: CGFloat = 200  // 估算高度
         let photoStackInitialX = (screenWidth - photoStackWidth) / 2
         let photoStackInitialY = screenHeight - photoStackBottomOffset - photoStackHeight / 2
@@ -384,17 +383,7 @@ struct HomeView: View {
         debugLog("Current opacity: \(photoStackOpacity)")
         debugLog("Current isProcessing: \(isProcessing)")
         
-        // 显示图像类型选择弹窗
-        showImageTypeAlert = true
-    }
-    
-    private func handleImageTypeSelection(_ result: ImageTypeSelectionResult) {
-        switch result {
-        case .selected(let imageType):
-            selectedImageType = imageType
-            debugLog("✅ 用户选择: \(imageType == .personalWork ? "我的作品" : "其他图像")")
-            
-            // 开始处理动画
+        // 直接开始处理动画
             DispatchQueue.main.async {
                 // 照片堆渐变消失
                 withAnimation(.easeOut(duration: self.fadeOutDuration)) {
@@ -409,14 +398,6 @@ struct HomeView: View {
                     debugLog("Starting analysis")
                     self.isProcessing = true
                     self.startColorAnalysis()
-                }
-            }
-            
-        case .cancelled:
-            debugLog("❌ 用户取消分析")
-            // 重置拖拽状态
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                dragOffset = .zero
             }
         }
     }
@@ -434,12 +415,8 @@ struct HomeView: View {
         progressThrottler.reset()
         
         Task {
-            // 在后台线程获取照片资产（避免阻塞主线程）
-            let assetsWithAlbums = await Task.detached(priority: .userInitiated) {
-                self.selectionManager.getLatestPhotosWithAlbums(count: 1000)
-            }.value
-            
-            let assets = assetsWithAlbums.map { $0.asset }
+            // 获取所有选中的照片
+            let assets = selectionManager.selectedAssets
             
             guard !assets.isEmpty else {
                 print("No assets to analyze")
@@ -460,20 +437,6 @@ struct HomeView: View {
                 self.processingProgress = 0.01
             }
             
-            // 获取相册信息（如果只选中了一个相册）
-            var albumInfoMap: [String: (identifier: String, name: String)] = [:]
-            if selectedImageType == .personalWork {
-                for entry in assetsWithAlbums {
-                    guard let album = entry.album else { continue }
-                    albumInfoMap[entry.asset.localIdentifier] = (album.id, album.title)
-                }
-                if albumInfoMap.isEmpty {
-                    debugLog("📂 未记录相册信息 (选中 \(selectionManager.selectedAlbums.count) 个相册)")
-                } else {
-                    debugLog("📂 记录相册映射: \(albumInfoMap.count) 张")
-                }
-            }
-            
             let throttledHandler: (AnalysisProgress) -> Void = { progress in
                 let force = progress.overallProgress >= 0.99
                 if self.progressThrottler.shouldEmit(force: force) {
@@ -486,24 +449,32 @@ struct HomeView: View {
             
             let result = await analysisPipeline.analyzePhotos(
                 assets: assets,
-                albumInfoMap: albumInfoMap,
+                albumInfoMap: [:],  // 不再需要相册信息
                 progressHandler: throttledHandler
             )
             
-            // 设置图像类型标记
+            // 更新进度：准备结果页
             await MainActor.run {
-                result.isPersonalWork = (selectedImageType == .personalWork)
+                throttledHandler(AnalysisProgress(
+                    currentPhoto: assets.count,
+                    totalPhotos: assets.count,
+                    currentStage: "准备结果页面",
+                    overallProgress: 0.98,
+                    failedCount: result.failedCount,
+                    cachedCount: 0
+                ))
             }
+            
+            // 短暂延迟，让进度显示出来
+            try? await Task.sleep(nanoseconds: 100_000_000)
             
             // 分析完成
             await MainActor.run {
                 self.analysisResult = result
                 self.isProcessing = false
                 
-                // 短暂延迟后跳转到结果页
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    self.showAnalysisResult = true
-                }
+                // 使用 NavigationStack 跳转到结果页
+                self.showAnalysisResult = true
             }
         }
     }
@@ -520,7 +491,7 @@ struct HomeView: View {
     @ViewBuilder
     private var photoTemplateView: some View {
         #if canImport(UIKit)
-        let count = selectedImages.count
+        let count = selectionManager.selectedImages.count
         
         if count == 1 {
             singleCardSection()
@@ -542,8 +513,8 @@ struct HomeView: View {
     private func handleImageTap() {
         switch photoAuthorizationStatus {
         case .authorized, .limited:
-            // 已授权，直接进入相册列表
-            showAlbumList = true
+            // 已授权，直接打开照片选择器
+            showPhotoPicker = true
             
         case .notDetermined:
             // 未决定，请求权限
@@ -551,7 +522,7 @@ struct HomeView: View {
                 DispatchQueue.main.async {
                     photoAuthorizationStatus = status
                     if status == .authorized || status == .limited {
-                        showAlbumList = true
+                        showPhotoPicker = true
                     }
                 }
             }
@@ -602,42 +573,70 @@ struct HomeView: View {
     private func singleCardSection() -> some View {
         #if canImport(UIKit)
         ZStack {
-            if let image = selectedImages.first {
-                let aspectRatio = image.size.width / image.size.height
-                let imageHeight = photoCardWidth / aspectRatio
-                
-                GeometryReader { geometry in
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(aspectRatio, contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: cardCornerRadius))
-                        .shadow(color: shadowColor, radius: shadowRadius, x: shadowOffsetX, y: shadowOffsetY)
-                        .frame(width: photoCardWidth)
-                        .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
-                }
-                .frame(width: photoCardWidth, height: imageHeight)
+            if let image = selectionManager.selectedImages.first {
+                singleCardView(image: image)
             } else {
                 RoundedRectangle(cornerRadius: cardCornerRadius)
                     .fill(Color.gray.opacity(0.3))
-                    .frame(width: photoCardWidth, height: photoCardWidth * 4/3)
+                    .frame(width: photoCardBaseSize, height: photoCardBaseSize)
             }
         }
         #else
         RoundedRectangle(cornerRadius: cardCornerRadius)
             .fill(Color.gray.opacity(0.3))
-            .frame(width: photoCardWidth, height: photoCardWidth * 4/3)
+            .frame(width: photoCardBaseSize, height: photoCardBaseSize)
         #endif
     }
+    
+    // MARK: - 单张卡片视图辅助函数
+    #if canImport(UIKit)
+    private func cardDimensions(for image: UIImage) -> (width: CGFloat, height: CGFloat) {
+        let imageWidth = image.size.width
+        let imageHeight = image.size.height
+        let aspectRatio = imageWidth / imageHeight
+        
+        // 判断是否为正方形（宽高比在 0.95 到 1.05 之间）
+        let isSquare = aspectRatio >= 0.95 && aspectRatio <= 1.05
+        
+        if imageWidth < imageHeight {
+            // 纵向图：固定宽度
+            return (photoCardBaseSize, photoCardBaseSize / aspectRatio)
+        } else if imageWidth > imageHeight {
+            // 横向图：固定高度
+            return (photoCardBaseSize * aspectRatio, photoCardBaseSize)
+        } else {
+            // 正方形：都是 baseSize 的 1.2 倍
+            let squareSize = photoCardBaseSize * (isSquare ? 1.2 : 1.0)
+            return (squareSize, squareSize)
+        }
+    }
+    
+    private func singleCardView(image: UIImage) -> some View {
+        let aspectRatio = image.size.width / image.size.height
+        let size = cardDimensions(for: image)
+        
+        return GeometryReader { geometry in
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(aspectRatio, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: cardCornerRadius))
+                .shadow(color: shadowColor, radius: shadowRadius, x: shadowOffsetX, y: shadowOffsetY)
+                .frame(width: size.width, height: size.height)
+                .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+        }
+        .frame(width: size.width, height: size.height)
+    }
+    #endif
     
     // MARK: - 两张卡片
     private func doubleCardSection() -> some View {
         #if canImport(UIKit)
         ZStack {
             ForEach(0..<2, id: \.self) { i in
-                if i < selectedImages.count {
-                    let image = selectedImages[i]
+                if i < selectionManager.selectedImages.count {
+                    let image = selectionManager.selectedImages[i]
                     let aspectRatio = image.size.width / image.size.height
-                    let imageHeight = photoCardWidth / aspectRatio
+                    let size = cardDimensions(for: image)
                     
                     GeometryReader { geometry in
                         Image(uiImage: image)
@@ -645,16 +644,16 @@ struct HomeView: View {
                             .aspectRatio(aspectRatio, contentMode: .fit)
                             .clipShape(RoundedRectangle(cornerRadius: cardCornerRadius))
                             .shadow(color: shadowColor, radius: shadowRadius, x: shadowOffsetX, y: shadowOffsetY)
-                            .frame(width: photoCardWidth)
+                            .frame(width: size.width, height: size.height)
                             .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
                     }
-                    .frame(width: photoCardWidth, height: imageHeight)
+                    .frame(width: size.width, height: size.height)
                     .rotationEffect(.degrees(middleAngles[i]))
                     .offset(x: middleOffsetsX[i], y: CGFloat(i) * 5)
                 } else {
                     RoundedRectangle(cornerRadius: cardCornerRadius)
                         .fill(Color.gray.opacity(0.3))
-                        .frame(width: photoCardWidth, height: photoCardWidth * 4/3)
+                        .frame(width: photoCardBaseSize, height: photoCardBaseSize)
                         .rotationEffect(.degrees(middleAngles[i]))
                         .offset(x: middleOffsetsX[i], y: CGFloat(i) * 5)
                 }
@@ -665,7 +664,7 @@ struct HomeView: View {
             ForEach(0..<2, id: \.self) { i in
                 RoundedRectangle(cornerRadius: cardCornerRadius)
                     .fill(Color.gray.opacity(0.3))
-                    .frame(width: photoCardWidth, height: photoCardWidth * 4/3)
+                    .frame(width: photoCardBaseSize, height: photoCardBaseSize)
                     .rotationEffect(.degrees(middleAngles[i]))
                     .offset(x: middleOffsetsX[i], y: CGFloat(i) * 5)
             }
@@ -678,10 +677,10 @@ struct HomeView: View {
         #if canImport(UIKit)
         ZStack {
             ForEach(0..<3, id: \.self) { i in
-                if i < selectedImages.count {
-                    let image = selectedImages[i]
+                if i < selectionManager.selectedImages.count {
+                    let image = selectionManager.selectedImages[i]
                     let aspectRatio = image.size.width / image.size.height
-                    let imageHeight = photoCardWidth / aspectRatio
+                    let size = cardDimensions(for: image)
                     
                     GeometryReader { geometry in
                         Image(uiImage: image)
@@ -689,16 +688,16 @@ struct HomeView: View {
                             .aspectRatio(aspectRatio, contentMode: .fit)
                             .clipShape(RoundedRectangle(cornerRadius: cardCornerRadius))
                             .shadow(color: shadowColor, radius: shadowRadius, x: shadowOffsetX, y: shadowOffsetY)
-                            .frame(width: photoCardWidth)
+                            .frame(width: size.width, height: size.height)
                             .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
                     }
-                    .frame(width: photoCardWidth, height: imageHeight)
+                    .frame(width: size.width, height: size.height)
                     .rotationEffect(.degrees(bottomAngles[i]))
                     .offset(x: bottomOffsetsX[i], y: bottomOffsetsY[i])
                 } else {
                     RoundedRectangle(cornerRadius: cardCornerRadius)
                         .fill(Color.gray.opacity(0.3))
-                        .frame(width: photoCardWidth, height: photoCardWidth * 4/3)
+                        .frame(width: photoCardBaseSize, height: photoCardBaseSize)
                         .rotationEffect(.degrees(bottomAngles[i]))
                         .offset(x: bottomOffsetsX[i], y: bottomOffsetsY[i])
                 }
@@ -709,7 +708,7 @@ struct HomeView: View {
             ForEach(0..<3, id: \.self) { i in
                 RoundedRectangle(cornerRadius: cardCornerRadius)
                     .fill(Color.gray.opacity(0.3))
-                    .frame(width: photoCardWidth, height: photoCardWidth * 4/3)
+                    .frame(width: photoCardBaseSize, height: photoCardBaseSize)
                     .rotationEffect(.degrees(bottomAngles[i]))
                     .offset(x: bottomOffsetsX[i], y: bottomOffsetsY[i])
             }

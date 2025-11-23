@@ -38,15 +38,17 @@ class SimpleAnalysisPipeline {
     var enableCaching = true 
     
     // 用于收集压缩图片的 Actor（线程安全）
+    // 使用字典存储，确保图片顺序与 photoInfos 一致
     private actor CompressedImageCollector {
-        var images: [UIImage] = []
+        var imagesByIdentifier: [String: UIImage] = [:]
         
-        func append(_ image: UIImage) {
-            images.append(image)
+        func append(_ image: UIImage, identifier: String) {
+            imagesByIdentifier[identifier] = image
         }
         
-        func getAll() -> [UIImage] {
-            return images
+        // 按照指定的 identifier 顺序返回图片
+        func getAll(orderedBy identifiers: [String]) -> [UIImage] {
+            return identifiers.compactMap { imagesByIdentifier[$0] }
         }
     }
     
@@ -106,38 +108,43 @@ class SimpleAnalysisPipeline {
             assetsToProcess = uncached
             cachedInfos = cached
             
-            // 检查缓存的照片是否有冷暖评分，如果没有则需要重新计算
-            var cachedWithScores: [PhotoColorInfo] = []
-            var cachedNeedingScores: [(asset: PHAsset, info: PhotoColorInfo)] = []
+            // 检查缓存的照片数据完整性
+            var cachedComplete: [PhotoColorInfo] = []
+            var cachedNeedingUpdate: [(asset: PHAsset, info: PhotoColorInfo)] = []
             
             for info in cachedInfos {
-                if info.advancedColorAnalysis != nil {
-                    cachedWithScores.append(info)
+                // 检查是否有完整的数据：主色、CDF、冷暖评分
+                let hasAdvancedAnalysis = info.advancedColorAnalysis != nil
+                let hasBrightnessCDF = info.brightnessCDF != nil && !(info.brightnessCDF?.isEmpty ?? true)
+                
+                if hasAdvancedAnalysis && hasBrightnessCDF {
+                    // 数据完整，直接使用
+                    cachedComplete.append(info)
                 } else {
-                    // 找到对应的 asset
+                    // 数据不完整，需要补充计算
                     if let asset = assets.first(where: { $0.localIdentifier == info.assetIdentifier }) {
-                        cachedNeedingScores.append((asset, info))
+                        cachedNeedingUpdate.append((asset, info))
                     }
                 }
             }
             
-            NSLog("🌡️ 缓存照片冷暖评分检查:")
-            NSLog("   - 已有评分: \(cachedWithScores.count)")
-            NSLog("   - 需要计算评分: \(cachedNeedingScores.count)")
+            NSLog("📊 缓存数据完整性检查:")
+            NSLog("   - 数据完整（复用）: \(cachedComplete.count)")
+            NSLog("   - 需要补充计算: \(cachedNeedingUpdate.count)")
             
-            // 为缓存的照片计算冷暖评分
-            if !cachedNeedingScores.isEmpty {
-                for (asset, var info) in cachedNeedingScores {
+            // 为不完整的缓存照片补充计算
+            if !cachedNeedingUpdate.isEmpty {
+                for (asset, var info) in cachedNeedingUpdate {
                     if let updatedInfo = await updateWarmCoolScore(asset: asset, photoInfo: info) {
-                        cachedWithScores.append(updatedInfo)
+                        cachedComplete.append(updatedInfo)
                     } else {
-                        cachedWithScores.append(info)
+                        cachedComplete.append(info)
                     }
                 }
             }
             
             // 使用更新后的缓存信息
-            cachedInfos = cachedWithScores
+            cachedInfos = cachedComplete
             
             // 将相册信息同步到缓存
             if !albumInfoMap.isEmpty {
@@ -172,7 +179,7 @@ class SimpleAnalysisPipeline {
             for cachedInfo in cachedInfos {
                 if let asset = assets.first(where: { $0.localIdentifier == cachedInfo.assetIdentifier }) {
                     // 加载图片但不重新分析颜色
-                    await loadImageForAI(asset: asset, imageCollector: imageCollector)
+                    await loadImageForAI(asset: asset, identifier: cachedInfo.assetIdentifier, imageCollector: imageCollector)
                 }
             }
         }
@@ -226,8 +233,9 @@ class SimpleAnalysisPipeline {
             }
         }
         
-        // 获取收集的所有压缩图片
-        let compressedImages = await imageCollector.getAll()
+        // 获取收集的所有压缩图片（按照 photoInfos 的顺序）
+        let orderedIdentifiers = result.photoInfos.map { $0.assetIdentifier }
+        let compressedImages = await imageCollector.getAll(orderedBy: orderedIdentifiers)
         await MainActor.run {
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print("📦 图片收集完成")
@@ -235,6 +243,7 @@ class SimpleAnalysisPipeline {
             print("   - 总照片数: \(assets.count) 张")
             print("   - 缓存照片: \(cachedInfos.count) 张")
             print("   - 新分析照片: \(assetsToProcess.count) 张")
+            print("   - 图片顺序: 与 photoInfos 一致")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         }
         
@@ -643,29 +652,32 @@ class SimpleAnalysisPipeline {
             ))
         }
         
-        // Phase 3: 保存到 Core Data (后台线程)
-        Task.detached(priority: .background) {
+        // Phase 3: 保存到 Core Data (后台线程) - 必须先完成，以便 AI 评价能获取 sessionId
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("💾 准备保存到 Core Data")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        
+        let saveTask = Task.detached(priority: .background) {
             do {
-                let isPersonalWork = await MainActor.run { result.isPersonalWork }
-                
-                if isPersonalWork {
-                    print("📝 开始保存分析结果到Core Data（我的作品）...")
-                } else {
-                    print("📝 创建临时分析会话（其他图像，不保存）...")
-                }
+                print("📝 开始保存分析结果到Core Data...")
                 print("   - clusters: \(result.clusters.count)")
                 print("   - photoInfos: \(result.photoInfos.count)")
                 
-                let savedSession = try self.coreDataManager.saveAnalysisSession(
-                    from: result,
-                    isPersonalWork: isPersonalWork
-                )
+                let savedInfo = try self.coreDataManager.saveAnalysisSession(from: result)
+                
+                print("💾 saveAnalysisSession 返回:")
+                print("   - id: \(savedInfo.id?.uuidString ?? "nil")")
+                print("   - name: \(savedInfo.name ?? "nil")")
+                
                 await MainActor.run {
-                    if isPersonalWork {
-                        print("✅ 分析结果已保存到Core Data (Session ID: \(savedSession.id ?? UUID()))")
-                    } else {
-                        print("✅ 临时会话已创建（未持久化）")
-                    }
+                    // 将 sessionId 设置到 result 中
+                    result.sessionId = savedInfo.id
+                    
+                    print("✅ 分析结果已保存到Core Data")
+                    print("   - Session ID: \(savedInfo.id?.uuidString ?? "nil")")
+                    print("   - result.sessionId 已设置为: \(result.sessionId?.uuidString ?? "nil")")
+                    print("   - 名称: \(savedInfo.name ?? "未命名")")
+                    print("   - 日期: \(savedInfo.date ?? Date())")
                 }
             } catch {
                 await MainActor.run {
@@ -674,6 +686,13 @@ class SimpleAnalysisPipeline {
                 }
             }
         }
+        
+        // 等待保存完成
+        print("⏳ 等待保存任务完成...")
+        await saveTask.value
+        print("✅ 保存任务已完成")
+        print("   - result.sessionId 当前值: \(result.sessionId?.uuidString ?? "nil")")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         
         // 风格分析 + AI 评价（后台线程，不阻塞主流程，并行执行）
         await MainActor.run {
@@ -726,7 +745,32 @@ class SimpleAnalysisPipeline {
                         if let text = evaluation.overallEvaluation?.fullText, !text.isEmpty {
                             print("   - 生成了 \(text.count) 个字符的评论")
                         }
+                        print("   - 当前 sessionId: \(result.sessionId?.uuidString ?? "nil")")
                         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    }
+                    
+                    // 更新 Core Data 中的 AI 评价数据
+                    let sessionId = await MainActor.run { result.sessionId }
+                    print("🔍 准备更新 AI 评价到 Core Data:")
+                    print("   - sessionId: \(sessionId?.uuidString ?? "nil")")
+                    
+                    if let sessionId = sessionId {
+                        do {
+                            print("   - 开始调用 updateAIEvaluation...")
+                            try await self.coreDataManager.updateAIEvaluation(
+                                sessionId: sessionId,
+                                evaluation: evaluation
+                            )
+                            await MainActor.run {
+                                print("💾 AI 评价已更新到 Core Data")
+                            }
+                        } catch {
+                            await MainActor.run {
+                                print("⚠️ 更新 AI 评价到 Core Data 失败: \(error)")
+                            }
+                        }
+                    } else {
+                        print("   ❌ sessionId 为 nil，无法更新 AI 评价")
                     }
                 } catch {
                     await MainActor.run {
@@ -850,6 +894,7 @@ class SimpleAnalysisPipeline {
     // MARK: - 为 AI 分析加载图片（不进行颜色分析）
     private func loadImageForAI(
         asset: PHAsset,
+        identifier: String,
         imageCollector: CompressedImageCollector
     ) async {
         #if canImport(UIKit)
@@ -875,7 +920,7 @@ class SimpleAnalysisPipeline {
         }
         
         if let image = loadedImage {
-            await imageCollector.append(image)
+            await imageCollector.append(image, identifier: identifier)
         }
         #endif
     }
@@ -921,7 +966,7 @@ class SimpleAnalysisPipeline {
         
         // 收集压缩图片（用于 AI 分析）
         if let collector = imageCollector {
-            await collector.append(image)
+            await collector.append(image, identifier: asset.localIdentifier)
         }
         
         // 第二步：在后台线程执行所有耗时操作
@@ -1142,7 +1187,7 @@ class SimpleAnalysisPipeline {
             )
             
             let hslInput = ImageStatisticsCalculator.HSLData(
-                hslList: hslData.hslList
+                hslList: hslData.tuples
             )
             
             // 计算 ImageFeature

@@ -8,6 +8,7 @@
 
 import SwiftUI
 import Photos
+import CoreData
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -16,7 +17,7 @@ import simd
 private enum AnalysisResultTab: String, CaseIterable, Identifiable {
     case color = "色彩"
     case distribution = "分布"
-    case aiEvaluation = "AI评价"
+    case aiEvaluation = "洞察"
     
     var id: Self { self }
 }
@@ -30,12 +31,29 @@ private enum KeywordTagLayout {
     static let spacing: CGFloat = 8
 }
 
+private enum PhotoDisplayLayout {
+    static let displayAreaHeightRatio: CGFloat = 1.0 / 3.0  // 展示区域占屏幕高度的 1/3
+}
+
 struct AnalysisResultView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var result: AnalysisResult
     @State private var selectedCluster: ColorCluster?
     @State private var selectedTab: AnalysisResultTab = .color
     @State private var show3DView = false
+    
+    // 收藏相关
+    @State private var isFavorite: Bool = false
+    @State private var showFavoriteAlert: Bool = false
+    @State private var sessionId: UUID?
+    @State private var favoriteName: String = ""
+    @State private var favoriteDate: Date = Date()
+    
+    // 自定义返回回调
+    var onDismiss: (() -> Void)?
+    
+    // 是否以 Sheet 模式显示（影响返回按钮样式）
+    var isSheetMode: Bool = false
     
     // 缓存计算密集的属性
     @State private var cachedHueRingPoints: [HueRingPoint] = []
@@ -50,47 +68,201 @@ struct AnalysisResultView: View {
     )
     
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+        NavigationStack {
+        ZStack {
+            // 确保背景色延伸到导航栏
+            Color(.systemBackground)
+                .ignoresSafeArea()
+            
+        GeometryReader { geometry in
+            let displayAreaHeight = geometry.size.height * PhotoDisplayLayout.displayAreaHeightRatio
+            
+            VStack(spacing: 0) {
+                // Tab Bar（固定在顶部，不随 ScrollView 滚动）
+                VStack(spacing: 0) {
                     Picker("结果视图", selection: $selectedTab) {
                         ForEach(AnalysisResultTab.allCases) { tab in
                             Text(tab.rawValue).tag(tab)
                         }
                     }
                     .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .padding(.vertical, 12)
+                    .background(Color(.systemBackground))
+                }
+                
+                // 内容区域
+                ZStack {
+                    // 统一背景色
+                    Color(.systemBackground)
+                        .ignoresSafeArea(edges: .bottom)
                     
-                    Group {
-                        switch selectedTab {
-                        case .color:
-                            colorTabContent
-                        case .distribution:
-                            distributionTabContent
-                        case .aiEvaluation:
-                            aiEvaluationTabContent
+                if selectedTab == .aiEvaluation {
+                    // 洞察 tab：显示照片 + 固定卡片（内部文字可滚动）
+                    VStack(spacing: 0) {
+                        // 照片展示区域（居中显示）
+                        if !result.photoInfos.isEmpty {
+                            PhotoCardCarousel(
+                                photoInfos: result.photoInfos,
+                                displayAreaHeight: displayAreaHeight
+                            )
+                            .frame(height: displayAreaHeight)
+                        }
+                        
+                        // 下方内容区域（固定卡片，内部文字可滚动）
+                        VStack(spacing: 0) {
+                            // 固定的卡片容器
+                            VStack(alignment: .leading, spacing: 0) {
+                                // 卡片内部的滚动视图
+                                ScrollView {
+                                    VStack(alignment: .leading, spacing: 20) {
+                                        aiEvaluationTabContent
+                                    }
+                                    .padding()
+                                }
+                            }
+                            .background(Color(.systemBackground))
+                            .cornerRadius(12)
+                            .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
+                            .padding()
                         }
                     }
-                }
-                .padding()
-            }
-            .navigationTitle("分析结果")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("完成") {
-                        dismiss()
+                } else {
+                        // 色彩和分布 tab：只显示内容，不显示照片
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 20) {
+                                Group {
+                                    switch selectedTab {
+                                    case .color:
+                                        colorTabContent
+                                    case .distribution:
+                                        distributionTabContent
+                                    case .aiEvaluation:
+                                        EmptyView()  // 不会执行到这里
+                                    }
+                                }
+                            }
+                            .padding()
+                        }
                     }
                 }
             }
         }
+        }  // ZStack 结束
+        }  // NavigationStack 结束
+        .background(Color(.systemBackground))
+        .ignoresSafeArea(edges: .bottom)
+        .navigationTitle("分析结果")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: {
+                    if let onDismiss = onDismiss {
+                        onDismiss()
+                    } else {
+                        dismiss()
+                    }
+                }) {
+                    if isSheetMode {
+                        // Sheet 模式：显示下箭头
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 20, weight: .semibold))
+                    } else {
+                        // 普通模式：显示返回按钮
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 17, weight: .semibold))
+                            Text("返回")
+                        }
+                    }
+                }
+            }
+            
+            ToolbarItem(placement: .principal) {
+                Text("分析结果")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+            }
+            
+            // 收藏按钮（放在最右边）
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: {
+                    toggleFavorite()
+                }) {
+                    Image(systemName: isFavorite ? "heart.fill" : "heart")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(isFavorite ? dominantColor : .primary)
+                }
+            }
+            
+            // 分享按钮（放在收藏按钮左边）
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: {
+                    // TODO: 添加分享功能
+                }) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 17, weight: .semibold))
+                }
+            }
+        }
+        .toolbarBackground(Color(.systemBackground), for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .sheet(item: $selectedCluster) { cluster in
             ClusterDetailView(cluster: cluster, result: result)
         }
         .sheet(isPresented: $show3DView) {
             threeDView(points: cachedColorSpacePoints)
         }
+        .overlay {
+            if showFavoriteAlert, let sessionId = sessionId {
+                // 半透明背景
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        showFavoriteAlert = false
+                    }
+                    .onAppear {
+                        print("🎨 Overlay 显示了！sessionId: \(sessionId.uuidString)")
+                    }
+                
+                // 居中的弹窗
+                FavoriteAlertView(
+                    sessionId: sessionId,
+                    defaultName: generateDefaultName(),
+                    defaultDate: Date(),
+                    onConfirm: { name, date in
+                        saveFavorite(name: name, date: date)
+                    },
+                    onDismiss: {
+                        showFavoriteAlert = false
+                    }
+                )
+                .frame(width: 320)
+                .background(Color(.systemBackground))
+                .cornerRadius(16)
+                .shadow(radius: 20)
+                .transition(.scale.combined(with: .opacity))
+            } else {
+                // 调试：显示为什么没有显示
+                Color.clear
+                    .onAppear {
+                        print("❌ Overlay 条件不满足:")
+                        print("   - showFavoriteAlert: \(showFavoriteAlert)")
+                        print("   - sessionId: \(sessionId?.uuidString ?? "nil")")
+                    }
+            }
+        }
+        .onChange(of: showFavoriteAlert) { newValue in
+            print("📊 showFavoriteAlert 变化: \(newValue)")
+        }
         .onAppear {
-            // 在后台计算分布数据
+            print("🔍 AnalysisResultView.onAppear 被调用")
+            print("   - result.sessionId: \(result.sessionId?.uuidString ?? "nil")")
+            
+            // 加载收藏状态（必须先执行）
+            loadFavoriteStatus()
+            
+            // 页面出现时立即计算分布数据（在后台）
             if !isDistributionDataReady {
                 Task.detached(priority: .userInitiated) {
                     let huePoints = await computeHueRingPoints()
@@ -108,16 +280,103 @@ struct AnalysisResultView: View {
         }
     }
     
+    // MARK: - Favorite Methods
+    
+    /// 切换收藏状态
+    private func toggleFavorite() {
+        print("🔍 toggleFavorite 被调用")
+        print("   - isFavorite: \(isFavorite)")
+        print("   - sessionId: \(sessionId?.uuidString ?? "nil")")
+        print("   - showFavoriteAlert 当前值: \(showFavoriteAlert)")
+        
+        if isFavorite {
+            // 取消收藏
+            print("   → 取消收藏")
+            unfavorite()
+        } else {
+            // 显示收藏弹窗
+            print("   → 显示收藏弹窗")
+            showFavoriteAlert = true
+            print("   - showFavoriteAlert 设置为: \(showFavoriteAlert)")
+        }
+    }
+    
+    /// 加载收藏状态
+    private func loadFavoriteStatus() {
+        // 从 result 获取 sessionId
+        sessionId = result.sessionId
+        
+        guard let sessionId = sessionId else {
+            print("⚠️ sessionId 为空，无法加载收藏状态")
+            return
+        }
+        
+        // 从 Core Data 加载收藏状态
+        let context = CoreDataManager.shared.viewContext
+        let request: NSFetchRequest<AnalysisSessionEntity> = AnalysisSessionEntity.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", sessionId as CVarArg)
+        request.fetchLimit = 1
+        
+        do {
+            if let session = try context.fetch(request).first {
+                isFavorite = session.isFavorite
+                print("✅ 加载收藏状态: \(isFavorite)")
+            }
+        } catch {
+            print("❌ 加载收藏状态失败: \(error.localizedDescription)")
+        }
+    }
+    
+    /// 生成默认名称
+    private func generateDefaultName() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy.MM.dd"
+        return formatter.string(from: Date())
+    }
+    
+    /// 保存收藏
+    private func saveFavorite(name: String, date: Date) {
+        guard let sessionId = sessionId else {
+            print("❌ 无法收藏：sessionId 为空")
+            return
+        }
+        
+        do {
+            try CoreDataManager.shared.updateSessionFavoriteStatus(
+                sessionId: sessionId,
+                isFavorite: true,
+                customName: name,
+                customDate: date
+            )
+            isFavorite = true
+            print("✅ 已收藏分析结果")
+        } catch {
+            print("❌ 收藏失败: \(error.localizedDescription)")
+        }
+    }
+    
+    /// 取消收藏
+    private func unfavorite() {
+        guard let sessionId = sessionId else {
+            print("❌ 无法取消收藏：sessionId 为空")
+            return
+        }
+        
+        do {
+            try CoreDataManager.shared.updateSessionFavoriteStatus(
+                sessionId: sessionId,
+                isFavorite: false
+            )
+            isFavorite = false
+            print("✅ 已取消收藏")
+        } catch {
+            print("❌ 取消收藏失败: \(error.localizedDescription)")
+        }
+    }
+    
     // MARK: - Tab 内容
     private var colorTabContent: some View {
         VStack(spacing: 20) {
-            headerSection
-            qualitySection
-            
-            if result.clusters.count < result.optimalK {
-                clusterReductionWarning
-            }
-            
             clustersSection
             
             if result.failedCount > 0 {
@@ -240,7 +499,7 @@ struct AnalysisResultView: View {
             ProgressView()
                 .scaleEffect(1.2)
             
-            Text("AI 正在分析色彩组成...")
+            Text("洞察进行中...")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
             
@@ -316,23 +575,20 @@ struct AnalysisResultView: View {
         let (mainText, keywordsText) = parseTextAndKeywords(text)
         
         return VStack(alignment: .leading, spacing: 20) {
-            // 关键词 tag 显示在最上方（背景色区域外）
+            // 关键词 tag 显示在最上方
             if !keywordsText.isEmpty {
                 keywordTagsView(keywordsText)
                     .padding(.bottom, 10)
             }
             
-            // 正文显示在彩色背景区域内（可选择、可复制）
+            // 正文显示（支持 **加粗** 格式，无背景色）
             if !mainText.isEmpty {
-                Text(mainText)
+                FormattedTextView(text: mainText)
                     .font(.body)
                     .foregroundColor(.primary)
                     .lineSpacing(6)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding()
-                    .background(dominantColor.opacity(0.08))
-                    .cornerRadius(KeywordTagLayout.cornerRadius)
             }
         }
     }
@@ -483,7 +739,7 @@ struct AnalysisResultView: View {
                     }
                     
                     var x = startX
-                    for (i, index) in lineIndices.enumerated() {
+                    for (i, _) in lineIndices.enumerated() {
                         positions.append(CGPoint(x: x, y: y))
                         x += sizes[i].width
                         if i < itemCount - 1 {
@@ -577,10 +833,52 @@ struct AnalysisResultView: View {
                 result.aiEvaluation = ColorEvaluation(isLoading: true)
             }
             
+            print("🔄 开始重新加载图片进行 AI 评价...")
+            
+            // 1. 从 PhotoInfo 加载 PHAsset
+            var assets: [PHAsset] = []
+            for photoInfo in result.photoInfos {
+                if let asset = PHAsset.fetchAssets(withLocalIdentifiers: [photoInfo.assetIdentifier], options: nil).firstObject {
+                    assets.append(asset)
+                }
+            }
+            
+            print("📸 加载了 \(assets.count) 个资源")
+            
+            // 2. 压缩图片
+            var compressedImages: [UIImage] = []
+            let imageManager = PHImageManager.default()
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .highQualityFormat
+            options.isNetworkAccessAllowed = true
+            options.isSynchronous = true
+            
+            for asset in assets {
+                let targetSize = CGSize(width: 1024, height: 1024)
+                var resultImage: UIImage?
+                
+                imageManager.requestImage(
+                    for: asset,
+                    targetSize: targetSize,
+                    contentMode: .aspectFit,
+                    options: options
+                ) { image, _ in
+                    resultImage = image
+                }
+                
+                if let image = resultImage {
+                    compressedImages.append(image)
+                }
+            }
+            
+            print("🖼️ 压缩了 \(compressedImages.count) 张图片")
+            
+            // 3. 调用 AI 评价
             let evaluator = ColorAnalysisEvaluator()
             do {
                 let evaluation = try await evaluator.evaluateColorAnalysis(
                     result: result,
+                    compressedImages: compressedImages,
                     onUpdate: { @MainActor updatedEvaluation in
                         // 实时更新 UI（流式显示）
                         result.aiEvaluation = updatedEvaluation
@@ -590,6 +888,7 @@ struct AnalysisResultView: View {
                     result.aiEvaluation = evaluation
                 }
             } catch {
+                print("❌ AI 评价失败: \(error.localizedDescription)")
                 await MainActor.run {
                     var errorEvaluation = ColorEvaluation()
                     errorEvaluation.isLoading = false
@@ -653,6 +952,13 @@ struct AnalysisResultView: View {
     
     private var dominantCluster: ColorCluster? {
         result.clusters.max(by: { $0.photoCount < $1.photoCount })
+    }
+    
+    private var dominantColor: Color {
+        guard let cluster = dominantCluster else {
+            return .red
+        }
+        return cluster.color
     }
     
     // 获取 dominant cluster 的 HSB 值
@@ -1360,18 +1666,19 @@ struct AnalysisPhotoThumbnail: View {
 }
 
 #Preview {
-    let result = AnalysisResult()
-    result.totalPhotoCount = 10
-    result.processedCount = 9
-    result.failedCount = 1
-    result.isCompleted = true
-    result.clusters = [
-        ColorCluster(index: 0, centroid: SIMD3<Float>(0.8, 0.2, 0.3), colorName: "红色", photoCount: 3),
-        ColorCluster(index: 1, centroid: SIMD3<Float>(0.2, 0.6, 0.8), colorName: "蓝色", photoCount: 4),
-        ColorCluster(index: 2, centroid: SIMD3<Float>(0.9, 0.8, 0.7), colorName: "米色", photoCount: 2)
-    ]
-    
-    return AnalysisResultView(result: result)
+    AnalysisResultView(result: {
+        let r = AnalysisResult()
+        r.totalPhotoCount = 10
+        r.processedCount = 9
+        r.failedCount = 1
+        r.isCompleted = true
+        r.clusters = [
+            ColorCluster(index: 0, centroid: SIMD3<Float>(0.8, 0.2, 0.3), colorName: "红色", photoCount: 3),
+            ColorCluster(index: 1, centroid: SIMD3<Float>(0.2, 0.6, 0.8), colorName: "蓝色", photoCount: 4),
+            ColorCluster(index: 2, centroid: SIMD3<Float>(0.9, 0.8, 0.7), colorName: "米色", photoCount: 2)
+        ]
+        return r
+    }())
 }
 
 // MARK: - 原因列表项
@@ -1419,6 +1726,81 @@ extension Color {
             green: Double(g) / 255.0,
             blue: Double(b) / 255.0
         )
+    }
+}
+
+// MARK: - Formatted Text View (支持 **加粗** 格式)
+struct FormattedTextView: View {
+    let text: String
+    
+    var body: some View {
+        let segments = parseMarkdownBold(text)
+        
+        // 使用 Text 的 + 运算符组合多个 Text
+        segments.reduce(Text("")) { result, segment in
+            if segment.isBold {
+                return result + Text(segment.text).fontWeight(.bold)
+            } else {
+                return result + Text(segment.text)
+            }
+        }
+    }
+    
+    // 解析 **文字** 格式
+    private func parseMarkdownBold(_ text: String) -> [TextSegment] {
+        var segments: [TextSegment] = []
+        let currentText = text
+        
+        // 使用正则表达式匹配 **文字**
+        let pattern = "\\*\\*([^*]+)\\*\\*"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return [TextSegment(text: text, isBold: false)]
+        }
+        
+        let nsString = currentText as NSString
+        let matches = regex.matches(in: currentText, options: [], range: NSRange(location: 0, length: nsString.length))
+        
+        var lastEnd = 0
+        for match in matches {
+            // 添加匹配前的普通文本
+            if match.range.location > lastEnd {
+                let range = NSRange(location: lastEnd, length: match.range.location - lastEnd)
+                let normalText = nsString.substring(with: range)
+                if !normalText.isEmpty {
+                    segments.append(TextSegment(text: normalText, isBold: false))
+                }
+            }
+            
+            // 添加加粗文本（去掉 ** 符号）
+            if match.numberOfRanges > 1 {
+                let boldRange = match.range(at: 1)
+                let boldText = nsString.substring(with: boldRange)
+                segments.append(TextSegment(text: boldText, isBold: true))
+            }
+            
+            lastEnd = match.range.location + match.range.length
+        }
+        
+        // 添加最后剩余的普通文本
+        if lastEnd < nsString.length {
+            let range = NSRange(location: lastEnd, length: nsString.length - lastEnd)
+            let normalText = nsString.substring(with: range)
+            if !normalText.isEmpty {
+                segments.append(TextSegment(text: normalText, isBold: false))
+            }
+        }
+        
+        // 如果没有匹配到任何加粗格式，返回整个文本
+        if segments.isEmpty {
+            segments.append(TextSegment(text: text, isBold: false))
+        }
+        
+        return segments
+    }
+    
+    struct TextSegment {
+        let text: String
+        let isBold: Bool
     }
 }
 

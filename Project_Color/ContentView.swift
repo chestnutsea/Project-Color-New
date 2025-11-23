@@ -7,6 +7,8 @@
 
 import SwiftUI
 import CoreData
+import Photos
+import PhotosUI
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -75,16 +77,9 @@ struct ContentView: View {
             Text("Select a photo")
         }
         .sheet(isPresented: $showPhotoPicker) {
-            NavigationView {
-                PhotoPickerView(selectedImages: $importedImages)
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("关闭") {
-                                showPhotoPicker = false
-                            }
-                        }
-                    }
+            PhotoPickerView { results in
+                // 处理选择的照片
+                loadImages(from: results)
             }
         }
     }
@@ -119,6 +114,22 @@ struct ContentView: View {
                 // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
                 let nsError = error as NSError
                 fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+            }
+        }
+    }
+    
+    private func loadImages(from results: [PHPickerResult]) {
+        importedImages.removeAll()
+        
+        for result in results {
+            if result.itemProvider.canLoadObject(ofClass: UIImage.self) {
+                result.itemProvider.loadObject(ofClass: UIImage.self) { image, error in
+                    if let image = image as? UIImage {
+                        DispatchQueue.main.async {
+                            self.importedImages.append(image)
+                        }
+                    }
+                }
             }
         }
     }

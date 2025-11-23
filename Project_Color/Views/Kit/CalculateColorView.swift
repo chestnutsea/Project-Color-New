@@ -79,27 +79,28 @@ extension CalculateColorView {
     private func handleInput(for space: ColorSpaceType, newValue rawInput: String) {
         let input = normalizeInput(rawInput)
         
-        // 输入时清空其他栏
-        if !input.isEmpty {
+        colorTexts[space] = input
+        
+        // 如果输入为空，清空所有字段
+        guard !input.isEmpty else {
             for key in ColorSpaceType.allCases where key != space {
                 colorTexts[key] = ""
             }
-        }
-        
-        colorTexts[space] = input
-        
-        guard !input.isEmpty else {
             lastValidColor = nil
             return
         }
         
         // 校验并解析颜色
         guard let uiColor = parseColor(space: space, input: input) else {
+            // 输入无效时，清空其他所有字段
+            for key in ColorSpaceType.allCases where key != space {
+                colorTexts[key] = ""
+            }
             lastValidColor = nil
             return
         }
         
-        // 同步更新其他栏
+        // 输入有效时，同步更新其他栏
         syncAllSpaces(from: uiColor, except: space)
         lastValidColor = Color(uiColor)
     }
@@ -154,7 +155,11 @@ extension CalculateColorView {
     // MARK: - 同步所有栏
     private func syncAllSpaces(from uiColor: UIColor, except origin: ColorSpaceType) {
         guard let components = uiColor.cgColor.components else { return }
-        let r = components[0], g = components[1], b = components[2]
+        // 确保 RGB 值在 0-1 范围内
+        let r = max(0, min(1, components[0]))
+        let g = max(0, min(1, components[1]))
+        let b = max(0, min(1, components[2]))
+        
         for space in ColorSpaceType.allCases where space != origin {
             switch space {
             case .hex:
@@ -193,6 +198,12 @@ extension CalculateColorView {
     private func rgbToCmyk(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> String {
         let c = 1 - r, m = 1 - g, y = 1 - b
         let k = min(c, m, y)
+        
+        // 处理纯黑色的特殊情况（避免除以零）
+        if k >= 1 {
+            return "0, 0, 0, 100"
+        }
+        
         let cc = (c - k) / (1 - k)
         let mm = (m - k) / (1 - k)
         let yy = (y - k) / (1 - k)
@@ -232,7 +243,16 @@ extension CalculateColorView {
             h *= 60
         }
         let l = (maxv + minv) / 2
-        let s = d == 0 ? 0 : d / (1 - abs(2*l - 1))
+        
+        // 修复饱和度计算，避免除以零和负值
+        let denominator = 1 - abs(2*l - 1)
+        let s: CGFloat
+        if d == 0 || denominator <= 0.0001 {
+            s = 0
+        } else {
+            s = max(0, min(1, d / denominator))
+        }
+        
         return "\(Int(h)), \(Int(s*100))%, \(Int(l*100))%"
     }
     

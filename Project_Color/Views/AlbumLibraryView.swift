@@ -3,7 +3,7 @@
 //  Project_Color
 //
 //  Created by AI Assistant on 2025/11/19.
-//  相册库：显示所有"我的作品"的相册
+//  相册库：显示所有已分析照片的相册
 //
 
 import SwiftUI
@@ -54,7 +54,7 @@ struct AlbumLibraryView: View {
                 .font(.title2)
                 .foregroundColor(.primary)
             
-            Text("分析照片并标记为\"我的作品\"后\n相册会显示在这里")
+            Text("分析照片后\n相册会显示在这里")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -186,7 +186,6 @@ class AlbumLibraryViewModel: ObservableObject {
                 let hasAlbumName = entity.albumName != nil
                 let session = primarySession(for: entity)
                 let hasSession = session != nil
-                let isPersonal = session?.isPersonalWork ?? false
                 
                 if !hasAlbumId {
                     reasons["无 albumIdentifier", default: 0] += 1
@@ -200,11 +199,6 @@ class AlbumLibraryViewModel: ObservableObject {
                 }
                 if !hasSession {
                     reasons["无 session", default: 0] += 1
-                    skippedCount += 1
-                    continue
-                }
-                if !isPersonal {
-                    reasons["非我的作品", default: 0] += 1
                     skippedCount += 1
                     continue
                 }

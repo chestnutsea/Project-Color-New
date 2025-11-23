@@ -49,14 +49,37 @@ class PhotoColorCache {
                 
                 print("  ✅ 缓存命中: \(identifier)")
                 
-                // 注意：只返回主色，不返回聚类索引
-                // 因为聚类索引依赖于全局聚类，会随用户设置变化
-                return PhotoColorInfo(
+                var photoInfo = PhotoColorInfo(
                     assetIdentifier: identifier,
                     dominantColors: dominantColors,
                     primaryClusterIndex: nil,  // 不缓存聚类结果
                     clusterMix: [:]
                 )
+                
+                // 复用 brightnessCDF
+                if let cdfData = entity.brightnessCDF {
+                    let cdfArray = cdfData.withUnsafeBytes { ptr in
+                        Array(ptr.bindMemory(to: Float.self))
+                    }
+                    photoInfo.brightnessCDF = cdfArray
+                    print("  📊 复用 brightnessCDF: \(cdfArray.count) 个值")
+                }
+                
+                // 复用 AdvancedColorAnalysis（包含冷暖评分、色偏等）
+                if let analysisData = entity.advancedColorAnalysisData,
+                   let analysis = try? JSONDecoder().decode(AdvancedColorAnalysis.self, from: analysisData) {
+                    photoInfo.advancedColorAnalysis = analysis
+                    print("  🌡️ 复用冷暖评分: \(String(format: "%.3f", analysis.overallScore))")
+                }
+                
+                // 复用 Vision 信息
+                if let visionData = entity.visionInfo,
+                   let vision = try? JSONDecoder().decode(PhotoVisionInfo.self, from: visionData) {
+                    photoInfo.visionInfo = vision
+                    print("  🔍 复用 Vision 信息")
+                }
+                
+                return photoInfo
             }
         } catch {
             print("  ⚠️ 缓存查询失败: \(error)")
