@@ -16,6 +16,7 @@ class QwenVLService {
     
     private let apiConfig = APIConfig.shared
     private let session: URLSession
+    private var currentSSEClient: SSEClient?  // 保持 SSE 客户端的引用
     
     private init() {
         let configuration = URLSessionConfiguration.default
@@ -138,6 +139,127 @@ class QwenVLService {
     }
     
     // MARK: - API Methods
+    
+    /// 发送视觉分析请求到 Qwen3-VL-Flash API（流式）
+    /// - Parameters:
+    ///   - images: 图片数组（已压缩到最长边 400，保持宽高比）
+    ///   - systemPrompt: 系统提示词
+    ///   - userPrompt: 用户提示词
+    ///   - model: 使用的模型（默认 qwen-vl-flash）
+    ///   - temperature: 温度参数（0-2，默认 0.7）
+    ///   - maxTokens: 最大生成 token 数
+    ///   - onToken: 每收到一个 token 的回调
+    ///   - onComplete: 流式传输完成的回调
+    func analyzeImagesStreaming(
+        images: [UIImage],
+        systemPrompt: String,
+        userPrompt: String,
+        model: String = "qwen-vl-flash",
+        temperature: Double = 0.7,
+        maxTokens: Int? = 2000,
+        onToken: @escaping (String) -> Void,
+        onComplete: @escaping () -> Void
+    ) async throws {
+        
+        // 构建请求 URL
+        guard let url = URL(string: apiConfig.qwenEndpoint) else {
+            throw QwenError.invalidResponse
+        }
+        
+        // 转换图片为 base64
+        print("🖼️ 开始编码 \(images.count) 张图片（格式转换为 JPEG）...")
+        var imageContentItems: [VisionChatRequest.ContentItem] = []
+        
+        for (index, image) in images.enumerated() {
+            guard let imageData = image.jpegData(compressionQuality: 1.0) else {
+                print("⚠️ 图片 \(index + 1) 转换失败，跳过")
+                continue
+            }
+            
+            let base64String = imageData.base64EncodedString()
+            let dataURL = "data:image/jpeg;base64,\(base64String)"
+            
+            imageContentItems.append(
+                VisionChatRequest.ContentItem(
+                    type: "image_url",
+                    text: nil,
+                    imageUrl: VisionChatRequest.ImageURL(url: dataURL)
+                )
+            )
+            
+            print("   ✓ 图片 \(index + 1)/\(images.count) 编码完成 (\(imageData.count / 1024) KB)")
+        }
+        
+        guard !imageContentItems.isEmpty else {
+            throw QwenError.imageCompressionFailed
+        }
+        
+        // 构建消息
+        let messages: [VisionChatRequest.Message] = [
+            VisionChatRequest.Message(
+                role: "system",
+                content: [
+                    VisionChatRequest.ContentItem(
+                        type: "text",
+                        text: systemPrompt,
+                        imageUrl: nil
+                    )
+                ]
+            ),
+            VisionChatRequest.Message(
+                role: "user",
+                content: imageContentItems + [
+                    VisionChatRequest.ContentItem(
+                        type: "text",
+                        text: userPrompt,
+                        imageUrl: nil
+                    )
+                ]
+            )
+        ]
+        
+        let chatRequest = VisionChatRequest(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens
+        )
+        
+        // 编码请求体
+        let encoder = JSONEncoder()
+        let requestBody = try encoder.encode(chatRequest)
+        
+        print("📤 建立 SSE 连接到 Qwen API...")
+        print("   📌 使用模型: \(model)")
+        print("   📦 请求体大小: \(requestBody.count / 1024) KB")
+        
+        // 取消之前的连接（如果有）
+        currentSSEClient?.cancel()
+        
+        // 创建新的 SSE 客户端并保持引用
+        let sseClient = SSEClient()
+        currentSSEClient = sseClient
+        
+        sseClient.connect(
+            url: url,
+            body: requestBody,
+            onToken: { token in
+                onToken(token)
+            },
+            onComplete: { [weak self] in
+                onComplete()
+                self?.currentSSEClient = nil
+            },
+            onError: { [weak self] error in
+                print("❌ SSE 错误: \(error.localizedDescription)")
+                // 错误时也调用 onComplete，避免 UI 卡住
+                onComplete()
+                self?.currentSSEClient = nil
+            }
+        )
+        
+        // 立即返回，不等待流式传输完成
+    }
     
     /// 发送视觉分析请求到 Qwen3-VL-Flash API
     /// - Parameters:

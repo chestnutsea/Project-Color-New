@@ -39,16 +39,30 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				Test/ColorWheelV1.md,
+				Views/Components/ColorWheel.md,
 			);
 			target = F4EE4BEF2EBF82F000EFDF4F /* Project_Color */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+		F48CBF0E2ED15F4300B771B1 /* Exceptions for "Project_Color" folder in "Compile Sources" phase from "Project_Color" target */ = {
+			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
+			buildPhase = F4EE4BEC2EBF82F000EFDF4F /* Sources */;
+			membershipExceptions = (
+				Test/ColorWheelV1.md,
+				Views/Components/ColorWheel.md,
+			);
+		};
+/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		F4EE4BF22EBF82F000EFDF4F /* Project_Color */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				F492B9812EC0262E0076B618 /* Exceptions for "Project_Color" folder in "Project_Color" target */,
+				F48CBF0E2ED15F4300B771B1 /* Exceptions for "Project_Color" folder in "Compile Sources" phase from "Project_Color" target */,
 			);
 			explicitFileTypes = {
 				"README/Color Analysis Implementation Roadmap.md" = text;
