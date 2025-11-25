@@ -32,11 +32,6 @@ struct TemperatureDistributionView: View {
                     .foregroundColor(.secondary)
             }
             
-            // 说明文字
-            Text("每个点代表一张照片的冷暖倾向")
-                .font(.caption)
-                .foregroundColor(.secondary)
-            
             VStack(spacing: spacing) {
                 // 上方：渐变色条
                 LinearGradient(
@@ -74,21 +69,6 @@ struct TemperatureDistributionView: View {
                     }
                 }
                 .frame(height: markerSize + 4)
-                
-                // 底部：标签
-                HStack {
-                    Text("冷")
-                        .font(.caption)
-                        .foregroundColor(.blue)
-                    Spacer()
-                    Text("中性")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                    Spacer()
-                    Text("暖")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
             }
         }
         .padding()

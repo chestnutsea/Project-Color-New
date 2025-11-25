@@ -36,9 +36,10 @@ class APIConfig {
         return ""
     }
     
-    /// Qwen API Endpoint
+    /// Qwen API Endpoint - Function Compute
     var qwenEndpoint: String {
-        return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+        // 注意：你原始代码中的 URL 有重复的 https://，这里已修正
+        return "https://qwen-api-wmwobkpehy.cn-hangzhou.fcapp.run"
     }
     
     /// 验证 Qwen API Key 是否有效

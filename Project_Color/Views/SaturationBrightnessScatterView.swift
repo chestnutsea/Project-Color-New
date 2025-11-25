@@ -71,7 +71,6 @@ struct SaturationBrightnessScatterView: View {
                 
                 drawGrid(in: chartRect, context: &context)
                 drawAxes(in: chartRect, context: &context)
-                drawTicks(in: chartRect, context: &context)
                 drawPoints(in: chartRect, context: &context)
                 drawAxisTitles(in: chartRect, context: &context)
             }
@@ -110,37 +109,6 @@ struct SaturationBrightnessScatterView: View {
         path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
         
         context.stroke(path, with: .color(Layout.axisColor), lineWidth: Layout.axisLineWidth)
-    }
-    
-    private func drawTicks(in rect: CGRect, context: inout GraphicsContext) {
-        let tickValues: [CGFloat] = [0, 64, 128, 192, 255]
-        for value in tickValues {
-            // Horizontal ticks (X-axis)
-            let x = rect.minX + rect.width * (value / Layout.maxValue)
-            var tickPath = Path()
-            tickPath.move(to: CGPoint(x: x, y: rect.maxY))
-            tickPath.addLine(to: CGPoint(x: x, y: rect.maxY + 6))
-            context.stroke(tickPath, with: .color(Layout.axisColor), lineWidth: Layout.axisLineWidth)
-            
-            let label = Text("\(Int(value))").font(.caption2)
-            context.draw(label, at: CGPoint(x: x, y: rect.maxY + 14), anchor: .top)
-            
-            // Vertical ticks (Y-axis)
-            let y = rect.maxY - rect.height * (value / Layout.maxValue)
-            var yTickPath = Path()
-            yTickPath.move(to: CGPoint(x: rect.minX, y: y))
-            yTickPath.addLine(to: CGPoint(x: rect.minX - 6, y: y))
-            context.stroke(yTickPath, with: .color(Layout.axisColor), lineWidth: Layout.axisLineWidth)
-            
-            if value != 0 { // avoid duplicate zero at origin
-                let yLabel = Text("\(Int(value))").font(.caption2)
-                context.draw(yLabel, at: CGPoint(x: rect.minX - 10, y: y), anchor: .trailing)
-            }
-        }
-        
-        // Origin label
-        let zeroLabel = Text("0").font(.caption2)
-        context.draw(zeroLabel, at: CGPoint(x: rect.minX - 8, y: rect.maxY + 14), anchor: .topTrailing)
     }
     
     private func drawPoints(in rect: CGRect, context: inout GraphicsContext) {

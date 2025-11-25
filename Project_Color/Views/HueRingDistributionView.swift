@@ -21,13 +21,15 @@ struct HueRingPoint: Identifiable {
 
 struct HueRingDistributionView: View {
     private enum Layout {
-        static let viewHeight: CGFloat = 220
-        static let ringLineWidth: CGFloat = 8
+        static let viewHeight: CGFloat = 200
+        static let ringLineWidth: CGFloat = 1
         static let ringOpacity: Double = 0.25
-        static let ringDiameterRatio: CGFloat = 0.88
+        static let ringDiameterRatio: CGFloat = 0.75
         static let pointOpacity: Double = 0.45
         static let minPointDiameter: CGFloat = 10
         static let maxAdditionalDiameter: CGFloat = 36
+        static let iconFontSize: CGFloat = 25
+        static let iconPadding: CGFloat = 20
         #if canImport(UIKit)
         static let cardBackground = Color(UIColor.systemBackground)
         #elseif canImport(AppKit)
@@ -60,9 +62,9 @@ struct HueRingDistributionView: View {
                 Button(action: action) {
                     Label("3D 空间", systemImage: "cube.transparent")
                         .labelStyle(.iconOnly)
-                        .font(.system(size: 28, weight: .semibold))
+                        .font(.system(size: Layout.iconFontSize, weight: .semibold))
                         .foregroundColor(.white)
-                        .padding(24)
+                        .padding(Layout.iconPadding)
                         .background(
                             Circle()
                                 .fill(
@@ -94,50 +96,10 @@ struct HueRingDistributionView: View {
                 let diameter = min(size.width, size.height) * Layout.ringDiameterRatio
                 let radius = diameter / 2
                 let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                let ringRect = CGRect(
-                    x: center.x - radius,
-                    y: center.y - radius,
-                    width: diameter,
-                    height: diameter
-                )
                 
-                drawRing(context: &context, rect: ringRect)
-                drawHueReference(context: &context, center: center, radius: radius)
                 drawPoints(context: &context, center: center, radius: radius)
             }
         }
-    }
-    
-    private func drawRing(context: inout GraphicsContext, rect: CGRect) {
-        let path = Path(ellipseIn: rect)
-        context.stroke(
-            path,
-            with: .color(Color.primary.opacity(Layout.ringOpacity)),
-            style: StrokeStyle(lineWidth: Layout.ringLineWidth)
-        )
-    }
-    
-    private func drawHueReference(context: inout GraphicsContext, center: CGPoint, radius: CGFloat) {
-        guard let hue = dominantHue else { return }
-        let angle = Angle(radians: hue * 2 * .pi - .pi / 2)
-        let tickLength: CGFloat = 18
-        let innerPoint = CGPoint(
-            x: center.x + CGFloat(cos(angle.radians)) * (radius - tickLength),
-            y: center.y + CGFloat(sin(angle.radians)) * (radius - tickLength)
-        )
-        let outerPoint = CGPoint(
-            x: center.x + CGFloat(cos(angle.radians)) * (radius + tickLength / 2),
-            y: center.y + CGFloat(sin(angle.radians)) * (radius + tickLength / 2)
-        )
-        
-        var path = Path()
-        path.move(to: innerPoint)
-        path.addLine(to: outerPoint)
-        context.stroke(
-            path,
-            with: .color(Color(hue: hue, saturation: 0.9, brightness: 0.95)),
-            style: StrokeStyle(lineWidth: 3, lineCap: .round)
-        )
     }
     
     private func drawPoints(context: inout GraphicsContext, center: CGPoint, radius: CGFloat) {

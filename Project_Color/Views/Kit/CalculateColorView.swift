@@ -216,6 +216,12 @@ extension CalculateColorView {
               let h = Double(parts[0]),
               let s = Double(parts[1].replacingOccurrences(of: "%", with: "")),
               let l = Double(parts[2].replacingOccurrences(of: "%", with: "")) else { return nil }
+        
+        // 验证范围：H: 0-360, S: 0-100, L: 0-100
+        guard (0...360).contains(h),
+              (0...100).contains(s),
+              (0...100).contains(l) else { return nil }
+        
         let ss = s / 100, ll = l / 100
         let c = (1 - abs(2*ll - 1)) * ss
         let x = c * (1 - abs(fmod(h/60.0, 2) - 1))
@@ -262,6 +268,12 @@ extension CalculateColorView {
               let h = Double(parts[0]),
               let s = Double(parts[1].replacingOccurrences(of: "%", with: "")),
               let v = Double(parts[2].replacingOccurrences(of: "%", with: "")) else { return nil }
+        
+        // 验证范围：H: 0-360, S: 0-100, V: 0-100
+        guard (0...360).contains(h),
+              (0...100).contains(s),
+              (0...100).contains(v) else { return nil }
+        
         let ss = s / 100, vv = v / 100
         let c = vv * ss
         let x = c * (1 - abs(fmod(h/60.0, 2) - 1))
@@ -295,7 +307,9 @@ extension CalculateColorView {
     
     private func cmykToRgb(_ input: String) -> (CGFloat, CGFloat, CGFloat)? {
         let parts = input.split(separator: ",").compactMap { Double($0) }
-        guard parts.count == 4 else { return nil }
+        // 验证：必须有 4 个值，且每个值都在 0-100 范围内
+        guard parts.count == 4,
+              parts.allSatisfy({ (0...100).contains($0) }) else { return nil }
         let c = parts[0]/100, m = parts[1]/100, y = parts[2]/100, k = parts[3]/100
         return (
             CGFloat((1 - c) * (1 - k)),

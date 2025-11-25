@@ -157,11 +157,6 @@ class QwenVLService {
         maxTokens: Int? = 2000
     ) async throws -> String {
         
-        // 验证 API Key
-        guard apiConfig.isQwenAPIKeyValid else {
-            throw QwenError.invalidAPIKey
-        }
-        
         // 构建请求
         guard let url = URL(string: apiConfig.qwenEndpoint) else {
             throw QwenError.invalidResponse
@@ -170,7 +165,7 @@ class QwenVLService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiConfig.qwenAPIKey)", forHTTPHeaderField: "Authorization")
+        // Function Compute endpoint doesn't require Authorization header
         
         // 转换图片为 base64（图片已在加载时压缩到最长边 400，这里只做格式转换）
         print("🖼️ 开始编码 \(images.count) 张图片（格式转换为 JPEG）...")
@@ -235,13 +230,22 @@ class QwenVLService {
         )
         
         do {
-            request.httpBody = try JSONEncoder().encode(chatRequest)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .prettyPrinted
+            request.httpBody = try encoder.encode(chatRequest)
+            
+            // 打印请求详情（用于调试）
+            if let bodyString = String(data: request.httpBody!, encoding: .utf8) {
+                print("📤 发送请求到 Qwen API...")
+                print("   🔗 URL: \(apiConfig.qwenEndpoint)")
+                print("   📌 使用模型: \(model)")
+                print("   📦 请求体大小: \(request.httpBody!.count / 1024) KB")
+                print("   📝 请求体预览 (前 500 字符):")
+                print(String(bodyString.prefix(500)))
+            }
         } catch {
             throw QwenError.decodingError(error)
         }
-        
-        print("📤 发送请求到 Qwen API...")
-        print("   📌 使用模型: \(model)")
         
         // 发送请求
         let data: Data
@@ -262,11 +266,21 @@ class QwenVLService {
         
         // 如果状态码不是 2xx，尝试解析错误信息
         guard (200...299).contains(httpResponse.statusCode) else {
-            if let apiError = try? JSONDecoder().decode(APIError.self, from: data) {
-                throw QwenError.apiError(apiError.error.message)
-            } else if let errorString = String(data: data, encoding: .utf8) {
-                throw QwenError.apiError("HTTP \(httpResponse.statusCode): \(errorString)")
+            // 打印详细的错误信息
+            print("❌ API 返回错误状态码: \(httpResponse.statusCode)")
+            
+            if let errorString = String(data: data, encoding: .utf8) {
+                print("   📄 错误响应内容:")
+                print(errorString)
+                
+                // 尝试解析标准 API 错误格式
+                if let apiError = try? JSONDecoder().decode(APIError.self, from: data) {
+                    throw QwenError.apiError(apiError.error.message)
+                } else {
+                    throw QwenError.apiError("HTTP \(httpResponse.statusCode): \(errorString)")
+                }
             } else {
+                print("   📄 错误响应: 无法解析为文本")
                 throw QwenError.apiError("HTTP \(httpResponse.statusCode)")
             }
         }
