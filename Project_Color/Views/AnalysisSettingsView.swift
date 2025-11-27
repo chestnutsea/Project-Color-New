@@ -16,6 +16,20 @@ struct AnalysisSettingsView: View {
     var body: some View {
         NavigationView {
             Form {
+                // AI 洞察视角
+                Section {
+                    Picker("洞察视角", selection: $settings.insightPerspective) {
+                        ForEach(AnalysisSettings.InsightPerspective.allCases, id: \.self) { perspective in
+                            Text(perspective.rawValue).tag(perspective)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("AI 洞察视角")
+                } footer: {
+                    Text("选择 AI 分析照片的视角。不同视角会从不同角度解读照片的色彩和构图。")
+                }
+                
                 // 预设配置
                 Section {
                     Button("平衡分类（推荐）") {

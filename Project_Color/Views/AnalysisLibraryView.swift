@@ -494,7 +494,9 @@ class AnalysisLibraryViewModel: ObservableObject {
             if let aiEvaluationData = entity.aiEvaluationData {
                 print("   - aiEvaluationData 存在，大小: \(aiEvaluationData.count) bytes")
                 
-                if let aiEvaluation = try? JSONDecoder().decode(ColorEvaluation.self, from: aiEvaluationData) {
+                if var aiEvaluation = try? JSONDecoder().decode(ColorEvaluation.self, from: aiEvaluationData) {
+                    // 强制将 isLoading 设置为 false（因为这是已保存的数据）
+                    aiEvaluation.isLoading = false
                     result.aiEvaluation = aiEvaluation
                     print("   ✅ 成功解码 AI 评价")
                     print("      - 整体评价: \(aiEvaluation.overallEvaluation != nil ? "有" : "无")")

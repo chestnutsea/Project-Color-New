@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import UIKit
 
 /// DeepSeek 集成测试
 class DeepSeekIntegrationTest {
@@ -73,9 +74,13 @@ class DeepSeekIntegrationTest {
         
         let evaluator = ColorAnalysisEvaluator()
         
+        // 注意：这个测试使用空图片数组，实际使用时需要提供真实图片
+        let emptyImages: [UIImage] = []
+        
         do {
             let evaluation = try await evaluator.evaluateColorAnalysis(
                 result: testResult,
+                compressedImages: emptyImages,
                 onUpdate: { @MainActor updatedEvaluation in
                     // 测试中打印实时更新
                     if let overall = updatedEvaluation.overallEvaluation {

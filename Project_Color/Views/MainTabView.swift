@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct MainTabView: View {
     // MARK: - State
@@ -14,12 +17,14 @@ struct MainTabView: View {
     private enum TabItem: Int, CaseIterable {
         case scanner = 0
         case album = 1
-        case palette = 2
+        case emerge = 2
+        case palette = 3
         
         var iconName: String {
             switch self {
             case .scanner: return "scanner"
             case .album: return "photo.stack"
+            case .emerge: return "camera.filters"
             case .palette: return "paintpalette"
             }
         }
@@ -28,6 +33,7 @@ struct MainTabView: View {
             switch self {
             case .scanner: return "扫描"
             case .album: return "相册"
+            case .emerge: return "显影"
             case .palette: return "工具"
             }
         }
@@ -46,6 +52,12 @@ struct MainTabView: View {
                     Label(TabItem.album.title, systemImage: TabItem.album.iconName)
                 }
                 .tag(TabItem.album)
+            
+            EmergeView()
+                .tabItem {
+                    Label(TabItem.emerge.title, systemImage: TabItem.emerge.iconName)
+                }
+                .tag(TabItem.emerge)
             
             KitView()
                 .tabItem {

@@ -29,9 +29,23 @@ class AnalysisSettings: ObservableObject {
         case fine = "精细"
     }
     
+    /// 洞察视角
+    enum InsightPerspective: String, Codable, CaseIterable {
+        case `default` = "默认"
+        case artistic = "艺术"
+        case humanistic = "人文"
+        case philosophical = "哲学"
+        case technical = "技术"
+    }
+    
     @Published var colorExtractionAlgorithm: ColorExtractionAlgorithm? = nil
     @Published var extractionQuality: ExtractionQuality? = nil
     @Published var autoMergeSimilarColors: Bool? = nil
+    
+    // MARK: - AI 洞察设置
+    
+    /// 洞察视角
+    @Published var insightPerspective: InsightPerspective = .default
     
     // MARK: - 全局聚类设置
     
@@ -119,6 +133,7 @@ class AnalysisSettings: ObservableObject {
         colorExtractionAlgorithm = nil
         extractionQuality = nil
         autoMergeSimilarColors = nil
+        insightPerspective = .default
         manualKValue = nil
         enableAdaptiveClustering = nil
         mergeThresholdDeltaE = nil
