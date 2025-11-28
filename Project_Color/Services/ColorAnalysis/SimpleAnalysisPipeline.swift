@@ -80,18 +80,27 @@ class SimpleAnalysisPipeline {
     func analyzePhotos(
         assets: [PHAsset],
         albumInfoMap: [String: (identifier: String, name: String)] = [:],
+        userMessage: String? = nil,
         progressHandler: @escaping (AnalysisProgress) -> Void
     ) async -> AnalysisResult {
         
         NSLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         NSLog("🎨 开始颜色分析")
         NSLog("   照片数量: \(assets.count)")
+        if let msg = userMessage, !msg.isEmpty {
+            NSLog("   用户感受: \(msg)")
+        }
         NSLog("   📊 用户设置: \(settings.configurationDescription)")
         NSLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         
         let result = AnalysisResult()
         result.totalPhotoCount = assets.count
         result.timestamp = Date()
+        
+        // 设置用户输入的感受
+        if let msg = userMessage, !msg.isEmpty {
+            result.userMessage = msg
+        }
         
         var allMainColorsLAB: [SIMD3<Float>] = []  // Phase 2: 收集所有主色点（LAB空间）
         var photoInfos: [PhotoColorInfo] = []
@@ -722,16 +731,23 @@ class SimpleAnalysisPipeline {
             
             async let aiEvaluationTask: Void = {
                 do {
+                    // 获取用户输入的感受
+                    let userMessage = await MainActor.run { result.userMessage }
+                    
                     await MainActor.run {
                         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         print("🎨 开始 AI 评价（Qwen3-VL-Flash）")
                         print("   - 图片数量: \(compressedImages.count)")
+                        if let msg = userMessage, !msg.isEmpty {
+                            print("   - 用户感受: \(msg)")
+                        }
                         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     }
                     
                     let evaluation = try await self.aiEvaluator.evaluateColorAnalysis(
                         result: result,
                         compressedImages: compressedImages,
+                        userMessage: userMessage,
                         onUpdate: { @MainActor updatedEvaluation in
                             // 实时更新 UI
                             result.aiEvaluation = updatedEvaluation

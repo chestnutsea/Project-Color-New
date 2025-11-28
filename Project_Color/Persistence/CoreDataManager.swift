@@ -167,6 +167,12 @@ final class CoreDataManager {
             session.silhouetteScore = silhouetteScore
             session.status = isCompleted ? "completed" : "processing"
             
+            // 保存用户输入的感受
+            if let userMessage = result.userMessage, !userMessage.isEmpty {
+                session.userMessage = userMessage
+                print("💾 保存用户感受: \(userMessage)")
+            }
+            
             // 保存 AI 评价数据
             if let aiEvaluation = result.aiEvaluation {
                 print("💾 准备保存 AI 评价数据:")
@@ -515,8 +521,9 @@ final class CoreDataManager {
     
     // MARK: - Session Naming Helpers
     
-    /// 生成分析会话名称（格式：YYYY 年 M 月 D 日）
-    /// 如果同一天有多次分析，自动添加 (2), (3) 等后缀
+    /// 生成分析会话名称（格式：YYYY.MM.dd）
+    /// 如果同一天有多次分析，自动添加 (1), (2) 等后缀
+    /// 示例：2025.11.12, 2025.11.12(1), 2025.11.12(2)
     /// - Parameters:
     ///   - date: 日期
     ///   - context: Core Data 上下文
@@ -548,11 +555,12 @@ final class CoreDataManager {
             }
             
             // 找出已使用的后缀数字
+            // 0 表示基础名称（无后缀），1 表示 (1)，2 表示 (2)，以此类推
             var usedNumbers: Set<Int> = []
             for session in existingSessions {
                 if let name = session.customName {
                     if name == baseName {
-                        usedNumbers.insert(1)
+                        usedNumbers.insert(0)  // 基础名称对应 0
                     } else if name.hasPrefix(baseName + "(") && name.hasSuffix(")") {
                         let numberPart = name.dropFirst(baseName.count + 1).dropLast()
                         if let number = Int(numberPart) {
@@ -562,13 +570,18 @@ final class CoreDataManager {
                 }
             }
             
-            // 找到第一个未使用的数字
-            var nextNumber = 2
+            // 找到第一个未使用的数字（从 0 开始）
+            var nextNumber = 0
             while usedNumbers.contains(nextNumber) {
                 nextNumber += 1
             }
             
-            return "\(baseName)(\(nextNumber))"
+            // 0 对应基础名称，其他对应带后缀的名称
+            if nextNumber == 0 {
+                return baseName
+            } else {
+                return "\(baseName)(\(nextNumber))"
+            }
         } catch {
             print("❌ 查询已有会话失败: \(error)")
             return baseName

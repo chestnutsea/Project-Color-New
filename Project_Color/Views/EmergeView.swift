@@ -63,6 +63,9 @@ struct EmergeView: View {
     @State private var anchorColor: Color = .clear
     @State private var anchorPhotos: [ViewModel.PhotoInfo] = []
     
+    // ✅ 防止重复加载
+    @State private var hasLoadedOnce = false
+    
     // ✅ 计算属性：根据 ID 获取实时的 circle 数据（用于颜色等信息，不用于位置）
     private var selectedCircle: ViewModel.ColorCircle? {
         guard let id = selectedCircleID else { return nil }
@@ -157,12 +160,27 @@ struct EmergeView: View {
             }
             .onAppear {
                 screenSize = geometry.size
+                
+                // ✅ 只在首次加载时执行聚类，避免重复计算
+                guard !hasLoadedOnce else {
+                    // 恢复动画（如果已有数据）
+                    if !viewModel.colorCircles.isEmpty {
+                        isAnimating = true
+                    }
+                    return
+                }
+                
+                hasLoadedOnce = true
                 isAnimating = false
                 viewModel.reset()
                 
                 Task {
                     await viewModel.performClustering(screenSize: geometry.size)
                 }
+            }
+            .onDisappear {
+                // ✅ 视图消失时停止动画，减少资源消耗
+                isAnimating = false
             }
             .onChange(of: viewModel.isLoading) { isLoading in
                 if !isLoading && !viewModel.colorCircles.isEmpty {
@@ -236,114 +254,166 @@ final class ViewModel: ObservableObject {
         errorMessage = nil
         colorCircles = []
         
-        // 获取带来源的颜色信息
-        let colorSources = fetchColorsWithSource()
+        // 在后台线程执行所有计算密集型操作
+        let result = await Task.detached(priority: .userInitiated) { [coreDataManager, kmeans, converter] in
+            return ViewModel.performClusteringBackground(
+                coreDataManager: coreDataManager,
+                kmeans: kmeans,
+                converter: converter,
+                screenSize: screenSize
+            )
+        }.value
         
-        guard analyzedPhotoCount >= 10 else {
+        // 更新 UI（在主线程）
+        analyzedPhotoCount = result.photoCount
+        
+        if let error = result.error {
+            errorMessage = error
             isLoading = false
             return
+        }
+        
+        colorCircles = result.circles
+        isLoading = false
+    }
+    
+    // 聚类结果结构
+    struct ClusteringBackgroundResult {
+        let circles: [ColorCircle]
+        let photoCount: Int
+        let error: String?
+    }
+    
+    // ✅ 后台线程执行聚类计算（内存优化版）
+    nonisolated private static func performClusteringBackground(
+        coreDataManager: CoreDataManager,
+        kmeans: SimpleKMeans,
+        converter: ColorSpaceConverter,
+        screenSize: CGSize
+    ) -> ClusteringBackgroundResult {
+        // 获取颜色数据
+        let (colorSources, photoCount) = fetchColorsWithSourceBackground(coreDataManager: coreDataManager)
+        
+        guard photoCount >= 10 else {
+            return ClusteringBackgroundResult(circles: [], photoCount: photoCount, error: nil)
         }
         
         guard !colorSources.isEmpty else {
-            isLoading = false
-            errorMessage = "没有找到颜色数据"
-            return
+            return ClusteringBackgroundResult(circles: [], photoCount: photoCount, error: "没有找到颜色数据")
         }
         
-        // ✅ 转换为 LAB 并计算二次加权
-        let labColors = colorSources.map { converter.rgbToLab($0.rgb) }
-        let weights: [Float] = zip(colorSources, labColors).map { (colorSource, lab) in
-            let L = lab.x  // L* 值
-            let chroma = sqrt(lab.y * lab.y + lab.z * lab.z)  // sqrt(a² + b²)
+        // ✅ 优化：一次性转换 LAB 并存储，避免重复转换
+        struct ColorWithLAB {
+            let rgb: SIMD3<Float>
+            let lab: SIMD3<Float>
+            let weight: Float
+            let assetIdentifier: String
+        }
+        
+        // 使用 autoreleasepool 管理内存
+        var colorsWithLAB: [ColorWithLAB] = []
+        colorsWithLAB.reserveCapacity(colorSources.count)
+        
+        for colorSource in colorSources {
+            autoreleasepool {
+                let lab = converter.rgbToLab(colorSource.rgb)
+                colorsWithLAB.append(ColorWithLAB(
+                    rgb: colorSource.rgb,
+                    lab: lab,
+                    weight: colorSource.weight,
+                    assetIdentifier: colorSource.assetIdentifier
+                ))
+            }
+        }
+        
+        // 提取 LAB 数组和权重数组用于聚类
+        let labColors = colorsWithLAB.map { $0.lab }
+        let weights: [Float] = colorsWithLAB.map { color in
+            let L = color.lab.x
+            let chroma = sqrt(color.lab.y * color.lab.y + color.lab.z * color.lab.z)
             
-            // ① 饱和度权重
             let chromaFactor: Float = chroma < LayoutConstants.chromaThreshold 
                 ? LayoutConstants.lowChromaFactor : 1.0
-            
-            // ② 深暗惩罚
             let darkFactor: Float = L < LayoutConstants.darkLThreshold 
                 ? LayoutConstants.darkFactor : 1.0
-            
-            // ③ 高亮奖励
             let brightFactor: Float = L > LayoutConstants.brightLThreshold 
                 ? LayoutConstants.brightFactor : 1.0
             
-            return colorSource.weight * chromaFactor * darkFactor * brightFactor
+            return color.weight * chromaFactor * darkFactor * brightFactor
         }
         
-        let k = min(max(LayoutConstants.minK, colorSources.count / 50), LayoutConstants.maxK)
+        let k = min(max(LayoutConstants.minK, colorsWithLAB.count / 50), LayoutConstants.maxK)
         
-        guard let result = kmeans.cluster(
+        guard let clusterResult = kmeans.cluster(
             points: labColors,
             k: k,
             maxIterations: 50,
             colorSpace: .lab,
             weights: weights
         ) else {
-            isLoading = false
-            errorMessage = "聚类失败"
-            return
+            return ClusteringBackgroundResult(circles: [], photoCount: photoCount, error: "聚类失败")
         }
         
-        // ✅ 每张照片只属于一个簇：根据"视觉主色"到所有簇质心的距离，选最近的
-        // 视觉主色：visual_score 最高的主色
-        var photoVisualColor: [String: SIMD3<Float>] = [:]  // 照片 -> 视觉主色的 LAB 值
-        var photoColors: [String: [(lab: SIMD3<Float>, weight: Float)]] = [:]  // 临时存储每张照片的所有主色
+        // ✅ 优化：直接从 colorsWithLAB 构建照片颜色字典，无需重复转换
+        var photoColors: [String: [(lab: SIMD3<Float>, weight: Float)]] = [:]
+        photoColors.reserveCapacity(photoCount)
         
-        // 收集每张照片的所有主色
-        for colorSource in colorSources {
-            let assetId = colorSource.assetIdentifier
-            let lab = converter.rgbToLab(colorSource.rgb)
-            
+        for color in colorsWithLAB {
+            let assetId = color.assetIdentifier
             if photoColors[assetId] == nil {
                 photoColors[assetId] = []
             }
-            photoColors[assetId]?.append((lab: lab, weight: colorSource.weight))
+            photoColors[assetId]?.append((lab: color.lab, weight: color.weight))
         }
         
-        // 为每张照片选择视觉主色（visual_score 最高的）
+        // 释放 colorsWithLAB，不再需要
+        // colorsWithLAB 在此作用域结束后自动释放
+        
+        // 每张照片选择视觉代表色
+        var photoVisualColor: [String: SIMD3<Float>] = [:]
+        photoVisualColor.reserveCapacity(photoColors.count)
+        
         for (assetId, colors) in photoColors {
-            // 计算每个主色的 visual_score
-            let colorsWithScore = colors.map { color -> (lab: SIMD3<Float>, score: Float) in
+            var bestLab: SIMD3<Float>? = nil
+            var bestScore: Float = -Float.infinity
+            
+            for color in colors {
                 let L = color.lab.x
                 let chroma = sqrt(color.lab.y * color.lab.y + color.lab.z * color.lab.z)
                 let weight = color.weight
                 
-                // ① 饱和度权重
                 let chromaFactor: Float = chroma < LayoutConstants.chromaThreshold 
                     ? LayoutConstants.lowChromaFactor : 1.0
-                
-                // ② 深暗惩罚
                 let darkFactor: Float = L < LayoutConstants.darkLThreshold 
                     ? LayoutConstants.darkFactor : 1.0
-                
-                // ③ 高亮奖励
                 let brightFactor: Float = L > LayoutConstants.brightLThreshold 
                     ? LayoutConstants.brightFactor : 1.0
-                
-                // ④ 小面积惩罚
                 let areaFactor: Float = weight < LayoutConstants.smallAreaThreshold 
                     ? LayoutConstants.smallAreaFactor : 1.0
                 
                 let visualScore = weight * chromaFactor * darkFactor * brightFactor * areaFactor
-                return (lab: color.lab, score: visualScore)
+                if visualScore > bestScore {
+                    bestScore = visualScore
+                    bestLab = color.lab
+                }
             }
             
-            // 选 visual_score 最高的作为视觉主色
-            if let visualColor = colorsWithScore.max(by: { $0.score < $1.score }) {
-                photoVisualColor[assetId] = visualColor.lab
+            if let lab = bestLab {
+                photoVisualColor[assetId] = lab
             }
         }
         
-        // 聚类完成后，重新计算每张照片的视觉主色到所有簇质心的距离，选最近的
+        // 释放 photoColors
+        // photoColors 在此作用域结束后自动释放
+        
+        // 将照片分配到最近的簇
         var clusterToPhotos: [Int: [(assetId: String, distance: Float)]] = [:]
         
         for (assetId, visualColorLAB) in photoVisualColor {
-            // 找到距离最近的簇
             var minDistance: Float = .infinity
             var nearestClusterIndex = 0
             
-            for (clusterIndex, centroid) in result.centroids.enumerated() {
+            for (clusterIndex, centroid) in clusterResult.centroids.enumerated() {
                 let distance = converter.deltaE(visualColorLAB, centroid)
                 if distance < minDistance {
                     minDistance = distance
@@ -357,15 +427,14 @@ final class ViewModel: ObservableObject {
             clusterToPhotos[nearestClusterIndex]?.append((assetId: assetId, distance: minDistance))
         }
         
-        // 计算最大照片数（用于归一化圆形大小）
         let maxPhotoCount = clusterToPhotos.values.map { $0.count }.max() ?? 1
         
         var circles: [ColorCircle] = []
+        circles.reserveCapacity(clusterResult.centroids.count)
         
-        for (clusterIndex, centroidLAB) in result.centroids.enumerated() {
-            // ✅ 获取该簇的照片
+        for (clusterIndex, centroidLAB) in clusterResult.centroids.enumerated() {
             guard let photos = clusterToPhotos[clusterIndex], !photos.isEmpty else {
-                continue  // 跳过没有照片的簇
+                continue
             }
             
             let centroidRGB = converter.labToRgb(centroidLAB)
@@ -375,7 +444,6 @@ final class ViewModel: ObservableObject {
                 blue: Double(centroidRGB.z)
             )
             
-            // ✅ 圆形大小基于照片数量
             let normalizedCount = CGFloat(photos.count) / CGFloat(maxPhotoCount)
             let radius = 10 + (40 - 10) * sqrt(normalizedCount)
             
@@ -391,7 +459,6 @@ final class ViewModel: ObservableObject {
                 y: sin(angle) * speed
             )
             
-            // ✅ 构建照片列表，按第一个主色到质心的距离排序
             let clusterPhotos = photos
                 .map { PhotoInfo(assetIdentifier: $0.assetId, distance: $0.distance) }
                 .sorted { $0.distance < $1.distance }
@@ -408,42 +475,54 @@ final class ViewModel: ObservableObject {
             ))
         }
         
-        colorCircles = circles
-        isLoading = false
+        return ClusteringBackgroundResult(circles: circles, photoCount: photoCount, error: nil)
     }
     
-    // ✅ 获取带来源的颜色信息
-    private func fetchColorsWithSource() -> [ColorWithSource] {
-        let context = coreDataManager.viewContext
-        let request = PhotoAnalysisEntity.fetchRequest()
+    // ✅ 获取带来源的颜色信息（后台线程版本，内存优化）
+    nonisolated private static func fetchColorsWithSourceBackground(coreDataManager: CoreDataManager) -> ([ColorWithSource], Int) {
+        let context = coreDataManager.newBackgroundContext()
+        var colorSources: [ColorWithSource] = []
+        var photoCount = 0
         
-        do {
-            let results = try context.fetch(request)
-            analyzedPhotoCount = results.count
+        context.performAndWait {
+            let request = PhotoAnalysisEntity.fetchRequest()
+            // 只获取需要的属性，减少内存占用
+            request.propertiesToFetch = ["assetLocalIdentifier", "dominantColors"]
             
-            var colorSources: [ColorWithSource] = []
-            
-            for entity in results {
-                guard let assetId = entity.assetLocalIdentifier,
-                      let data = entity.dominantColors,
-                      let colors = try? JSONDecoder().decode([DominantColor].self, from: data) else {
-                    continue
-                }
+            do {
+                let results = try context.fetch(request)
+                photoCount = results.count
                 
-                // 每个颜色都记录来源照片
-                for color in colors {
-                    colorSources.append(ColorWithSource(
-                        rgb: color.rgb,
-                        weight: color.weight,
-                        assetIdentifier: assetId
-                    ))
+                // 预分配容量（每张照片约5个颜色）
+                colorSources.reserveCapacity(photoCount * 5)
+                
+                // 复用 JSONDecoder
+                let decoder = JSONDecoder()
+                
+                for entity in results {
+                    autoreleasepool {
+                        guard let assetId = entity.assetLocalIdentifier,
+                              let data = entity.dominantColors,
+                              let colors = try? decoder.decode([DominantColor].self, from: data) else {
+                            return
+                        }
+                        
+                        // 每个颜色都记录来源照片
+                        for color in colors {
+                            colorSources.append(ColorWithSource(
+                                rgb: color.rgb,
+                                weight: color.weight,
+                                assetIdentifier: assetId
+                            ))
+                        }
+                    }
                 }
+            } catch {
+                print("❌ 获取颜色数据失败: \(error)")
             }
-            return colorSources
-        } catch {
-            errorMessage = "获取数据失败"
-            return []
         }
+        
+        return (colorSources, photoCount)
     }
     
     // ✅ 真实漂流运动逻辑（由外部参数驱动）

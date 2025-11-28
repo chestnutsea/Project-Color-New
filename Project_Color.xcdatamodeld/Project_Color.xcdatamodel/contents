@@ -14,6 +14,7 @@
         <attribute name="timestamp" attributeType="Date" defaultDateTimeInterval="0" usesScalarValueType="NO"/>
         <attribute name="totalPhotoCount" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="aiEvaluationData" optional="YES" attributeType="Binary"/>
+        <attribute name="userMessage" optional="YES" attributeType="String"/>
         <relationship name="clusters" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="ColorClusterEntity" inverseName="session" inverseEntity="ColorClusterEntity"/>
         <relationship name="collectionFeature" optional="YES" toMany="NO" deletionRule="Cascade" destinationEntity="CollectionFeatureEntity" inverseName="session" inverseEntity="CollectionFeatureEntity"/>
         <relationship name="photoAnalyses" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="PhotoAnalysisEntity" inverseName="session" inverseEntity="PhotoAnalysisEntity"/>

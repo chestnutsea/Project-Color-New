@@ -470,6 +470,11 @@ struct AnalysisResultView: View {
     
     private var aiEvaluationTabContent: some View {
         VStack(spacing: 20) {
+            // 用户输入的感受（如果有）
+            if let userMessage = result.userMessage, !userMessage.isEmpty {
+                userMessageView(userMessage)
+            }
+            
             if let evaluation = result.aiEvaluation {
                 if evaluation.isLoading {
                     // 加载状态
@@ -491,6 +496,37 @@ struct AnalysisResultView: View {
                 // 初始状态（正在生成）
                 aiLoadingView
             }
+        }
+    }
+    
+    // 用户输入的感受视图
+    private func userMessageView(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 4) {
+                Image(systemName: "quote.opening")
+                    .font(.system(size: 14))
+                    .foregroundColor(.gray)
+                
+                Spacer()
+            }
+            
+            Text(message)
+                .font(.body)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .lineSpacing(6)
+                .padding(.horizontal, 4)
+                .padding(.top, 4)
+                .frame(maxWidth: .infinity)
+            
+            HStack {
+                Spacer()
+                
+                Image(systemName: "quote.closing")
+                    .font(.system(size: 14))
+                    .foregroundColor(.gray)
+            }
+            .padding(.top, 4)
         }
     }
     
@@ -875,10 +911,12 @@ struct AnalysisResultView: View {
             
             // 3. 调用 AI 评价
             let evaluator = ColorAnalysisEvaluator()
+            let userMessage = await MainActor.run { result.userMessage }
             do {
                 let evaluation = try await evaluator.evaluateColorAnalysis(
                     result: result,
                     compressedImages: compressedImages,
+                    userMessage: userMessage,
                     onUpdate: { @MainActor updatedEvaluation in
                         // 实时更新 UI（流式显示）
                         result.aiEvaluation = updatedEvaluation

@@ -41,6 +41,8 @@ class ColorAnalysisEvaluator {
    
    用画面具体的事物收束，而不是空泛的总结。
    
+   不要想象画面中不存在的人事物。
+   
    """
     
     /// 艺术视角的 System Prompt
@@ -119,16 +121,21 @@ class ColorAnalysisEvaluator {
     /// - Parameters:
     ///   - result: 分析结果
     ///   - compressedImages: 压缩后的图片数组（从分析管线传入）
+    ///   - userMessage: 用户输入的感受（可选，替换默认的 userPrompt）
     ///   - onUpdate: 实时更新回调
     /// - Returns: 颜色评价对象
     func evaluateColorAnalysis(
         result: AnalysisResult,
         compressedImages: [UIImage],
+        userMessage: String? = nil,
         onUpdate: @escaping (ColorEvaluation) -> Void
     ) async throws -> ColorEvaluation {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("🎨 开始 AI 颜色评价（Qwen3-VL-Flash）...")
         print("   照片数量: \(compressedImages.count)")
+        if let msg = userMessage, !msg.isEmpty {
+            print("   用户感受: \(msg)")
+        }
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         
         var evaluation = ColorEvaluation()
@@ -151,8 +158,13 @@ class ColorAnalysisEvaluator {
                 )
             }
             
-            // 生成简洁的用户提示词
-            let userPrompt = "请观看并评论。"
+            // 生成用户提示词：如果用户输入了感受，使用用户的内容；否则使用默认提示词
+            let userPrompt: String
+            if let msg = userMessage, !msg.isEmpty {
+                userPrompt = msg
+            } else {
+                userPrompt = "请观看并评论。"
+            }
             
             print("📤 发送图片到 Qwen API（流式模式）...")
             

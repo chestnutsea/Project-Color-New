@@ -70,6 +70,11 @@ struct HomeView: View {
     private let analysisPipeline = SimpleAnalysisPipeline()
     private let progressThrottler = ProgressThrottler(interval: 0.15)
     
+    // 扫描预备弹窗相关
+    @State private var showScanPrepareAlert = false  // 扫描预备弹窗
+    @State private var showFeelingSheet = false  // 添加感受 Sheet
+    @State private var userFeeling: String = ""  // 用户输入的感受
+    
 #if DEBUG
     private let enableVerboseLogging = false
 #endif
@@ -313,6 +318,37 @@ struct HomeView: View {
                     #endif
                 }
             }
+            // 扫描预备弹窗
+            .alert("扫描预备中...", isPresented: $showScanPrepareAlert) {
+                Button("添加感受") {
+                    // 先让照片堆消失，延迟后显示 sheet（等待 alert 关闭动画完成）
+                    hidePhotoStack()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        showFeelingSheet = true
+                    }
+                }
+                Button("确认选片") {
+                    startProcessing()
+                }
+            }
+            // 添加感受 Sheet
+            .sheet(isPresented: $showFeelingSheet) {
+                FeelingInputSheet(
+                    feeling: $userFeeling,
+                    onConfirm: {
+                        showFeelingSheet = false
+                        startProcessing()
+                    },
+                    onCancel: {
+                        showFeelingSheet = false
+                        // 恢复照片堆显示并弹回原位
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                            photoStackOpacity = 1.0
+                            dragOffset = .zero
+                        }
+                    }
+                )
+            }
             .onAppear {
                 checkPhotoLibraryStatus()
             }
@@ -360,8 +396,9 @@ struct HomeView: View {
         debugLog("X overlap: \(hasXOverlap), Y overlap: \(hasYOverlap)")
         
         if hasXOverlap && hasYOverlap {
-            debugLog("✅ Photo stack overlaps with scanner! Starting processing...")
-            startProcessing()
+            debugLog("✅ Photo stack overlaps with scanner! Showing prepare alert...")
+            // 显示扫描预备弹窗
+            showScanPrepareAlert = true
             return
         }
         
@@ -378,26 +415,33 @@ struct HomeView: View {
         }
     }
     
+    private func hidePhotoStack() {
+        // 让照片堆渐变消失，但不开始分析
+        withAnimation(.easeOut(duration: fadeOutDuration)) {
+            photoStackOpacity = 0.0
+            dragOffset = .zero
+        }
+    }
+    
     private func startProcessing() {
         debugLog("=== startProcessing called ===")
         debugLog("Current opacity: \(photoStackOpacity)")
         debugLog("Current isProcessing: \(isProcessing)")
         
+        // 如果照片堆还没消失，先让它消失
+        if photoStackOpacity > 0 {
+            hidePhotoStack()
+        }
+        
         // 直接开始处理动画
-            DispatchQueue.main.async {
-                // 照片堆渐变消失
-                withAnimation(.easeOut(duration: self.fadeOutDuration)) {
-                    self.photoStackOpacity = 0.0
-                    self.dragOffset = .zero
-                }
-                
-                debugLog("Animation started - opacity set to 0, dragOffset reset")
-                
-                // 延迟后开始显示进度条并开始分析
-                DispatchQueue.main.asyncAfter(deadline: .now() + self.fadeOutDuration) {
-                    debugLog("Starting analysis")
-                    self.isProcessing = true
-                    self.startColorAnalysis()
+        DispatchQueue.main.async {
+            debugLog("Animation started - opacity set to 0, dragOffset reset")
+            
+            // 延迟后开始显示进度条并开始分析
+            DispatchQueue.main.asyncAfter(deadline: .now() + self.fadeOutDuration) {
+                debugLog("Starting analysis")
+                self.isProcessing = true
+                self.startColorAnalysis()
             }
         }
     }
@@ -447,9 +491,13 @@ struct HomeView: View {
                 }
             }
             
+            // 获取用户输入的感受（在调用分析前获取，确保能保存到 Core Data）
+            let userFeelingToPass = self.userFeeling
+            
             let result = await analysisPipeline.analyzePhotos(
                 assets: assets,
                 albumInfoMap: [:],  // 不再需要相册信息
+                userMessage: userFeelingToPass.isEmpty ? nil : userFeelingToPass,
                 progressHandler: throttledHandler
             )
             
@@ -472,6 +520,9 @@ struct HomeView: View {
             await MainActor.run {
                 self.analysisResult = result
                 self.isProcessing = false
+                
+                // 清空用户感受（为下次分析准备）
+                self.userFeeling = ""
                 
                 // 使用 NavigationStack 跳转到结果页
                 self.showAnalysisResult = true
@@ -825,6 +876,97 @@ struct PhotoStackPositionKey: PreferenceKey {
     static var defaultValue: CGRect = .zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
         value = nextValue()
+    }
+}
+
+// MARK: - 添加感受输入 Sheet
+struct FeelingInputSheet: View {
+    @Binding var feeling: String
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+    
+    @FocusState private var isTextFieldFocused: Bool
+    
+    private let maxCharacters = 100
+    
+    private var characterCount: Int {
+        feeling.count
+    }
+    
+    private var isOverLimit: Bool {
+        characterCount > maxCharacters
+    }
+    
+    private var canConfirm: Bool {
+        !isOverLimit
+    }
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                // 输入区域
+                VStack(alignment: .leading, spacing: 12) {
+                    // 输入框
+                    ZStack(alignment: .topLeading) {
+                        if feeling.isEmpty {
+                            Text("按下快门的那一刻...")
+                                .foregroundColor(.gray.opacity(0.5))
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 8)
+                        }
+                        
+                        TextEditor(text: $feeling)
+                            .focused($isTextFieldFocused)
+                            .frame(minHeight: 120)
+                            .scrollContentBackground(.hidden)
+                            .background(Color.clear)
+                            .onChange(of: feeling) { newValue in
+                                // 限制字数
+                                if newValue.count > maxCharacters {
+                                    feeling = String(newValue.prefix(maxCharacters))
+                                }
+                            }
+                    }
+                    .padding(12)
+                    .background(Color(uiColor: .systemGray6))
+                    .cornerRadius(12)
+                    .padding(.top, 20)
+                    
+                    // 字数统计
+                    HStack {
+                        Spacer()
+                        Text("\(characterCount)/\(maxCharacters)")
+                            .font(.caption)
+                            .foregroundColor(isOverLimit ? .red : .gray)
+                    }
+                }
+                .padding(.horizontal, 20)
+                
+                Spacer()
+            }
+            .navigationTitle("添加感受")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("取消") {
+                        onCancel()
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("确认") {
+                        onConfirm()
+                    }
+                    .disabled(!canConfirm)
+                    .foregroundColor(canConfirm ? .blue : .gray)
+                }
+            }
+            .onAppear {
+                // 延迟唤出键盘，等待 sheet 动画完成
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    isTextFieldFocused = true
+                }
+            }
+        }
     }
 }
 

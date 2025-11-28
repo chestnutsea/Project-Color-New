@@ -17,11 +17,16 @@ struct AlbumInfo: Identifiable {
     let name: String
     let photoCount: Int
     var coverAssetIdentifier: String?  // 最新照片的 assetLocalIdentifier
+    var date: Date?  // 相册日期（从 session 获取）
 }
 
 struct AlbumLibraryView: View {
     @StateObject private var viewModel = AlbumLibraryViewModel()
     @State private var selectedAlbum: AlbumInfo?
+    @State private var albumToEdit: AlbumInfo?
+    @State private var showEditSheet = false
+    @State private var albumToDelete: AlbumInfo?
+    @State private var showDeleteAlert = false
     
     var body: some View {
         NavigationView {
@@ -40,6 +45,38 @@ struct AlbumLibraryView: View {
         }
         .sheet(item: $selectedAlbum) { album in
             AlbumPhotosView(album: album)
+        }
+        .sheet(isPresented: $showEditSheet) {
+            if let album = albumToEdit {
+                AlbumEditSheet(
+                    album: album,
+                    onSave: { name, date in
+                        viewModel.updateAlbumInfo(albumId: album.id, name: name, date: date)
+                        albumToEdit = nil
+                        showEditSheet = false
+                        viewModel.loadAlbums()
+                    },
+                    onCancel: {
+                        albumToEdit = nil
+                        showEditSheet = false
+                    }
+                )
+            }
+        }
+        .alert("确认删除", isPresented: $showDeleteAlert) {
+            Button("取消", role: .cancel) {
+                albumToDelete = nil
+            }
+            Button("删除", role: .destructive) {
+                if let album = albumToDelete {
+                    viewModel.deleteAlbum(albumId: album.id)
+                    albumToDelete = nil
+                }
+            }
+        } message: {
+            if let album = albumToDelete {
+                Text("确定要删除相册「\(album.name)」吗？此操作将删除该相册的所有照片分析记录，且无法撤销。")
+            }
         }
     }
     
@@ -79,10 +116,24 @@ struct AlbumLibraryView: View {
                     spacing: spacing
                 ) {
                     ForEach(viewModel.albums) { album in
-                        AlbumCard(album: album, cardSize: cardSize)
-                            .onTapGesture {
-                                selectedAlbum = album
+                        AlbumCard(
+                            album: album,
+                            cardSize: cardSize,
+                            onEdit: {
+                                albumToEdit = album
+                                showEditSheet = true
+                            },
+                            onFavorite: {
+                                viewModel.toggleFavorite(albumId: album.id)
+                            },
+                            onDelete: {
+                                albumToDelete = album
+                                showDeleteAlert = true
                             }
+                        )
+                        .onTapGesture {
+                            selectedAlbum = album
+                        }
                     }
                 }
                 .padding(padding)
@@ -95,6 +146,10 @@ struct AlbumLibraryView: View {
 struct AlbumCard: View {
     let album: AlbumInfo
     let cardSize: CGFloat
+    let onEdit: () -> Void
+    let onFavorite: () -> Void
+    let onDelete: () -> Void
+    
     @State private var coverImage: UIImage?
     
     var body: some View {
@@ -116,6 +171,21 @@ struct AlbumCard: View {
             .frame(width: cardSize, height: cardSize)
             .clipped()
             .cornerRadius(12)
+            .contextMenu {
+                Button(action: onFavorite) {
+                    Label("收藏", systemImage: "heart")
+                }
+                
+                Button(action: onEdit) {
+                    Label("编辑信息", systemImage: "square.and.pencil")
+                }
+                
+                Divider()
+                
+                Button(role: .destructive, action: onDelete) {
+                    Label("删除", systemImage: "trash")
+                }
+            }
             
             // 相册名称
             Text(album.name)
@@ -229,11 +299,16 @@ class AlbumLibraryViewModel: ObservableObject {
                 }
                 let coverAssetId = sortedPhotos.first?.assetLocalIdentifier
                 
+                // 获取相册日期（从最新的 session 获取）
+                let latestSession = sortedPhotos.first.flatMap { primarySession(for: $0) }
+                let albumDate = latestSession?.customDate ?? latestSession?.timestamp
+                
                 return AlbumInfo(
                     id: id,
                     name: value.name,
                     photoCount: value.photos.count,
-                    coverAssetIdentifier: coverAssetId
+                    coverAssetIdentifier: coverAssetId,
+                    date: albumDate
                 )
             }
             
@@ -264,6 +339,120 @@ class AlbumLibraryViewModel: ObservableObject {
             return sessions.first
         }
         return nil
+    }
+    
+    // MARK: - 相册操作
+    
+    /// 更新相册信息（名称和日期）
+    func updateAlbumInfo(albumId: String, name: String, date: Date) {
+        let context = coreDataManager.viewContext
+        let request = PhotoAnalysisEntity.fetchRequest()
+        request.predicate = NSPredicate(format: "albumIdentifier == %@", albumId)
+        
+        do {
+            let entities = try context.fetch(request)
+            for entity in entities {
+                entity.albumName = name
+                // 如果有 session，也更新 session 的日期
+                if let session = primarySession(for: entity) {
+                    session.customDate = date
+                }
+            }
+            try context.save()
+            print("✅ 更新相册信息成功: \(name)")
+        } catch {
+            print("❌ 更新相册信息失败: \(error.localizedDescription)")
+        }
+    }
+    
+    /// 切换收藏状态（占位实现，相册暂不支持收藏）
+    func toggleFavorite(albumId: String) {
+        // TODO: 实现相册收藏功能
+        print("📌 切换相册收藏状态: \(albumId)")
+    }
+    
+    /// 删除相册（删除该相册的所有照片分析记录）
+    func deleteAlbum(albumId: String) {
+        let context = coreDataManager.viewContext
+        let request = PhotoAnalysisEntity.fetchRequest()
+        request.predicate = NSPredicate(format: "albumIdentifier == %@", albumId)
+        
+        do {
+            let entities = try context.fetch(request)
+            for entity in entities {
+                context.delete(entity)
+            }
+            try context.save()
+            print("✅ 删除相册成功: \(albumId)")
+            // 重新加载相册列表
+            loadAlbums()
+        } catch {
+            print("❌ 删除相册失败: \(error.localizedDescription)")
+        }
+    }
+}
+
+// MARK: - 编辑相册信息 Sheet
+struct AlbumEditSheet: View {
+    let album: AlbumInfo
+    let onSave: (String, Date) -> Void
+    let onCancel: () -> Void
+    
+    @State private var albumName: String
+    @State private var albumDate: Date
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var isNameFieldFocused: Bool
+    
+    init(album: AlbumInfo, onSave: @escaping (String, Date) -> Void, onCancel: @escaping () -> Void) {
+        self.album = album
+        self.onSave = onSave
+        self.onCancel = onCancel
+        
+        // 初始化状态：从相册获取日期（如果有）
+        _albumName = State(initialValue: album.name)
+        _albumDate = State(initialValue: album.date ?? Date())
+    }
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section {
+                    TextField("相册名称", text: $albumName)
+                        .textInputAutocapitalization(.words)
+                        .focused($isNameFieldFocused)
+                    
+                    DatePicker("日期", selection: $albumDate, displayedComponents: .date)
+                } header: {
+                    Text("相册信息")
+                } footer: {
+                    Text("修改相册名称和日期")
+                }
+            }
+            .navigationTitle("编辑相册")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("取消") {
+                        onCancel()
+                        dismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("保存") {
+                        onSave(albumName.trimmingCharacters(in: .whitespacesAndNewlines), albumDate)
+                        dismiss()
+                    }
+                    .disabled(albumName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .onAppear {
+                // 自动聚焦到名称输入框
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    isNameFieldFocused = true
+                }
+            }
+        }
     }
 }
 

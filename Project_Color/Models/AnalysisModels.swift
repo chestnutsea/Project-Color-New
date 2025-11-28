@@ -96,6 +96,9 @@ class AnalysisResult: ObservableObject {
     // AI 颜色评价
     @Published var aiEvaluation: ColorEvaluation? = nil
     
+    // 用户输入的感受（发送给 AI 的 message）
+    @Published var userMessage: String? = nil
+    
     // 冷暖色调分布
     @Published var warmCoolDistribution: WarmCoolDistribution? = nil
     
