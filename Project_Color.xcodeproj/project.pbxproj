@@ -327,6 +327,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Project_Color/Info.plist;
+				INFOPLIST_KEY_MetalCaptureEnabled = NO;
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "“应用需要保存照片到您的相册”";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "“应用需要访问您的相册以选择照片”";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -375,6 +376,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Project_Color/Info.plist;
+				INFOPLIST_KEY_MetalCaptureEnabled = NO;
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "“应用需要保存照片到您的相册”";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "“应用需要访问您的相册以选择照片”";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;

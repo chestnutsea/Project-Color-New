@@ -17,6 +17,13 @@ class AdaptiveClusterManager {
     private let namer = ColorNameResolver.shared
     private let evaluator = ClusterQualityEvaluator()
     
+    // MARK: - 欧几里得距离（与 SimpleKMeans 保持一致）
+    /// 在 LAB 空间使用欧几里得距离，将颜色视为 3D 向量 (L, a, b)
+    private func euclideanDistance(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
+        let diff = a - b
+        return sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z)
+    }
+    
     // MARK: - Configuration
     
     struct Config {
@@ -34,7 +41,7 @@ class AdaptiveClusterManager {
         
         static let `default` = Config(
             mergeThresholdDeltaE: 12.0,  // ΔE < 12 认为颜色接近（更严格）
-            minClusterSize: 2,            // 至少2张照片（更宽松）
+            minClusterSize: 1,            // 至少1张照片（保留所有非空簇）
             splitThresholdIntraDist: 40.0, // 簇内平均距离 > 40 考虑拆分
             useColorNameSimilarity: true  // 启用名称相似性检查
         )
@@ -196,11 +203,11 @@ class AdaptiveClusterManager {
                     continue
                 }
                 
-                // 计算色差
-                let deltaE = converter.deltaE(lab1, lab2)
+                // 计算色差（使用欧几里得距离，与聚类保持一致）
+                let distance = euclideanDistance(lab1, lab2)
                 
                 // 判断是否应该合并
-                var shouldMerge = deltaE < config.mergeThresholdDeltaE
+                var shouldMerge = distance < config.mergeThresholdDeltaE
                 
                 // 如果启用颜色名称相似性检查
                 if config.useColorNameSimilarity && shouldMerge {
@@ -223,7 +230,7 @@ class AdaptiveClusterManager {
                     
                     merged.insert(cluster2.index)
                     
-                    operations.append("合并簇 #\(cluster1.index) (\(cluster1.colorName)) + #\(cluster2.index) (\(cluster2.colorName)) → \(mergedCluster.colorName) (ΔE=\(String(format: "%.1f", deltaE)))")
+                    operations.append("合并簇 #\(cluster1.index) (\(cluster1.colorName)) + #\(cluster2.index) (\(cluster2.colorName)) → \(mergedCluster.colorName) (距离=\(String(format: "%.1f", distance)))")
                 }
             }
         }
@@ -359,7 +366,7 @@ class AdaptiveClusterManager {
                     let colorLAB = converter.rgbToLab(dominantColor.rgb)
                     
                     for (index, centroidLAB) in centroidsLAB.enumerated() {
-                        let distance = converter.deltaE(colorLAB, centroidLAB)
+                        let distance = euclideanDistance(colorLAB, centroidLAB)
                         if distance < minDistance {
                             minDistance = distance
                             closestClusterIndex = index
@@ -393,7 +400,7 @@ class AdaptiveClusterManager {
         var totalDistance: Float = 0.0
         
         for point in pointsLAB {
-            let distance = converter.deltaE(point, clusterCentroidLAB)
+            let distance = euclideanDistance(point, clusterCentroidLAB)
             totalDistance += distance
         }
         

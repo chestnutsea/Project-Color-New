@@ -15,6 +15,7 @@
         <attribute name="totalPhotoCount" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="aiEvaluationData" optional="YES" attributeType="Binary"/>
         <attribute name="userMessage" optional="YES" attributeType="String"/>
+        <attribute name="coverAssetIdentifier" optional="YES" attributeType="String"/>
         <relationship name="clusters" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="ColorClusterEntity" inverseName="session" inverseEntity="ColorClusterEntity"/>
         <relationship name="collectionFeature" optional="YES" toMany="NO" deletionRule="Cascade" destinationEntity="CollectionFeatureEntity" inverseName="session" inverseEntity="CollectionFeatureEntity"/>
         <relationship name="photoAnalyses" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="PhotoAnalysisEntity" inverseName="session" inverseEntity="PhotoAnalysisEntity"/>
@@ -62,6 +63,7 @@
         <attribute name="deltaEToCentroid" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="dominantColors" optional="YES" attributeType="Binary"/>
         <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
+        <attribute name="sortOrder" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="imageFeature" optional="YES" attributeType="Binary"/>
         <attribute name="mixVector" optional="YES" attributeType="Binary"/>
         <attribute name="primaryClusterIndex" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
@@ -84,6 +86,9 @@
         <attribute name="colorCastHue" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="brightnessCDF" optional="YES" attributeType="Binary"/>
         <attribute name="advancedColorAnalysisData" optional="YES" attributeType="Binary"/>
+        <attribute name="visualRepresentativeColorR" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="visualRepresentativeColorG" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="visualRepresentativeColorB" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
         <relationship name="metadata" optional="YES" toMany="NO" deletionRule="Cascade" destinationEntity="PhotoMetadataEntity" inverseName="photoAnalysis" inverseEntity="PhotoMetadataEntity"/>
         <relationship name="primaryCluster" optional="YES" deletionRule="Nullify" destinationEntity="ColorClusterEntity" inverseName="photoAnalyses" inverseEntity="ColorClusterEntity"/>
         <relationship name="session" optional="YES" deletionRule="Nullify" destinationEntity="AnalysisSessionEntity" inverseName="photoAnalyses" inverseEntity="AnalysisSessionEntity"/>

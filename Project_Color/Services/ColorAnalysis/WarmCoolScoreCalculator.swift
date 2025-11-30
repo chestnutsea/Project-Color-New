@@ -49,6 +49,24 @@ class WarmCoolScoreCalculator {
     /// 代表色（全局调性）权重
     private let paletteWeight: Float = 0.3
     
+    // MARK: - 色偏分析布局常量
+    
+    /// Gamma 值（用于权重计算）
+    private let colorCastGamma: Float = 2.0
+    
+    /// 阴影亮度百分位数（L < P15(L) 为阴影）
+    private let shadowPercentile: Float = 15.0
+    
+    /// 高光亮度百分位数（L > P85(L) 为高光）
+    private let highlightPercentile: Float = 85.0
+    
+    /// L_norm 归一化范围：使用 P5 和 P95
+    private let lNormMinPercentile: Float = 5.0
+    private let lNormMaxPercentile: Float = 95.0
+    
+    /// 色偏强度归一化最大值（用于显示）
+    private let colorCastStrengthMax: Float = 40.0
+    
     // MARK: - 主入口：计算单张照片的冷暖评分
     
     /// 为单张照片计算完整的高级色彩分析（新算法：SLIC + 代表色融合 + 色偏分析）
@@ -167,14 +185,24 @@ class WarmCoolScoreCalculator {
         if let cast = colorCastResult {
             print("  🎨 色偏分析:")
             print("     RMS 对比度: \(String(format: "%.2f", cast.rms))")
-            print("     ━━ 高光区域 ━━")
-            print("     a*: \(String(format: "%.2f", cast.highlightAMean)), b*: \(String(format: "%.2f", cast.highlightBMean))")
-            print("     偏色强度: \(String(format: "%.2f", cast.highlightCast))")
-            print("     色偏方向: \(String(format: "%.1f°", cast.highlightHueDegrees))")
-            print("     ━━ 阴影区域 ━━")
-            print("     a*: \(String(format: "%.2f", cast.shadowAMean)), b*: \(String(format: "%.2f", cast.shadowBMean))")
-            print("     偏色强度: \(String(format: "%.2f", cast.shadowCast))")
-            print("     色偏方向: \(String(format: "%.1f°", cast.shadowHueDegrees))")
+            if let hA = cast.highlightAMean, let hB = cast.highlightBMean,
+               let hCast = cast.highlightCast, let hHue = cast.highlightHueDegrees {
+                print("     ━━ 高光区域 ━━")
+                print("     a*: \(String(format: "%.2f", hA)), b*: \(String(format: "%.2f", hB))")
+                print("     偏色强度: \(String(format: "%.2f", hCast))")
+                print("     色偏方向: \(String(format: "%.1f°", hHue))")
+            } else {
+                print("     ━━ 高光区域 ━━ (不输出，ratio < 1%)")
+            }
+            if let sA = cast.shadowAMean, let sB = cast.shadowBMean,
+               let sCast = cast.shadowCast, let sHue = cast.shadowHueDegrees {
+                print("     ━━ 阴影区域 ━━")
+                print("     a*: \(String(format: "%.2f", sA)), b*: \(String(format: "%.2f", sB))")
+                print("     偏色强度: \(String(format: "%.2f", sCast))")
+                print("     色偏方向: \(String(format: "%.1f°", sHue))")
+            } else {
+                print("     ━━ 阴影区域 ━━ (不输出，ratio < 1%)")
+            }
             print("     ━━ 平均值（兼容）━━")
             print("     a*: \(String(format: "%.2f", cast.aMean)), b*: \(String(format: "%.2f", cast.bMean))")
             print("     偏色强度: \(String(format: "%.2f", cast.cast))")
@@ -812,7 +840,7 @@ class WarmCoolScoreCalculator {
     
     // MARK: - 色偏分析（Color Cast Analysis）
     
-    /// 分析图像的色偏（基于 Lab 色彩空间，分别计算高光和阴影区域）
+    /// 分析图像的色偏（基于 Lab 色彩空间，使用百分位数加权算法）
     /// - Parameters:
     ///   - labBuffer: Lab 色彩空间数据 [L, a, b, L, a, b, ...]
     ///   - width: 图像宽度
@@ -826,6 +854,7 @@ class WarmCoolScoreCalculator {
         
         let pixelCount = width * height
         guard pixelCount > 0 else { return nil }
+        let N = Float(pixelCount)
         
         // --- 1. 分离 L, a, b 通道 ---
         var Ls = [Float](repeating: 0, count: pixelCount)
@@ -840,88 +869,154 @@ class WarmCoolScoreCalculator {
         }
         
         // --- 2. 计算 RMS 对比度（基于 L 通道）---
-        let Lmean = Ls.reduce(0, +) / Float(pixelCount)
-        let variance = Ls.map { ($0 - Lmean) * ($0 - Lmean) }.reduce(0, +) / Float(pixelCount)
+        let Lmean = Ls.reduce(0, +) / N
+        let variance = Ls.map { ($0 - Lmean) * ($0 - Lmean) }.reduce(0, +) / N
         let rms = sqrt(variance)
         
-        // --- 3. 固定高光/阴影阈值 ---
-        let shadowT: Float = 30.0      // 阴影：L < 30
-        let highlightT: Float = 70.0   // 高光：L > 70
+        // --- 3. 计算百分位数 ---
+        let sortedL = Ls.sorted()
         
-        // --- 4. 累加器（分别统计高光和阴影区域）---
-        var shadowASum: Float = 0
-        var shadowBSum: Float = 0
-        var shadowCount: Float = 0
-        var shadowTotalCount: Float = 0  // 统计所有阴影像素（包括被色度过滤的）
+        func percentile(_ sorted: [Float], _ p: Float) -> Float {
+            let index = (p / 100.0) * Float(sorted.count - 1)
+            let lower = Int(floor(index))
+            let upper = min(lower + 1, sorted.count - 1)
+            let frac = index - Float(lower)
+            return sorted[lower] * (1 - frac) + sorted[upper] * frac
+        }
         
-        var highlightASum: Float = 0
-        var highlightBSum: Float = 0
-        var highlightCount: Float = 0
-        var highlightTotalCount: Float = 0  // 统计所有高光像素
+        let P5_L = percentile(sortedL, lNormMinPercentile)
+        let P15_L = percentile(sortedL, shadowPercentile)
+        let P85_L = percentile(sortedL, highlightPercentile)
+        let P95_L = percentile(sortedL, lNormMaxPercentile)
+        
+        #if DEBUG
+        print("     色偏分析统计（百分位数加权算法）:")
+        print("       - 平均亮度: \(String(format: "%.1f", Lmean)), RMS: \(String(format: "%.1f", rms))")
+        print("       - P5(L)=\(String(format: "%.1f", P5_L)), P15(L)=\(String(format: "%.1f", P15_L)), P85(L)=\(String(format: "%.1f", P85_L)), P95(L)=\(String(format: "%.1f", P95_L))")
+        #endif
+        
+        // --- 4. 计算 L_norm 范围 ---
+        let L_range = P95_L - P5_L
+        guard L_range > 0 else {
+            #if DEBUG
+            print("       ⚠️ L 范围过小（P95-P5 = 0），无法计算色偏")
+            #endif
+            return nil
+        }
+        
+        // --- 5. 加权累加（所有像素参与，权重基于 L_norm）---
+        // 阴影：用于计算色偏方向和强度
+        var shadowWeightedASum: Float = 0
+        var shadowWeightedBSum: Float = 0
+        var shadowWeightSum: Float = 0
+        // 阴影：用于计算显示颜色的 LAB 加权平均
+        var shadowWeightedLSum: Float = 0
+        var shadowColorASum: Float = 0
+        var shadowColorBSum: Float = 0
+        
+        // 高光：用于计算色偏方向和强度
+        var highlightWeightedASum: Float = 0
+        var highlightWeightedBSum: Float = 0
+        var highlightWeightSum: Float = 0
+        // 高光：用于计算显示颜色的 LAB 加权平均
+        var highlightWeightedLSum: Float = 0
+        var highlightColorASum: Float = 0
+        var highlightColorBSum: Float = 0
         
         for i in 0..<pixelCount {
             let L = Ls[i]
             let a = As[i]
             let b = Bs[i]
             
-            // 先统计总数
-            if L < shadowT {
-                shadowTotalCount += 1
-            }
-            if L > highlightT {
-                highlightTotalCount += 1
+            // L_norm = clamp((L - P5(L)) / (P95(L) - P5(L)), 0, 1)
+            let L_norm = max(0, min(1, (L - P5_L) / L_range))
+            
+            // 阴影：只有 L < P15(L) 的像素才参与计算
+            // 阴影区域内的权重：越暗权重越大
+            if L < P15_L {
+                // 在阴影区域内，计算相对权重（L 越小权重越大）
+                let shadowRelativeL = max(0, min(1, (P15_L - L) / (P15_L - P5_L)))
+                let shadowWeight = pow(shadowRelativeL, colorCastGamma)
+                
+                shadowWeightedASum += a * shadowWeight
+                shadowWeightedBSum += b * shadowWeight
+                shadowWeightSum += shadowWeight
+                shadowWeightedLSum += L * shadowWeight
+                shadowColorASum += a * shadowWeight
+                shadowColorBSum += b * shadowWeight
             }
             
-            let C = a * a + b * b
-            if C > 225 { continue }  // 跳过高饱和像素 (C < 15)
-            
-            if L < shadowT {
-                shadowASum += a
-                shadowBSum += b
-                shadowCount += 1
-            }
-            
-            if L > highlightT {
-                highlightASum += a
-                highlightBSum += b
-                highlightCount += 1
+            // 高光：只有 L > P85(L) 的像素才参与计算
+            // 高光区域内的权重：越亮权重越大
+            if L > P85_L {
+                // 在高光区域内，计算相对权重（L 越大权重越大）
+                let highlightRelativeL = max(0, min(1, (L - P85_L) / (P95_L - P85_L)))
+                let highlightWeight = pow(highlightRelativeL, colorCastGamma)
+                
+                highlightWeightedASum += a * highlightWeight
+                highlightWeightedBSum += b * highlightWeight
+                highlightWeightSum += highlightWeight
+                highlightWeightedLSum += L * highlightWeight
+                highlightColorASum += a * highlightWeight
+                highlightColorBSum += b * highlightWeight
             }
         }
         
-        // 避免空区域
-        guard shadowCount > 0 || highlightCount > 0 else { return nil }
+        // --- 6. 计算加权平均 ---
+        var shadowAMean: Float? = nil
+        var shadowBMean: Float? = nil
+        var shadowCast: Float? = nil
+        var shadowHue: Float? = nil
+        var shadowLMean: Float? = nil
         
-        #if DEBUG
-        print("     色偏分析统计:")
-        print("       - 平均亮度: \(String(format: "%.1f", Lmean)), RMS: \(String(format: "%.1f", rms))")
-        print("       - 阴影像素: 总数 \(Int(shadowTotalCount)), 低饱和度 \(Int(shadowCount)) (C<15)")
-        print("       - 高光像素: 总数 \(Int(highlightTotalCount)), 低饱和度 \(Int(highlightCount)) (C<15)")
-        print("       - 阴影阈值: L < \(String(format: "%.1f", shadowT))")
-        print("       - 高光阈值: L > \(String(format: "%.1f", highlightT))")
-        if shadowCount == 0 {
-            print("       ⚠️ 阴影区域没有低饱和度像素 (C<15)，无法计算色偏")
-        }
-        #endif
+        var highlightAMean: Float? = nil
+        var highlightBMean: Float? = nil
+        var highlightCast: Float? = nil
+        var highlightHue: Float? = nil
+        var highlightLMean: Float? = nil
         
-        // --- 5. 计算平均值 ---
-        let shadowAMean = shadowASum / max(shadowCount, 1)
-        let shadowBMean = shadowBSum / max(shadowCount, 1)
-        
-        let highlightAMean = highlightASum / max(highlightCount, 1)
-        let highlightBMean = highlightBSum / max(highlightCount, 1)
-        
-        // --- 6. 计算色偏强度 ---
-        let shadowCast = sqrt(shadowAMean * shadowAMean + shadowBMean * shadowBMean)
-        let highlightCast = sqrt(highlightAMean * highlightAMean + highlightBMean * highlightBMean)
-        
-        // --- 7. 计算色相角度 ---
+        // 色相计算函数（0° 在3点钟位置）
         func computeHue(a: Float, b: Float) -> Float {
             let h = atan2(b, a) * 180 / .pi
             return h >= 0 ? h : h + 360
         }
         
-        let shadowHue = computeHue(a: shadowAMean, b: shadowBMean)
-        let highlightHue = computeHue(a: highlightAMean, b: highlightBMean)
+        // 阴影色偏（始终计算，只要有权重）
+        if shadowWeightSum > 0 {
+            let aMean = shadowWeightedASum / shadowWeightSum
+            let bMean = shadowWeightedBSum / shadowWeightSum
+            shadowAMean = aMean
+            shadowBMean = bMean
+            shadowCast = sqrt(aMean * aMean + bMean * bMean)
+            shadowHue = computeHue(a: aMean, b: bMean)
+            shadowLMean = shadowWeightedLSum / shadowWeightSum
+            
+            #if DEBUG
+            print("       - 阴影色偏: a=\(String(format: "%.2f", aMean)), b=\(String(format: "%.2f", bMean)), strength=\(String(format: "%.2f", shadowCast!)), hue=\(String(format: "%.1f°", shadowHue!))")
+            print("         阴影颜色 LAB: L=\(String(format: "%.1f", shadowLMean!)), a=\(String(format: "%.2f", aMean)), b=\(String(format: "%.2f", bMean))")
+            #endif
+        }
+        
+        // 高光色偏（始终计算，只要有权重）
+        if highlightWeightSum > 0 {
+            let aMean = highlightWeightedASum / highlightWeightSum
+            let bMean = highlightWeightedBSum / highlightWeightSum
+            highlightAMean = aMean
+            highlightBMean = bMean
+            highlightCast = sqrt(aMean * aMean + bMean * bMean)
+            highlightHue = computeHue(a: aMean, b: bMean)
+            highlightLMean = highlightWeightedLSum / highlightWeightSum
+            
+            #if DEBUG
+            print("       - 高光色偏: a=\(String(format: "%.2f", aMean)), b=\(String(format: "%.2f", bMean)), strength=\(String(format: "%.2f", highlightCast!)), hue=\(String(format: "%.1f°", highlightHue!))")
+            print("         高光颜色 LAB: L=\(String(format: "%.1f", highlightLMean!)), a=\(String(format: "%.2f", aMean)), b=\(String(format: "%.2f", bMean))")
+            #endif
+        }
+        
+        // 如果两者都没有计算出来，返回 nil
+        guard shadowCast != nil || highlightCast != nil else {
+            return nil
+        }
         
         return ColorCastResult(
             rms: rms,
@@ -929,10 +1024,12 @@ class WarmCoolScoreCalculator {
             highlightBMean: highlightBMean,
             highlightCast: highlightCast,
             highlightHueDegrees: highlightHue,
+            highlightLMean: highlightLMean,
             shadowAMean: shadowAMean,
             shadowBMean: shadowBMean,
             shadowCast: shadowCast,
-            shadowHueDegrees: shadowHue
+            shadowHueDegrees: shadowHue,
+            shadowLMean: shadowLMean
         )
     }
 }

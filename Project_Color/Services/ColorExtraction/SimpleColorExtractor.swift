@@ -540,13 +540,13 @@ class SimpleColorExtractor {
         for _ in 0..<maxIterations {
             var changed = false
             
-            // 分配阶段（使用 ΔE 距离）
+            // 分配阶段（使用欧几里得距离）
             for (i, point) in points.enumerated() {
                 var minDistance = Float.greatestFiniteMagnitude
                 var closestCluster = 0
                 
                 for (j, centroid) in centroids.enumerated() {
-                    let distance = converter.deltaE(point, centroid)
+                    let distance = euclideanDistance(point, centroid)
                     if distance < minDistance {
                         minDistance = distance
                         closestCluster = j
@@ -614,10 +614,10 @@ class SimpleColorExtractor {
         for _ in 1..<k {
             var distances = [Float](repeating: Float.greatestFiniteMagnitude, count: points.count)
             
-            // 计算每个点到最近质心的距离
+            // 计算每个点到最近质心的距离（使用欧几里得距离）
             for (i, point) in points.enumerated() {
                 for centroid in centroids {
-                    let distance = converter.deltaE(point, centroid)
+                    let distance = euclideanDistance(point, centroid)
                     distances[i] = min(distances[i], distance)
                 }
             }
@@ -655,9 +655,9 @@ class SimpleColorExtractor {
             while j < merged.count {
                 let lab1 = converter.rgbToLab(merged[i].rgb)
                 let lab2 = converter.rgbToLab(merged[j].rgb)
-                let deltaE = converter.deltaE(lab1, lab2)
+                let distance = euclideanDistance(lab1, lab2)
                 
-                if deltaE < threshold {
+                if distance < threshold {
                     // 合并 j 到 i（按权重加权平均）
                     let totalWeight = merged[i].weight + merged[j].weight
                     let w1 = merged[i].weight / totalWeight

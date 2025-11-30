@@ -8,47 +8,26 @@
 import SwiftUI
 
 struct TemperatureDistributionView: View {
+    private enum Layout {
+        static let barOpacity: Double = 1.0  // 彩条透明度
+        static let labelOpacity: Double = 1.0  // 冷暖文字透明度
+        static let saturation: Double = 0.8  // 彩条饱和度（布局常量）
+    }
+    
     let distribution: WarmCoolDistribution
-    let dominantColor: Color  // 全局最 dominant 的颜色
+    let dominantColor: Color  // 全局最 dominant 的颜色（作为后备）
+    var photoInfos: [PhotoColorInfo] = []  // 用于获取每张照片的主色
     
     private let barHeight: CGFloat = 12
-    private let markerSize: CGFloat = 8
+    private let markerSize: CGFloat = 10  // 与散点图的 pointDiameter 一致
+    private let markerOpacity: Double = 0.8  // 圆点透明度（布局常量）
     private let axisHeight: CGFloat = 2
     private let spacing: CGFloat = 12
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // 标题
-            HStack {
-                Image(systemName: "thermometer")
-                    .foregroundColor(.orange)
-                Text("温度分布")
-                    .font(.headline)
-                
-                Spacer()
-                
-                Text("\(distribution.scores.count) 张照片")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            
-            VStack(spacing: spacing) {
-                // 上方：渐变色条
-                LinearGradient(
-                    gradient: Gradient(colors: [
-                        Color.blue,
-                        Color.cyan,
-                        Color.gray,
-                        Color.orange,
-                        Color.red
-                    ]),
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-                .frame(height: barHeight)
-                .cornerRadius(6)
-                
-                // 下方：X 轴 + 所有照片的小黑点
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(spacing: 4) {
+                // 上方：散点轴 + 所有照片的小点
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         // X 轴
@@ -57,11 +36,11 @@ struct TemperatureDistributionView: View {
                             .frame(height: axisHeight)
                             .frame(width: geo.size.width)
                         
-                        // 所有照片的小黑点（使用全局代表色，透明度 0.5）
+                        // 所有照片的小点（使用每张照片最主要的主色，大小和透明度与散点图一致）
                         ForEach(Array(distribution.scores.keys.sorted()), id: \.self) { key in
                             if let score = distribution.scores[key] {
                                 Circle()
-                                    .fill(dominantColor.opacity(0.5))
+                                    .fill(colorForPhoto(assetIdentifier: key).opacity(markerOpacity))
                                     .frame(width: markerSize, height: markerSize)
                                     .offset(x: xPosition(for: score.overallScore, in: geo.size.width))
                             }
@@ -69,18 +48,58 @@ struct TemperatureDistributionView: View {
                     }
                 }
                 .frame(height: markerSize + 4)
+                
+                // 中间：渐变色条
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color(hue: 0.55, saturation: Layout.saturation, brightness: 1.0),  // 蓝色
+                        Color(hue: 0.5, saturation: Layout.saturation, brightness: 1.0),   // 青色
+                        Color(hue: 0.0, saturation: 0.0, brightness: 0.5),                // 灰色
+                        Color(hue: 0.1, saturation: Layout.saturation, brightness: 1.0),  // 橙色
+                        Color(hue: 0.0, saturation: Layout.saturation, brightness: 1.0)   // 红色
+                    ]),
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .opacity(Layout.barOpacity)
+                .frame(height: barHeight)
+                .cornerRadius(6)
+                
+                // 下方：冷、暖标签，分别对齐左右两端
+                HStack {
+                    Text("冷")
+                        .font(.caption)
+                        .foregroundColor(.blue.opacity(Layout.labelOpacity))  // 与左端颜色一致，透明度与色相环圆一致
+                    Spacer()
+                    Text("暖")
+                        .font(.caption)
+                        .foregroundColor(.red.opacity(Layout.labelOpacity))  // 与右端颜色一致，透明度与色相环圆一致
+                }
             }
         }
         .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(15)
-        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
     }
     
     // 把 -1 ~ 1 映射到 0 ~ width
     private func xPosition(for temperature: Float, in width: CGFloat) -> CGFloat {
         let normalized = (CGFloat(temperature) + 1) / 2   // 映射到 0~1
         return normalized * width - markerSize / 2
+    }
+    
+    // 获取照片的视觉代表色（5个主色在 LAB 空间的加权平均）
+    private func colorForPhoto(assetIdentifier: String) -> Color {
+        // 在 photoInfos 中查找对应的照片
+        if let photoInfo = photoInfos.first(where: { $0.assetIdentifier == assetIdentifier }) {
+            // 使用视觉代表色
+            if let visualRGB = photoInfo.visualRepresentativeColor {
+                return Color(red: Double(visualRGB.x), green: Double(visualRGB.y), blue: Double(visualRGB.z))
+            } else if let primaryColor = photoInfo.dominantColors.first {
+                // 如果没有视觉代表色，回退到最主要的主色
+                return primaryColor.color
+            }
+        }
+        // 如果找不到，使用全局代表色
+        return dominantColor
     }
 }
 

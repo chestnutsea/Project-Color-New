@@ -36,13 +36,102 @@ private enum LayoutConstants {
     // 使用 .ultraThinMaterial, .thinMaterial, .regularMaterial, .thickMaterial, .ultraThickMaterial
 }
 
-// MARK: - Apple 风真实漂流运动参数
+// MARK: - Perlin Noise 运动参数
 
-private enum AppleMotion {
-    static let damping: CGFloat = 1        // 极弱阻尼 → 可长期漂流
-    static let driftStrength: CGFloat = 0.002  // 极小扰动 → 防止死直线
-    static let maxSpeed: CGFloat = 0.5         // 最大速度
-    static let boundarySoftness: CGFloat = 0.85 // 软回弹
+private enum PerlinMotion {
+    static let noiseScale: CGFloat = 0.003     // 噪声缩放因子（值越小运动越平滑）
+    static let timeScale: CGFloat = 0.008      // 时间缩放因子（值越小变化越慢）
+    static let maxSpeed: CGFloat = 0.6         // 最大速度
+    static let boundarySoftness: CGFloat = 0.3 // 边界软回弹力度
+    static let boundaryPadding: CGFloat = 16   // 边界安全距离
+}
+
+// MARK: - Perlin Noise 生成器
+
+private struct PerlinNoise {
+    // 预计算的随机梯度表（256 个）
+    private static let permutation: [Int] = {
+        var p = Array(0..<256)
+        // 使用固定种子打乱，确保每次运行一致
+        var rng = SeededRandomNumberGenerator(seed: 42)
+        p.shuffle(using: &rng)
+        return p + p // 复制一份避免越界
+    }()
+    
+    // 梯度向量（2D）- 使用元组代替 SIMD2
+    private static let gradients: [(Double, Double)] = {
+        let sqrt2inv = 1.0 / sqrt(2.0)
+        return [
+            (1, 0), (-1, 0), (0, 1), (0, -1),
+            (sqrt2inv, sqrt2inv), (-sqrt2inv, sqrt2inv),
+            (sqrt2inv, -sqrt2inv), (-sqrt2inv, -sqrt2inv)
+        ]
+    }()
+    
+    // 获取 2D Perlin Noise 值（范围 -1 到 1）
+    static func noise2D(x: CGFloat, y: CGFloat) -> CGFloat {
+        let xd = Double(x)
+        let yd = Double(y)
+        
+        // 获取整数部分
+        let xi = Int(floor(xd)) & 255
+        let yi = Int(floor(yd)) & 255
+        
+        // 获取小数部分
+        let xf = xd - floor(xd)
+        let yf = yd - floor(yd)
+        
+        // 平滑插值曲线（6t^5 - 15t^4 + 10t^3）
+        let u = fade(xf)
+        let v = fade(yf)
+        
+        // 获取四个角的梯度索引
+        let aa = permutation[permutation[xi] + yi] & 7
+        let ab = permutation[permutation[xi] + yi + 1] & 7
+        let ba = permutation[permutation[xi + 1] + yi] & 7
+        let bb = permutation[permutation[xi + 1] + yi + 1] & 7
+        
+        // 计算四个角的点积
+        let gradAA = gradients[aa]
+        let gradAB = gradients[ab]
+        let gradBA = gradients[ba]
+        let gradBB = gradients[bb]
+        
+        let dotAA = gradAA.0 * xf + gradAA.1 * yf
+        let dotAB = gradAB.0 * xf + gradAB.1 * (yf - 1)
+        let dotBA = gradBA.0 * (xf - 1) + gradBA.1 * yf
+        let dotBB = gradBB.0 * (xf - 1) + gradBB.1 * (yf - 1)
+        
+        // 双线性插值
+        let x1 = lerp(dotAA, dotBA, u)
+        let x2 = lerp(dotAB, dotBB, u)
+        
+        return CGFloat(lerp(x1, x2, v))
+    }
+    
+    // 平滑曲线
+    private static func fade(_ t: Double) -> Double {
+        return t * t * t * (t * (t * 6 - 15) + 10)
+    }
+    
+    // 线性插值
+    private static func lerp(_ a: Double, _ b: Double, _ t: Double) -> Double {
+        return a + t * (b - a)
+    }
+}
+
+// 固定种子随机数生成器
+private struct SeededRandomNumberGenerator: RandomNumberGenerator {
+    private var state: UInt64
+    
+    init(seed: UInt64) {
+        state = seed
+    }
+    
+    mutating func next() -> UInt64 {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        return state
+    }
 }
 
 // MARK: - 主视图（EmergeView）
@@ -55,7 +144,6 @@ struct EmergeView: View {
     @State private var selectedCircleID: UUID? = nil  // 选中的圆形 ID
     @State private var fullScreenPhotoIndex: Int? = nil  // 全屏查看的照片索引
     @State private var fullScreenPhotos: [ViewModel.PhotoInfo] = []  // 全屏查看的照片列表
-    @Namespace private var heroNamespace  // Hero animation namespace
     
     // ✅ 锚点状态：记录点击时圆形的位置和半径
     @State private var anchorPosition: CGPoint = .zero
@@ -65,6 +153,7 @@ struct EmergeView: View {
     
     // ✅ 防止重复加载
     @State private var hasLoadedOnce = false
+    @State private var lastKnownPhotoCount: Int = 0  // 上次已知的照片数量
     
     // ✅ 计算属性：根据 ID 获取实时的 circle 数据（用于颜色等信息，不用于位置）
     private var selectedCircle: ViewModel.ColorCircle? {
@@ -112,29 +201,14 @@ struct EmergeView: View {
                                     anchorColor = circle.color
                                     anchorPhotos = circle.photos
                                     
-                                    // 暂停动画
-                                    isAnimating = false
-                                    
-                                    withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                                        selectedCircleID = circle.id
-                                    }
+                                    // 直接显示详情视图，无动画，圆继续移动
+                                    selectedCircleID = circle.id
                                 }
                         }
                     }
                 }
                 
-                // ✅ Hero 动画锚点（未选中时在圆形位置，选中时变为详情视图）
-                if selectedCircleID == nil && anchorRadius > 0 {
-                    // 未选中：锚点圆形（不可见，用于动画目标）
-                    Circle()
-                        .fill(anchorColor)
-                        .frame(width: anchorRadius * 2, height: anchorRadius * 2)
-                        .position(anchorPosition)
-                        .matchedGeometryEffect(id: "hero-anchor", in: heroNamespace)
-                        .opacity(0)
-                }
-                
-                // ✅ 详情视图（选中时显示）
+                // ✅ 详情视图（选中时显示，无动画）
                 if selectedCircleID != nil {
                     detailView()
                 }
@@ -161,21 +235,37 @@ struct EmergeView: View {
             .onAppear {
                 screenSize = geometry.size
                 
-                // ✅ 只在首次加载时执行聚类，避免重复计算
-                guard !hasLoadedOnce else {
-                    // 恢复动画（如果已有数据）
-                    if !viewModel.colorCircles.isEmpty {
-                        isAnimating = true
-                    }
-                    return
-                }
-                
-                hasLoadedOnce = true
-                isAnimating = false
-                viewModel.reset()
-                
+                // ✅ 检查照片数量是否变化（增加或删除了照片）
                 Task {
-                    await viewModel.performClustering(screenSize: geometry.size)
+                    let currentPhotoCount = await viewModel.fetchCurrentPhotoCount()
+                    
+                    await MainActor.run {
+                        // 如果照片数量变化，需要重新聚类
+                        let photoCountChanged = hasLoadedOnce && currentPhotoCount != lastKnownPhotoCount
+                        
+                        if photoCountChanged {
+                            print("📊 显影页：检测到照片数量变化 \(lastKnownPhotoCount) → \(currentPhotoCount)，重新聚类")
+                            hasLoadedOnce = false  // 重置标志，触发重新聚类
+                        }
+                        
+                        // 只在首次加载或照片数量变化时执行聚类
+                        guard !hasLoadedOnce else {
+                            // 恢复动画（如果已有数据）
+                            if !viewModel.colorCircles.isEmpty {
+                                isAnimating = true
+                            }
+                            return
+                        }
+                        
+                        hasLoadedOnce = true
+                        lastKnownPhotoCount = currentPhotoCount
+                        isAnimating = false
+                        viewModel.reset()
+                        
+                        Task {
+                            await viewModel.performClustering(screenSize: geometry.size)
+                        }
+                    }
                 }
             }
             .onDisappear {
@@ -189,13 +279,7 @@ struct EmergeView: View {
             }
             .onReceive(timer) { _ in
                 guard isAnimating else { return }
-                viewModel.updateAppleStyleMotion(
-                    screenSize: screenSize,
-                    damping: AppleMotion.damping,
-                    drift: AppleMotion.driftStrength,
-                    maxSpeed: AppleMotion.maxSpeed,
-                    boundarySoftness: AppleMotion.boundarySoftness
-                )
+                viewModel.updatePerlinNoiseMotion(screenSize: screenSize)
             }
         }
     }
@@ -216,6 +300,11 @@ final class ViewModel: ObservableObject {
         var radius: CGFloat
         var velocity: CGPoint
         var photos: [PhotoInfo] = []  // 预计算的归属照片
+        
+        // Perlin Noise 运动参数
+        var noiseOffsetX: CGFloat = 0  // X 方向噪声偏移
+        var noiseOffsetY: CGFloat = 0  // Y 方向噪声偏移
+        var time: CGFloat = 0          // 时间累积
     }
     
     struct PhotoInfo: Identifiable {
@@ -248,6 +337,25 @@ final class ViewModel: ObservableObject {
         analyzedPhotoCount = 0
     }
     
+    /// 获取当前数据库中的照片数量（在后台线程执行）
+    func fetchCurrentPhotoCount() async -> Int {
+        return await Task.detached(priority: .userInitiated) { [coreDataManager] in
+            let context = coreDataManager.newBackgroundContext()
+            var count = 0
+            
+            context.performAndWait {
+                let request = PhotoAnalysisEntity.fetchRequest()
+                do {
+                    count = try context.count(for: request)
+                } catch {
+                    print("❌ 获取照片数量失败: \(error)")
+                }
+            }
+            
+            return count
+        }.value
+    }
+    
     // ✅ 聚类逻辑：使用 assignments 直接追溯照片归属
     func performClustering(screenSize: CGSize) async {
         isLoading = true
@@ -274,7 +382,7 @@ final class ViewModel: ObservableObject {
         }
         
         colorCircles = result.circles
-        isLoading = false
+            isLoading = false
     }
     
     // 聚类结果结构
@@ -284,6 +392,13 @@ final class ViewModel: ObservableObject {
         let error: String?
     }
     
+    // MARK: - 欧几里得距离（与 SimpleKMeans 保持一致）
+    /// 在 LAB 空间使用欧几里得距离，将颜色视为 3D 向量 (L, a, b)
+    nonisolated private static func euclideanDistance(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
+        let diff = a - b
+        return sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z)
+    }
+    
     // ✅ 后台线程执行聚类计算（内存优化版）
     nonisolated private static func performClusteringBackground(
         coreDataManager: CoreDataManager,
@@ -291,8 +406,8 @@ final class ViewModel: ObservableObject {
         converter: ColorSpaceConverter,
         screenSize: CGSize
     ) -> ClusteringBackgroundResult {
-        // 获取颜色数据
-        let (colorSources, photoCount) = fetchColorsWithSourceBackground(coreDataManager: coreDataManager)
+        // 获取颜色数据和预存储的视觉代表色
+        let (colorSources, photoCount, storedVisualColors) = fetchColorsWithSourceBackground(coreDataManager: coreDataManager)
         
         guard photoCount >= 10 else {
             return ClusteringBackgroundResult(circles: [], photoCount: photoCount, error: nil)
@@ -354,10 +469,19 @@ final class ViewModel: ObservableObject {
             return ClusteringBackgroundResult(circles: [], photoCount: photoCount, error: "聚类失败")
         }
         
-        // ✅ 优化：直接从 colorsWithLAB 构建照片颜色字典，无需重复转换
-        var photoColors: [String: [(lab: SIMD3<Float>, weight: Float)]] = [:]
-        photoColors.reserveCapacity(photoCount)
+        // ✅ 使用存储的视觉代表色分配照片
+        // 如果没有存储的视觉代表色，则回退到旧逻辑（从 dominantColors 计算）
+        var photoVisualColor: [String: SIMD3<Float>] = [:]
+        photoVisualColor.reserveCapacity(photoCount)
         
+        // 收集所有照片的 assetId
+        var allAssetIds = Set<String>()
+        for color in colorsWithLAB {
+            allAssetIds.insert(color.assetIdentifier)
+        }
+        
+        // 构建照片颜色字典（用于回退计算）
+        var photoColors: [String: [(lab: SIMD3<Float>, weight: Float)]] = [:]
         for color in colorsWithLAB {
             let assetId = color.assetIdentifier
             if photoColors[assetId] == nil {
@@ -366,45 +490,47 @@ final class ViewModel: ObservableObject {
             photoColors[assetId]?.append((lab: color.lab, weight: color.weight))
         }
         
-        // 释放 colorsWithLAB，不再需要
-        // colorsWithLAB 在此作用域结束后自动释放
-        
-        // 每张照片选择视觉代表色
-        var photoVisualColor: [String: SIMD3<Float>] = [:]
-        photoVisualColor.reserveCapacity(photoColors.count)
-        
-        for (assetId, colors) in photoColors {
-            var bestLab: SIMD3<Float>? = nil
-            var bestScore: Float = -Float.infinity
-            
-            for color in colors {
-                let L = color.lab.x
-                let chroma = sqrt(color.lab.y * color.lab.y + color.lab.z * color.lab.z)
-                let weight = color.weight
+        for assetId in allAssetIds {
+            // ✅ 优先使用存储的视觉代表色
+            if let storedRGB = storedVisualColors[assetId] {
+                // 将存储的 RGB 转换为 LAB
+                let storedLAB = converter.rgbToLab(storedRGB)
+                photoVisualColor[assetId] = storedLAB
+            } else {
+                // 回退：从 dominantColors 计算视觉代表色
+                guard let colors = photoColors[assetId] else { continue }
                 
-                let chromaFactor: Float = chroma < LayoutConstants.chromaThreshold 
-                    ? LayoutConstants.lowChromaFactor : 1.0
-                let darkFactor: Float = L < LayoutConstants.darkLThreshold 
-                    ? LayoutConstants.darkFactor : 1.0
-                let brightFactor: Float = L > LayoutConstants.brightLThreshold 
-                    ? LayoutConstants.brightFactor : 1.0
-                let areaFactor: Float = weight < LayoutConstants.smallAreaThreshold 
-                    ? LayoutConstants.smallAreaFactor : 1.0
+                var bestLab: SIMD3<Float>? = nil
+                var bestScore: Float = -Float.infinity
                 
-                let visualScore = weight * chromaFactor * darkFactor * brightFactor * areaFactor
-                if visualScore > bestScore {
-                    bestScore = visualScore
-                    bestLab = color.lab
+                for color in colors {
+                    let L = color.lab.x
+                    let chroma = sqrt(color.lab.y * color.lab.y + color.lab.z * color.lab.z)
+                    let weight = color.weight
+                    
+                    let chromaFactor: Float = chroma < LayoutConstants.chromaThreshold 
+                        ? LayoutConstants.lowChromaFactor : 1.0
+                    let darkFactor: Float = L < LayoutConstants.darkLThreshold 
+                        ? LayoutConstants.darkFactor : 1.0
+                    let brightFactor: Float = L > LayoutConstants.brightLThreshold 
+                        ? LayoutConstants.brightFactor : 1.0
+                    let areaFactor: Float = weight < LayoutConstants.smallAreaThreshold 
+                        ? LayoutConstants.smallAreaFactor : 1.0
+                    
+                    let visualScore = weight * chromaFactor * darkFactor * brightFactor * areaFactor
+                    if visualScore > bestScore {
+                        bestScore = visualScore
+                        bestLab = color.lab
+                    }
                 }
-            }
-            
-            if let lab = bestLab {
-                photoVisualColor[assetId] = lab
+                
+                if let lab = bestLab {
+                    photoVisualColor[assetId] = lab
+                }
             }
         }
         
-        // 释放 photoColors
-        // photoColors 在此作用域结束后自动释放
+        print("📊 显影页视觉代表色统计: 存储 \(storedVisualColors.count) / 计算 \(photoVisualColor.count - storedVisualColors.count)")
         
         // 将照片分配到最近的簇
         var clusterToPhotos: [Int: [(assetId: String, distance: Float)]] = [:]
@@ -414,7 +540,7 @@ final class ViewModel: ObservableObject {
             var nearestClusterIndex = 0
             
             for (clusterIndex, centroid) in clusterResult.centroids.enumerated() {
-                let distance = converter.deltaE(visualColorLAB, centroid)
+                let distance = euclideanDistance(visualColorLAB, centroid)
                 if distance < minDistance {
                     minDistance = distance
                     nearestClusterIndex = clusterIndex
@@ -463,6 +589,11 @@ final class ViewModel: ObservableObject {
                 .map { PhotoInfo(assetIdentifier: $0.assetId, distance: $0.distance) }
                 .sorted { $0.distance < $1.distance }
             
+            // 为每个圆生成独立的噪声偏移（确保运动不同步）
+            let noiseOffsetX = CGFloat.random(in: 0...1000)
+            let noiseOffsetY = CGFloat.random(in: 0...1000)
+            let initialTime = CGFloat.random(in: 0...100)
+            
             circles.append(ColorCircle(
                 color: color,
                 rgb: centroidRGB,
@@ -471,7 +602,10 @@ final class ViewModel: ObservableObject {
                 position: CGPoint(x: x, y: y),
                 radius: radius,
                 velocity: velocity,
-                photos: clusterPhotos
+                photos: clusterPhotos,
+                noiseOffsetX: noiseOffsetX,
+                noiseOffsetY: noiseOffsetY,
+                time: initialTime
             ))
         }
         
@@ -479,26 +613,34 @@ final class ViewModel: ObservableObject {
     }
     
     // ✅ 获取带来源的颜色信息（后台线程版本，内存优化）
-    nonisolated private static func fetchColorsWithSourceBackground(coreDataManager: CoreDataManager) -> ([ColorWithSource], Int) {
+    nonisolated private static func fetchColorsWithSourceBackground(coreDataManager: CoreDataManager) -> ([ColorWithSource], Int, [String: SIMD3<Float>]) {
         let context = coreDataManager.newBackgroundContext()
         var colorSources: [ColorWithSource] = []
         var photoCount = 0
+        var photoVisualColors: [String: SIMD3<Float>] = [:]  // 存储每张照片的视觉代表色
         
         context.performAndWait {
             let request = PhotoAnalysisEntity.fetchRequest()
-            // 只获取需要的属性，减少内存占用
-            request.propertiesToFetch = ["assetLocalIdentifier", "dominantColors"]
-            
+            // 获取需要的属性
+            request.propertiesToFetch = [
+                "assetLocalIdentifier", 
+                "dominantColors",
+                "visualRepresentativeColorR",
+                "visualRepresentativeColorG",
+                "visualRepresentativeColorB"
+            ]
+        
             do {
                 let results = try context.fetch(request)
                 photoCount = results.count
-                
-                // 预分配容量（每张照片约5个颜色）
+            
+                // 预分配容量
                 colorSources.reserveCapacity(photoCount * 5)
+                photoVisualColors.reserveCapacity(photoCount)
                 
                 // 复用 JSONDecoder
                 let decoder = JSONDecoder()
-                
+            
                 for entity in results {
                     autoreleasepool {
                         guard let assetId = entity.assetLocalIdentifier,
@@ -507,7 +649,17 @@ final class ViewModel: ObservableObject {
                             return
                         }
                         
-                        // 每个颜色都记录来源照片
+                        // 读取存储的视觉代表色（如果有）
+                        let r = entity.visualRepresentativeColorR
+                        let g = entity.visualRepresentativeColorG
+                        let b = entity.visualRepresentativeColorB
+                        
+                        // 如果 RGB 都不为 0，说明有存储的视觉代表色
+                        if r != 0 || g != 0 || b != 0 {
+                            photoVisualColors[assetId] = SIMD3<Float>(r, g, b)
+                        }
+                
+                        // 每个颜色都记录来源照片（用于聚类）
                         for color in colors {
                             colorSources.append(ColorWithSource(
                                 rgb: color.rgb,
@@ -522,49 +674,54 @@ final class ViewModel: ObservableObject {
             }
         }
         
-        return (colorSources, photoCount)
+        return (colorSources, photoCount, photoVisualColors)
     }
     
-    // ✅ 真实漂流运动逻辑（由外部参数驱动）
-    func updateAppleStyleMotion(
-        screenSize: CGSize,
-        damping: CGFloat,
-        drift: CGFloat,
-        maxSpeed: CGFloat,
-        boundarySoftness: CGFloat
-    ) {
+    // ✅ Perlin Noise 驱动的运动逻辑
+    func updatePerlinNoiseMotion(screenSize: CGSize) {
         for i in 0..<colorCircles.count {
             var c = colorCircles[i]
             
-            c.velocity.x *= damping
-            c.velocity.y *= damping
+            // 更新时间
+            c.time += PerlinMotion.timeScale
             
-            c.velocity.x += CGFloat.random(in: -drift...drift)
-            c.velocity.y += CGFloat.random(in: -drift...drift)
+            // 使用 Perlin Noise 计算速度方向
+            // 每个圆有独立的噪声偏移，确保运动不同步
+            let noiseX = PerlinNoise.noise2D(
+                x: c.position.x * PerlinMotion.noiseScale + c.noiseOffsetX,
+                y: c.time
+            )
+            let noiseY = PerlinNoise.noise2D(
+                x: c.position.y * PerlinMotion.noiseScale + c.noiseOffsetY,
+                y: c.time + 100  // 偏移避免 X/Y 相关
+            )
             
-            c.velocity.x = max(min(c.velocity.x, maxSpeed), -maxSpeed)
-            c.velocity.y = max(min(c.velocity.y, maxSpeed), -maxSpeed)
+            // 将噪声值映射到速度（-1~1 → -maxSpeed~maxSpeed）
+            c.velocity.x = noiseX * PerlinMotion.maxSpeed
+            c.velocity.y = noiseY * PerlinMotion.maxSpeed
             
+            // 更新位置
             c.position.x += c.velocity.x
             c.position.y += c.velocity.y
             
-            let pad = c.radius + 16
+            // 边界处理：软回弹
+            let pad = c.radius + PerlinMotion.boundaryPadding
             
             if c.position.x < pad {
                 c.position.x = pad
-                c.velocity.x = abs(c.velocity.x) * boundarySoftness
+                c.velocity.x = abs(c.velocity.x) * PerlinMotion.boundarySoftness
             }
             if c.position.x > screenSize.width - pad {
                 c.position.x = screenSize.width - pad
-                c.velocity.x = -abs(c.velocity.x) * boundarySoftness
+                c.velocity.x = -abs(c.velocity.x) * PerlinMotion.boundarySoftness
             }
             if c.position.y < pad {
                 c.position.y = pad
-                c.velocity.y = abs(c.velocity.y) * boundarySoftness
+                c.velocity.y = abs(c.velocity.y) * PerlinMotion.boundarySoftness
             }
             if c.position.y > screenSize.height - pad {
                 c.position.y = screenSize.height - pad
-                c.velocity.y = -abs(c.velocity.y) * boundarySoftness
+                c.velocity.y = -abs(c.velocity.y) * PerlinMotion.boundarySoftness
             }
             
             colorCircles[i] = c
@@ -620,18 +777,12 @@ extension EmergeView {
             Color.black.opacity(0.3)
                 .ignoresSafeArea()
                 .onTapGesture {
-                    withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                        selectedCircleID = nil
-                    }
-                    // ✅ 恢复动画
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        isAnimating = true
-                    }
+                    // 直接关闭，无动画，圆继续移动
+                    selectedCircleID = nil
                 }
             
-            // 详情矩形（带 Hero 动画）
+            // 详情矩形（无动画）
             detailContentView()
-                .matchedGeometryEffect(id: "hero-anchor", in: heroNamespace)
         }
     }
     
@@ -661,19 +812,12 @@ extension EmergeView {
                 .stroke(anchorColor.opacity(0.5), lineWidth: 1)
         )
         .shadow(color: anchorColor.opacity(0.3), radius: 20, x: 0, y: 10)
-        .clipShape(RoundedRectangle(cornerRadius: LayoutConstants.cornerRadius))
         .gesture(
             DragGesture()
                 .onEnded { value in
-                    // 下滑关闭
+                    // 下滑关闭，无动画，圆继续移动
                     if value.translation.height > 100 {
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                            selectedCircleID = nil
-                        }
-                        // ✅ 恢复动画
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            isAnimating = true
-                        }
+                        selectedCircleID = nil
                     }
                 }
         )
@@ -713,7 +857,6 @@ extension EmergeView {
             .padding(.horizontal, LayoutConstants.gridPadding)
             .padding(.vertical, LayoutConstants.gridPadding)
         }
-        .clipShape(RoundedRectangle(cornerRadius: LayoutConstants.cornerRadius))
     }
 }
 
@@ -888,11 +1031,11 @@ struct FullScreenPhotoView: View {
     }
     
     private func dismissWithAnimation() {
-        withAnimation(.easeOut(duration: 0.2)) {
+        // 直接渐变透明关闭，大小位置不变
+        withAnimation(.easeOut(duration: 0.25)) {
             backgroundOpacity = 0
-            imageScale = 0.8
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
             onDismiss()
         }
     }
@@ -904,6 +1047,10 @@ struct SinglePhotoView: View {
     let assetIdentifier: String
     @State private var image: UIImage?
     @State private var scale: CGFloat = 1.0
+    @State private var lastScale: CGFloat = 1.0
+    
+    private let minScale: CGFloat = 1.0
+    private let maxScale: CGFloat = 4.0
     
     var body: some View {
         GeometryReader { geometry in
@@ -914,11 +1061,34 @@ struct SinglePhotoView: View {
                         .aspectRatio(contentMode: .fit)
                         .scaleEffect(scale)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .onTapGesture(count: 2) {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                scale = scale > 1.0 ? 1.0 : 2.0
-                            }
-                        }
+                        .gesture(
+                            // 捏合手势：放大缩小
+                            MagnificationGesture()
+                                .onChanged { value in
+                                    let delta = value / lastScale
+                                    lastScale = value
+                                    scale = min(max(scale * delta, minScale), maxScale)
+                                }
+                                .onEnded { _ in
+                                    lastScale = 1.0
+                                    // 如果缩放小于1.1，自动回到1.0
+                                    if scale < 1.1 {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                            scale = 1.0
+                                        }
+                                    }
+                                }
+                        )
+                        .simultaneousGesture(
+                            // 双击手势：快速放大/缩小
+                            TapGesture(count: 2)
+                                .onEnded {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                        scale = scale > 1.0 ? 1.0 : 2.0
+                                        lastScale = 1.0
+                                    }
+                                }
+                        )
                 } else {
                     ProgressView()
                         .tint(.white)
@@ -982,12 +1152,12 @@ extension EmergeView {
                 .font(.system(size: 60))
                 .foregroundColor(.secondary.opacity(0.4))
             
-            Text("上传 10 张照片开启色彩显影")
+            Text("扫描 10 张照片开启色彩显影")
                 .font(.system(size: 18, weight: .medium))
                 .foregroundColor(.secondary)
             
             if viewModel.analyzedPhotoCount > 0 {
-                Text("当前已分析 \(viewModel.analyzedPhotoCount) 张")
+                Text("当前已扫描 \(viewModel.analyzedPhotoCount) 张")
                     .font(.system(size: 14))
                     .foregroundColor(.secondary.opacity(0.6))
             }

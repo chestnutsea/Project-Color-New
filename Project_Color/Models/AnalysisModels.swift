@@ -24,6 +24,98 @@ struct PhotoColorInfo: Identifiable {
     var albumIdentifier: String? = nil  // 相册唯一标识
     var albumName: String? = nil  // 相册名称
     var brightnessCDF: [Float]? = nil  // 亮度累计分布函数（256个值，0-1）
+    var visualRepresentativeColor: SIMD3<Float>? = nil  // 视觉代表色（5个主色聚类后最大簇的质心）
+    
+    /// 计算视觉代表色（对 5 个主色在 LAB 空间进行带权重的 KMeans 聚类，取最大簇的质心）
+    /// 与全局聚类规则保持一致
+    mutating func computeVisualRepresentativeColor() {
+        guard !dominantColors.isEmpty else { return }
+        
+        let converter = ColorSpaceConverter()
+        let kmeans = SimpleKMeans()
+        
+        // 将 5 个主色转换为 LAB 空间
+        var labPoints: [SIMD3<Float>] = []
+        var weights: [Float] = []
+        
+        for color in dominantColors {
+            let lab = converter.rgbToLab(color.rgb)
+            labPoints.append(lab)
+            weights.append(color.weight)
+        }
+        
+        // 如果只有 1-2 个主色，直接使用加权平均
+        if labPoints.count <= 2 {
+            var totalWeight: Float = 0
+            var weightedLabSum = SIMD3<Float>(0, 0, 0)
+            for (i, lab) in labPoints.enumerated() {
+                weightedLabSum += lab * weights[i]
+                totalWeight += weights[i]
+            }
+            if totalWeight > 0 {
+                let avgLab = weightedLabSum / totalWeight
+                visualRepresentativeColor = converter.labToRgb(avgLab)
+            }
+            return
+        }
+        
+        // 对 5 个主色进行 KMeans 聚类（K=1，即找到加权质心）
+        // 但为了与全局聚类一致，我们使用相同的聚类逻辑
+        // 由于只有 5 个点，K 值设为 min(3, 点数)
+        let k = min(3, labPoints.count)
+        
+        guard let clusteringResult = kmeans.cluster(
+            points: labPoints,
+            k: k,
+            maxIterations: 50,
+            colorSpace: .lab,
+            weights: weights
+        ) else {
+            // 聚类失败，回退到加权平均
+            var totalWeight: Float = 0
+            var weightedLabSum = SIMD3<Float>(0, 0, 0)
+            for (i, lab) in labPoints.enumerated() {
+                weightedLabSum += lab * weights[i]
+                totalWeight += weights[i]
+            }
+            if totalWeight > 0 {
+                let avgLab = weightedLabSum / totalWeight
+                visualRepresentativeColor = converter.labToRgb(avgLab)
+            }
+            return
+        }
+        
+        // 找到权重最大的簇
+        var clusterWeights: [Float] = Array(repeating: 0, count: k)
+        for (i, assignment) in clusteringResult.assignments.enumerated() {
+            clusterWeights[assignment] += weights[i]
+        }
+        
+        // 找到权重最大的簇的索引
+        var maxClusterIndex = 0
+        var maxWeight: Float = 0
+        for (i, weight) in clusterWeights.enumerated() {
+            if weight > maxWeight {
+                maxWeight = weight
+                maxClusterIndex = i
+            }
+        }
+        
+        // 取最大簇的质心作为视觉代表色
+        let dominantCentroidLAB = clusteringResult.centroids[maxClusterIndex]
+        visualRepresentativeColor = converter.labToRgb(dominantCentroidLAB)
+        
+        #if DEBUG
+        print("📊 单图视觉代表色计算:")
+        print("   主色数: \(labPoints.count), 聚类数: \(k)")
+        print("   各簇权重: \(clusterWeights)")
+        print("   最大簇索引: \(maxClusterIndex), 权重: \(maxWeight)")
+        print("   质心 LAB: L=\(dominantCentroidLAB.x), a=\(dominantCentroidLAB.y), b=\(dominantCentroidLAB.z)")
+        if let rgb = visualRepresentativeColor {
+            print("   质心 RGB: R=\(rgb.x), G=\(rgb.y), B=\(rgb.z)")
+        }
+        #endif
+    }
 }
 
 // MARK: - 主色结构
@@ -205,26 +297,37 @@ struct ColorCastResult: Codable {
     let rms: Float              // RMS 对比度
     
     // 高光区域色偏
-    let highlightAMean: Float   // 高光区域 Lab a 通道均值
-    let highlightBMean: Float   // 高光区域 Lab b 通道均值
-    let highlightCast: Float    // 高光区域偏色强度
-    let highlightHueDegrees: Float  // 高光区域色偏方向（0-360°）
+    let highlightAMean: Float?   // 高光区域 Lab a 通道加权均值
+    let highlightBMean: Float?   // 高光区域 Lab b 通道加权均值
+    let highlightCast: Float?    // 高光区域偏色强度（即 strength，不归一化）
+    let highlightHueDegrees: Float?  // 高光区域色偏方向（0-360°，0° 在3点钟位置）
+    let highlightLMean: Float?   // 高光区域 Lab L 通道加权均值（用于显示颜色）
     
     // 阴影区域色偏
-    let shadowAMean: Float      // 阴影区域 Lab a 通道均值
-    let shadowBMean: Float      // 阴影区域 Lab b 通道均值
-    let shadowCast: Float       // 阴影区域偏色强度
-    let shadowHueDegrees: Float // 阴影区域色偏方向（0-360°）
+    let shadowAMean: Float?      // 阴影区域 Lab a 通道加权均值
+    let shadowBMean: Float?      // 阴影区域 Lab b 通道加权均值
+    let shadowCast: Float?       // 阴影区域偏色强度（即 strength，不归一化）
+    let shadowHueDegrees: Float? // 阴影区域色偏方向（0-360°，0° 在3点钟位置）
+    let shadowLMean: Float?      // 阴影区域 Lab L 通道加权均值（用于显示颜色）
     
     // 兼容性字段（保留旧版本，使用高光+阴影的平均值）
     var aMean: Float {
-        (highlightAMean + shadowAMean) / 2.0
+        let hA = highlightAMean ?? 0
+        let sA = shadowAMean ?? 0
+        let count = (highlightAMean != nil ? 1 : 0) + (shadowAMean != nil ? 1 : 0)
+        return count > 0 ? (hA + sA) / Float(count) : 0
     }
     var bMean: Float {
-        (highlightBMean + shadowBMean) / 2.0
+        let hB = highlightBMean ?? 0
+        let sB = shadowBMean ?? 0
+        let count = (highlightBMean != nil ? 1 : 0) + (shadowBMean != nil ? 1 : 0)
+        return count > 0 ? (hB + sB) / Float(count) : 0
     }
     var cast: Float {
-        (highlightCast + shadowCast) / 2.0
+        let hC = highlightCast ?? 0
+        let sC = shadowCast ?? 0
+        let count = (highlightCast != nil ? 1 : 0) + (shadowCast != nil ? 1 : 0)
+        return count > 0 ? (hC + sC) / Float(count) : 0
     }
     var hueAngleDegrees: Float {
         // 使用向量平均的方式计算平均色相
@@ -232,6 +335,52 @@ struct ColorCastResult: Codable {
         let avgB = bMean
         let hue = atan2(avgB, avgA) * 180.0 / Float.pi
         return hue >= 0 ? hue : hue + 360
+    }
+    
+    // 自定义解码器，兼容旧数据
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        rms = try container.decode(Float.self, forKey: .rms)
+        
+        highlightAMean = try? container.decodeIfPresent(Float.self, forKey: .highlightAMean)
+        highlightBMean = try? container.decodeIfPresent(Float.self, forKey: .highlightBMean)
+        highlightCast = try? container.decodeIfPresent(Float.self, forKey: .highlightCast)
+        highlightHueDegrees = try? container.decodeIfPresent(Float.self, forKey: .highlightHueDegrees)
+        highlightLMean = try? container.decodeIfPresent(Float.self, forKey: .highlightLMean)
+        
+        shadowAMean = try? container.decodeIfPresent(Float.self, forKey: .shadowAMean)
+        shadowBMean = try? container.decodeIfPresent(Float.self, forKey: .shadowBMean)
+        shadowCast = try? container.decodeIfPresent(Float.self, forKey: .shadowCast)
+        shadowHueDegrees = try? container.decodeIfPresent(Float.self, forKey: .shadowHueDegrees)
+        shadowLMean = try? container.decodeIfPresent(Float.self, forKey: .shadowLMean)
+    }
+    
+    // 标准初始化器
+    init(
+        rms: Float,
+        highlightAMean: Float?,
+        highlightBMean: Float?,
+        highlightCast: Float?,
+        highlightHueDegrees: Float?,
+        highlightLMean: Float?,
+        shadowAMean: Float?,
+        shadowBMean: Float?,
+        shadowCast: Float?,
+        shadowHueDegrees: Float?,
+        shadowLMean: Float?
+    ) {
+        self.rms = rms
+        self.highlightAMean = highlightAMean
+        self.highlightBMean = highlightBMean
+        self.highlightCast = highlightCast
+        self.highlightHueDegrees = highlightHueDegrees
+        self.highlightLMean = highlightLMean
+        self.shadowAMean = shadowAMean
+        self.shadowBMean = shadowBMean
+        self.shadowCast = shadowCast
+        self.shadowHueDegrees = shadowHueDegrees
+        self.shadowLMean = shadowLMean
     }
 }
 

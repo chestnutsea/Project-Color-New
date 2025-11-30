@@ -69,7 +69,7 @@ struct KitView: View {
                 }
             }
             .navigationTitle("调色盘")
-            .background(Color(.systemGroupedBackground))
+            .background(Color(.systemBackground))
             .fullScreenCover(isPresented: $showLookUpColor) {
                 LookUpColorView()
             }

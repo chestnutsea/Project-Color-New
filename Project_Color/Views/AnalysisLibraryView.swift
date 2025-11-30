@@ -28,7 +28,7 @@ struct AnalysisLibraryView: View {
     @State private var sessionToDelete: AnalysisSessionInfo?
     @State private var showDeleteAlert = false
     @State private var sessionToEdit: AnalysisSessionInfo?
-    @State private var showEditSheet = false
+    @State private var showEditOverlay = false
     
     enum LibraryTab: String, CaseIterable {
         case favorites = "收藏"
@@ -50,7 +50,11 @@ struct AnalysisLibraryView: View {
                 .padding(.bottom, 16)
                 
                 // 内容区域
-                if filteredSessions.isEmpty {
+                if viewModel.isLoading {
+                    // 加载状态
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if filteredSessions.isEmpty {
                     emptyStateView
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
@@ -86,22 +90,39 @@ struct AnalysisLibraryView: View {
         } message: {
             Text("确定要删除这个分析结果吗？此操作无法撤销。")
         }
-        .sheet(isPresented: $showEditSheet) {
-            if let session = sessionToEdit {
-                SessionEditSheet(
-                    session: session,
-                    onSave: { name, date in
-                        updateSessionInfo(session, name: name, date: date)
-                        sessionToEdit = nil
-                        showEditSheet = false
-                    },
-                    onCancel: {
-                        sessionToEdit = nil
-                        showEditSheet = false
-                    }
-                )
+        .overlay(alignment: .center) {
+            if showEditOverlay, let session = sessionToEdit {
+                ZStack {
+                    Color.black.opacity(0.35)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            showEditOverlay = false
+                            sessionToEdit = nil
+                        }
+                    
+                    SessionEditAlertView(
+                        session: session,
+                        onConfirm: { name, date in
+                            updateSessionInfo(session, name: name, date: date)
+                            sessionToEdit = nil
+                            showEditOverlay = false
+                        },
+                        onCancel: {
+                            sessionToEdit = nil
+                            showEditOverlay = false
+                        }
+                    )
+                    .frame(width: 320)
+                    .background(Color(.systemBackground))
+                    .cornerRadius(16)
+                    .shadow(radius: 20)
+                    .transition(.scale.combined(with: .opacity))
+                    .zIndex(2)
+                }
+                .zIndex(1)
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: showEditOverlay)
     }
     
     // 根据选中的 tab 过滤会话
@@ -120,18 +141,11 @@ struct AnalysisLibraryView: View {
         VStack(spacing: 20) {
             Image(systemName: selectedTab == .favorites ? "heart" : "photo.stack")
                 .font(.system(size: 60))
-                .foregroundColor(.gray)
+                .foregroundColor(.secondary.opacity(0.4))
             
             Text(selectedTab == .favorites ? "暂无收藏" : "暂无素材")
-                .font(.title2)
-                .foregroundColor(.primary)
-            
-            Text(selectedTab == .favorites ? 
-                 "点击分析结果页的爱心图标\n即可收藏" : 
-                 "分析照片后素材会显示在这里")
-                .font(.subheadline)
+                .font(.system(size: 18, weight: .medium))
                 .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
         }
         .padding(40)
     }
@@ -161,7 +175,7 @@ struct AnalysisLibraryView: View {
                             },
                             onEdit: {
                                 sessionToEdit = session
-                                showEditSheet = true
+                                showEditOverlay = true
                             },
                             onDelete: {
                                 sessionToDelete = session
@@ -192,8 +206,8 @@ struct AnalysisLibraryView: View {
             try CoreDataManager.shared.updateSessionFavoriteStatus(sessionId: session.id, isFavorite: newStatus)
             print("✅ Core Data 更新成功")
             
-            // 重新加载数据
-            viewModel.loadSessions()
+            // ✅ 强制刷新数据（而不是 loadSessions，因为后者有缓存检查）
+            viewModel.forceRefresh()
             print("✅ 数据已重新加载")
         } catch {
             print("❌ 更新收藏状态失败: \(error)")
@@ -217,8 +231,8 @@ struct AnalysisLibraryView: View {
                 try context.save()
                 print("✅ 更新成功")
                 
-                // 重新加载数据
-                viewModel.loadSessions()
+                // ✅ 强制刷新数据
+                viewModel.forceRefresh()
             }
         } catch {
             print("❌ 更新会话信息失败: \(error)")
@@ -246,8 +260,12 @@ struct AnalysisLibraryView: View {
                 try context.save()
                 print("✅ 删除成功")
                 
-                // 重新加载数据
-                viewModel.loadSessions()
+                // ✅ 清除该会话的缓存
+                AnalysisResultCache.shared.removeResult(for: session.id)
+                print("✅ 已清除缓存")
+                
+                // ✅ 强制刷新数据
+                viewModel.forceRefresh()
                 print("✅ 数据已重新加载")
             } else {
                 print("⚠️ 未找到要删除的实体")
@@ -292,7 +310,7 @@ struct AnalysisResultSheetView: View {
     private func loadAnalysisResult() async {
         if let result = await viewModel.loadAnalysisResultAsync(for: sessionInfo.id) {
             await MainActor.run {
-                analysisResult = result
+            analysisResult = result
             }
         }
     }
@@ -382,23 +400,35 @@ struct LibrarySessionCard: View {
     private func loadCoverImage() {
         guard let assetId = session.coverAssetIdentifier else { return }
         
-        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil)
-        guard let asset = fetchResult.firstObject else { return }
+        // ✅ 优化：先检查缓存
+        if let cachedImage = ThumbnailCache.shared.image(for: assetId) {
+            self.coverImage = cachedImage
+            return
+        }
         
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .opportunistic
-        options.resizeMode = .fast
-        options.isNetworkAccessAllowed = false
-        
-        PHImageManager.default().requestImage(
-            for: asset,
-            targetSize: CGSize(width: 300, height: 300),
-            contentMode: .aspectFill,
-            options: options
-        ) { image, _ in
-            if let image = image {
-                DispatchQueue.main.async {
-                    self.coverImage = image
+        // 缓存未命中，在后台线程加载
+        Task.detached(priority: .userInitiated) {
+            let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil)
+            guard let asset = fetchResult.firstObject else { return }
+            
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .opportunistic
+            options.resizeMode = .fast
+            options.isNetworkAccessAllowed = false
+            options.isSynchronous = true
+            
+            PHImageManager.default().requestImage(
+                for: asset,
+                targetSize: CGSize(width: 300, height: 300),
+                contentMode: .aspectFill,
+                options: options
+            ) { image, _ in
+                if let image = image {
+                    // 存入缓存
+                    ThumbnailCache.shared.setImage(image, for: assetId)
+                    Task { @MainActor in
+                        self.coverImage = image
+                    }
                 }
             }
         }
@@ -411,48 +441,66 @@ class AnalysisLibraryViewModel: ObservableObject {
     @Published var isLoading = false
     
     private let coreDataManager = CoreDataManager.shared
+    private var hasLoadedOnce = false  // ✅ 避免重复加载
     
+    /// 加载会话列表（如果已加载过则跳过）
     func loadSessions() {
+        // ✅ 如果已经加载过且有数据，直接返回
+        if hasLoadedOnce && !sessions.isEmpty {
+            print("📦 相册缓存命中，跳过重新加载")
+            return
+        }
+        
+        // 设置加载状态
+        isLoading = true
+        
         // 在后台线程执行 Core Data 查询
         Task.detached(priority: .userInitiated) { [coreDataManager] in
             let context = coreDataManager.newBackgroundContext()
             var sessionInfos: [AnalysisSessionInfo] = []
             
             context.performAndWait {
-                let request: NSFetchRequest<AnalysisSessionEntity> = AnalysisSessionEntity.fetchRequest()
+        let request: NSFetchRequest<AnalysisSessionEntity> = AnalysisSessionEntity.fetchRequest()
+        
+        // 按日期降序排序
+        request.sortDescriptors = [
+            NSSortDescriptor(key: "customDate", ascending: false),
+            NSSortDescriptor(key: "timestamp", ascending: false)
+        ]
                 
-                // 按日期降序排序
-                request.sortDescriptors = [
-                    NSSortDescriptor(key: "customDate", ascending: false),
-                    NSSortDescriptor(key: "timestamp", ascending: false)
-                ]
+                // ✅ 优化：预加载 photoAnalyses 关系，避免延迟加载（N+1 查询问题）
+                request.relationshipKeyPathsForPrefetching = ["photoAnalyses"]
                 
-                do {
-                    let entities = try context.fetch(request)
-                    print("📊 查询到 \(entities.count) 个分析会话")
+                // ✅ 优化：设置批量大小，减少内存占用
+                request.fetchBatchSize = 20
+        
+        do {
+            let entities = try context.fetch(request)
+            print("📊 查询到 \(entities.count) 个分析会话")
+            
+                    // ✅ 优化：预分配数组容量
+                    sessionInfos.reserveCapacity(entities.count)
                     
-                    sessionInfos = entities.compactMap { entity -> AnalysisSessionInfo? in
-                        guard let id = entity.id else { return nil }
-                        
-                        let name = entity.customName ?? "未命名"
-                        let date = entity.customDate ?? entity.timestamp ?? Date()
-                        let photoCount = Int(entity.totalPhotoCount)
-                        let isFavorite = entity.isFavorite
-                        
-                        // 获取第一张照片作为封面
-                        // 直接从 photoAnalyses 关系中获取，避免加载完整的分析结果
-                        let photoAnalyses = entity.photoAnalyses as? Set<PhotoAnalysisEntity>
-                        let coverAssetId = photoAnalyses?.first?.assetLocalIdentifier
-                        
-                        return AnalysisSessionInfo(
-                            id: id,
-                            name: name,
-                            date: date,
-                            photoCount: photoCount,
-                            isFavorite: isFavorite,
-                            coverAssetIdentifier: coverAssetId
-                        )
-                    }
+                    for entity in entities {
+                        guard let id = entity.id else { continue }
+                
+                let name = entity.customName ?? "未命名"
+                let date = entity.customDate ?? entity.timestamp ?? Date()
+                let photoCount = Int(entity.totalPhotoCount)
+                let isFavorite = entity.isFavorite
+                
+                        // 使用保存的封面照片 ID（第一张照片）
+                        let coverAssetId = entity.coverAssetIdentifier
+                
+                        sessionInfos.append(AnalysisSessionInfo(
+                    id: id,
+                    name: name,
+                    date: date,
+                    photoCount: photoCount,
+                    isFavorite: isFavorite,
+                    coverAssetIdentifier: coverAssetId
+                        ))
+            }
                 } catch {
                     print("❌ 加载分析会话失败: \(error.localizedDescription)")
                 }
@@ -461,21 +509,42 @@ class AnalysisLibraryViewModel: ObservableObject {
             // 更新 UI（在主线程）
             await MainActor.run {
                 self.sessions = sessionInfos
+                self.isLoading = false
+                self.hasLoadedOnce = true  // ✅ 标记已加载
                 print("✅ 加载了 \(sessionInfos.count) 个分析会话")
-                print("   - 收藏: \(sessionInfos.filter { $0.isFavorite }.count)")
-                print("   - 素材: \(sessionInfos.filter { !$0.isFavorite }.count)")
             }
         }
     }
     
+    /// 强制刷新会话列表（用于新增/删除后）
+    func forceRefresh() {
+        hasLoadedOnce = false
+        loadSessions()
+    }
+    
     /// 从 Core Data 加载完整的分析结果（异步版本，在后台线程执行）
     func loadAnalysisResultAsync(for sessionId: UUID) async -> AnalysisResult? {
-        return await Task.detached(priority: .userInitiated) { [coreDataManager] in
+        // ✅ 优化：先检查缓存
+        if let cachedResult = AnalysisResultCache.shared.result(for: sessionId) {
+            print("📦 分析结果缓存命中: \(sessionId)")
+            return cachedResult
+        }
+        
+        // 缓存未命中，从 Core Data 加载
+        let result = await Task.detached(priority: .userInitiated) { [coreDataManager] in
             return AnalysisLibraryViewModel.loadAnalysisResultBackground(
                 sessionId: sessionId,
                 coreDataManager: coreDataManager
             )
         }.value
+        
+        // 存入缓存
+        if let result = result {
+            AnalysisResultCache.shared.setResult(result, for: sessionId)
+            print("📦 分析结果已缓存: \(sessionId)")
+        }
+        
+        return result
     }
     
     /// 从 Core Data 加载完整的分析结果（后台线程版本）
@@ -487,21 +556,21 @@ class AnalysisLibraryViewModel: ObservableObject {
         var result: AnalysisResult?
         
         context.performAndWait {
-            let request: NSFetchRequest<AnalysisSessionEntity> = AnalysisSessionEntity.fetchRequest()
-            request.predicate = NSPredicate(format: "id == %@", sessionId as CVarArg)
-            request.fetchLimit = 1
-            
-            do {
-                guard let entity = try context.fetch(request).first else {
-                    print("❌ 未找到会话: \(sessionId)")
+        let request: NSFetchRequest<AnalysisSessionEntity> = AnalysisSessionEntity.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", sessionId as CVarArg)
+        request.fetchLimit = 1
+        
+        do {
+            guard let entity = try context.fetch(request).first else {
+                print("❌ 未找到会话: \(sessionId)")
                     return
-                }
-                
-                // 将 AnalysisSessionEntity 转换为 AnalysisResult
+            }
+            
+            // 将 AnalysisSessionEntity 转换为 AnalysisResult
                 let analysisResult = AnalysisResult()
                 analysisResult.sessionId = entity.id
                 analysisResult.timestamp = entity.timestamp ?? Date()
-                
+            
                 analysisResult.totalPhotoCount = Int(entity.totalPhotoCount)
                 analysisResult.processedCount = Int(entity.processedCount)
                 analysisResult.failedCount = Int(entity.failedCount)
@@ -516,119 +585,119 @@ class AnalysisLibraryViewModel: ObservableObject {
                 } else {
                     print("ℹ️ 该分析结果没有用户感受")
                 }
-                
-                // 加载聚类信息
-                if let clusterEntities = entity.clusters?.allObjects as? [ColorClusterEntity] {
+            
+            // 加载聚类信息
+            if let clusterEntities = entity.clusters?.allObjects as? [ColorClusterEntity] {
                     analysisResult.clusters = clusterEntities.sorted { $0.clusterIndex < $1.clusterIndex }.map { clusterEntity in
-                        let centroid = SIMD3<Float>(
-                            clusterEntity.centroidR,
-                            clusterEntity.centroidG,
-                            clusterEntity.centroidB_RGB
-                        )
-                        return ColorCluster(
-                            index: Int(clusterEntity.clusterIndex),
-                            centroid: centroid,
-                            colorName: clusterEntity.colorName ?? "未命名",
-                            photoCount: Int(clusterEntity.sampleCount)
-                        )
-                    }
+                    let centroid = SIMD3<Float>(
+                        clusterEntity.centroidR,
+                        clusterEntity.centroidG,
+                        clusterEntity.centroidB_RGB
+                    )
+                    return ColorCluster(
+                        index: Int(clusterEntity.clusterIndex),
+                        centroid: centroid,
+                        colorName: clusterEntity.colorName ?? "未命名",
+                        photoCount: Int(clusterEntity.sampleCount)
+                    )
                 }
-                
-                // 加载照片信息
-                if let photoEntities = entity.photoAnalyses?.allObjects as? [PhotoAnalysisEntity] {
-                    analysisResult.photoInfos = photoEntities.map { photoEntity in
-                        var photoInfo = PhotoColorInfo(assetIdentifier: photoEntity.assetLocalIdentifier ?? "")
-                        photoInfo.albumIdentifier = photoEntity.albumIdentifier
-                        photoInfo.albumName = photoEntity.albumName
-                        photoInfo.primaryClusterIndex = Int(photoEntity.primaryClusterIndex)
-                        
-                        // 加载主色信息
-                        if let dominantColorsData = photoEntity.dominantColors,
-                           let dominantColors = try? JSONDecoder().decode([DominantColor].self, from: dominantColorsData) {
-                            photoInfo.dominantColors = dominantColors
-                        }
-                        
-                        // 加载 CDF 数据
-                        if let cdfData = photoEntity.brightnessCDF {
-                            let cdfArray = cdfData.withUnsafeBytes { buffer in
-                                Array(buffer.bindMemory(to: Float.self))
-                            }
-                            photoInfo.brightnessCDF = cdfArray
-                        }
-                        
-                        // 加载高级色彩分析
-                        if let advancedData = photoEntity.advancedColorAnalysisData,
-                           let advancedAnalysis = try? JSONDecoder().decode(AdvancedColorAnalysis.self, from: advancedData) {
-                            photoInfo.advancedColorAnalysis = advancedAnalysis
-                        }
-                        
-                        return photoInfo
-                    }
-                }
-                
-                // 加载 AI 评价
-                if let aiEvaluationData = entity.aiEvaluationData {
-                    if var aiEvaluation = try? JSONDecoder().decode(ColorEvaluation.self, from: aiEvaluationData) {
-                        aiEvaluation.isLoading = false
-                        analysisResult.aiEvaluation = aiEvaluation
-                    }
-                }
-                
-                // 重新计算温度分布
-                if !analysisResult.photoInfos.isEmpty {
-                    var scores: [String: AdvancedColorAnalysis] = [:]
-                    for photoInfo in analysisResult.photoInfos {
-                        if let advanced = photoInfo.advancedColorAnalysis {
-                            scores[photoInfo.assetIdentifier] = advanced
-                        }
+            }
+            
+            // 加载照片信息（按 sortOrder 排序，保持用户选择时的顺序）
+            if let photoEntities = entity.photoAnalyses?.allObjects as? [PhotoAnalysisEntity] {
+                    analysisResult.photoInfos = photoEntities.sorted { $0.sortOrder < $1.sortOrder }.map { photoEntity in
+                    var photoInfo = PhotoColorInfo(assetIdentifier: photoEntity.assetLocalIdentifier ?? "")
+                    photoInfo.albumIdentifier = photoEntity.albumIdentifier
+                    photoInfo.albumName = photoEntity.albumName
+                    photoInfo.primaryClusterIndex = Int(photoEntity.primaryClusterIndex)
+                    
+                    // 加载主色信息
+                    if let dominantColorsData = photoEntity.dominantColors,
+                       let dominantColors = try? JSONDecoder().decode([DominantColor].self, from: dominantColorsData) {
+                        photoInfo.dominantColors = dominantColors
                     }
                     
-                    if !scores.isEmpty {
-                        let allScores = scores.values.map { $0.overallScore }
-                        let minScore = allScores.min() ?? -1.0
-                        let maxScore = allScores.max() ?? 1.0
-                        let bins = 20
-                        var histogram = [Float](repeating: 0, count: bins)
-                        
-                        let scoreRange = maxScore - minScore
-                        if scoreRange > 0.001 {
-                            for score in allScores {
-                                let normalizedScore = (score - minScore) / scoreRange
-                                if normalizedScore.isFinite {
-                                    let binIndex = min(max(Int(normalizedScore * Float(bins)), 0), bins - 1)
-                                    histogram[binIndex] += 1
-                                }
-                            }
-                        } else {
-                            histogram[bins / 2] = Float(allScores.count)
+                    // 加载 CDF 数据
+                    if let cdfData = photoEntity.brightnessCDF {
+                        let cdfArray = cdfData.withUnsafeBytes { buffer in
+                            Array(buffer.bindMemory(to: Float.self))
                         }
-                        
-                        analysisResult.warmCoolDistribution = WarmCoolDistribution(
-                            scores: scores,
-                            histogram: histogram,
-                            histogramBins: bins,
-                            minScore: minScore,
-                            maxScore: maxScore
-                        )
+                        photoInfo.brightnessCDF = cdfArray
+                    }
+                    
+                    // 加载高级色彩分析
+                    if let advancedData = photoEntity.advancedColorAnalysisData,
+                       let advancedAnalysis = try? JSONDecoder().decode(AdvancedColorAnalysis.self, from: advancedData) {
+                        photoInfo.advancedColorAnalysis = advancedAnalysis
+                    }
+                    
+                    return photoInfo
+                }
+            }
+            
+            // 加载 AI 评价
+            if let aiEvaluationData = entity.aiEvaluationData {
+                if var aiEvaluation = try? JSONDecoder().decode(ColorEvaluation.self, from: aiEvaluationData) {
+                    aiEvaluation.isLoading = false
+                        analysisResult.aiEvaluation = aiEvaluation
+                    }
+            }
+            
+                // 重新计算温度分布
+                if !analysisResult.photoInfos.isEmpty {
+                var scores: [String: AdvancedColorAnalysis] = [:]
+                    for photoInfo in analysisResult.photoInfos {
+                    if let advanced = photoInfo.advancedColorAnalysis {
+                        scores[photoInfo.assetIdentifier] = advanced
                     }
                 }
                 
-                // 统计加载的数据
+                if !scores.isEmpty {
+                    let allScores = scores.values.map { $0.overallScore }
+                    let minScore = allScores.min() ?? -1.0
+                    let maxScore = allScores.max() ?? 1.0
+                    let bins = 20
+                    var histogram = [Float](repeating: 0, count: bins)
+                    
+                    let scoreRange = maxScore - minScore
+                        if scoreRange > 0.001 {
+                        for score in allScores {
+                            let normalizedScore = (score - minScore) / scoreRange
+                            if normalizedScore.isFinite {
+                                let binIndex = min(max(Int(normalizedScore * Float(bins)), 0), bins - 1)
+                                histogram[binIndex] += 1
+                            }
+                        }
+                    } else {
+                        histogram[bins / 2] = Float(allScores.count)
+                    }
+                    
+                        analysisResult.warmCoolDistribution = WarmCoolDistribution(
+                        scores: scores,
+                        histogram: histogram,
+                        histogramBins: bins,
+                        minScore: minScore,
+                        maxScore: maxScore
+                    )
+                }
+            }
+            
+            // 统计加载的数据
                 let photosWithCDF = analysisResult.photoInfos.filter { $0.brightnessCDF != nil }.count
                 let photosWithAdvanced = analysisResult.photoInfos.filter { $0.advancedColorAnalysis != nil }.count
-                
-                print("✅ 成功加载分析结果: \(entity.customName ?? "未命名")")
+            
+            print("✅ 成功加载分析结果: \(entity.customName ?? "未命名")")
                 print("   - 聚类数: \(analysisResult.clusters.count)")
                 print("   - 照片数: \(analysisResult.photoInfos.count)")
-                print("   - 有 CDF 的照片: \(photosWithCDF)")
-                print("   - 有高级分析的照片: \(photosWithAdvanced)")
+            print("   - 有 CDF 的照片: \(photosWithCDF)")
+            print("   - 有高级分析的照片: \(photosWithAdvanced)")
                 print("   - 有 AI 评价: \(analysisResult.aiEvaluation != nil)")
                 print("   - 有温度分布: \(analysisResult.warmCoolDistribution != nil)")
-                
+            
                 result = analysisResult
-                
-            } catch {
-                print("❌ 加载分析结果失败: \(error.localizedDescription)")
+            
+        } catch {
+            print("❌ 加载分析结果失败: \(error.localizedDescription)")
             }
         }
         
@@ -636,59 +705,72 @@ class AnalysisLibraryViewModel: ObservableObject {
     }
 }
 
-// MARK: - 编辑照片集信息 Sheet
-struct SessionEditSheet: View {
+// MARK: - 编辑照片集信息弹窗（与收藏弹窗一致）
+struct SessionEditAlertView: View {
     let session: AnalysisSessionInfo
-    let onSave: (String, Date) -> Void
+    let onConfirm: (String, Date) -> Void
     let onCancel: () -> Void
     
     @State private var sessionName: String
     @State private var sessionDate: Date
-    @Environment(\.dismiss) private var dismiss
-    @FocusState private var isNameFieldFocused: Bool
     
-    init(session: AnalysisSessionInfo, onSave: @escaping (String, Date) -> Void, onCancel: @escaping () -> Void) {
+    init(session: AnalysisSessionInfo, onConfirm: @escaping (String, Date) -> Void, onCancel: @escaping () -> Void) {
         self.session = session
-        self.onSave = onSave
+        self.onConfirm = onConfirm
         self.onCancel = onCancel
-        
         _sessionName = State(initialValue: session.name)
         _sessionDate = State(initialValue: session.date)
     }
     
     var body: some View {
-        NavigationView {
-            Form {
-                Section {
-                    TextField("名称", text: $sessionName)
-                        .textInputAutocapitalization(.words)
-                        .focused($isNameFieldFocused)
-                    
-                    DatePicker("日期", selection: $sessionDate, displayedComponents: .date)
-                }
-            }
-            .navigationTitle("编辑信息")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("取消") {
-                        onCancel()
-                        dismiss()
-                    }
+        VStack(spacing: 0) {
+            Text("编辑信息")
+                .font(.headline)
+                .padding(.top, 20)
+                .padding(.bottom, 16)
+            
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("名称")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    TextField("请输入名称", text: $sessionName)
+                        .textFieldStyle(.roundedBorder)
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("保存") {
-                        onSave(sessionName.trimmingCharacters(in: .whitespacesAndNewlines), sessionDate)
-                        dismiss()
-                    }
-                    .disabled(sessionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("日期")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    DatePicker("", selection: $sessionDate, displayedComponents: .date)
+                        .datePickerStyle(.compact)
+                        .labelsHidden()
                 }
             }
-            .onAppear {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    isNameFieldFocused = true
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+            
+            Divider()
+            
+            HStack(spacing: 0) {
+                Button("取消") {
+                    onCancel()
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .foregroundColor(.primary)
+                
+                Divider()
+                    .frame(height: 44)
+                
+                Button("确认") {
+                    onConfirm(sessionName.trimmingCharacters(in: .whitespacesAndNewlines), sessionDate)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .foregroundColor(.blue)
+                .fontWeight(.semibold)
+                .disabled(sessionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
     }
@@ -697,4 +779,3 @@ struct SessionEditSheet: View {
 #Preview {
     AnalysisLibraryView()
 }
-

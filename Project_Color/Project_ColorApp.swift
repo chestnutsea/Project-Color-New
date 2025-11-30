@@ -15,6 +15,9 @@ struct Project_ColorApp: App {
     init() {
         // 启动数据清理定时任务
         cleanupScheduler.startScheduledCleanup()
+        
+        // ✅ 启动缓存预热（后台执行，不阻塞启动）
+        CachePreloader.shared.startPreloading()
     }
 
     var body: some Scene {

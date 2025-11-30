@@ -8,7 +8,6 @@
 
 import Foundation
 import Photos
-import CoreLocation
 import ImageIO
 
 /// 照片元数据
@@ -18,11 +17,6 @@ struct PhotoMetadata: Codable {
     var shutterSpeed: String?      // 快门速度（如 "1/125"）
     var iso: Int?                  // ISO
     var focalLength: Float?        // 焦距（mm）
-    
-    // 地理信息
-    var latitude: Double?          // 纬度
-    var longitude: Double?         // 经度
-    var locationName: String?      // 地点名称
     
     // 相机信息
     var cameraMake: String?        // 相机品牌
@@ -46,15 +40,8 @@ class PhotoMetadataReader {
         
         // 1. 从 PHAsset 读取基本信息
         metadata.captureDate = asset.creationDate
-        metadata.latitude = asset.location?.coordinate.latitude
-        metadata.longitude = asset.location?.coordinate.longitude
         
-        // 2. 反向地理编码（如果有坐标）
-        if let location = asset.location {
-            metadata.locationName = await reverseGeocode(location: location)
-        }
-        
-        // 3. 从 ImageIO 读取详细的 EXIF 信息
+        // 2. 从 ImageIO 读取详细的 EXIF 信息
         if let imageSource = await loadImageSource(from: asset) {
             if let exifMetadata = readEXIFMetadata(from: imageSource) {
                 metadata.aperture = exifMetadata.aperture
@@ -165,39 +152,5 @@ class PhotoMetadataReader {
         }
     }
     
-    /// 反向地理编码
-    /// - Parameter location: CLLocation 对象
-    /// - Returns: 地点名称（如果成功）
-    private func reverseGeocode(location: CLLocation) async -> String? {
-        let geocoder = CLGeocoder()
-        
-        do {
-            let placemarks = try await geocoder.reverseGeocodeLocation(location)
-            
-            guard let placemark = placemarks.first else {
-                return nil
-            }
-            
-            // 构建地点名称
-            var components: [String] = []
-            
-            if let locality = placemark.locality {
-                components.append(locality)
-            }
-            
-            if let administrativeArea = placemark.administrativeArea {
-                components.append(administrativeArea)
-            }
-            
-            if let country = placemark.country {
-                components.append(country)
-            }
-            
-            return components.isEmpty ? nil : components.joined(separator: ", ")
-        } catch {
-            print("❌ 反向地理编码失败: \(error.localizedDescription)")
-            return nil
-        }
-    }
 }
 

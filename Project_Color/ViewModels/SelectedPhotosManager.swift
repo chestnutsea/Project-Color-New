@@ -20,6 +20,7 @@ class SelectedPhotosManager: ObservableObject {
     @Published var selectedImages: [UIImage] = []
     
     private var imageRequestID: PHImageRequestID?
+    private var loadedAssetIds = Set<String>()  // 跟踪已加载的图片，避免重复
     
     private init() {}
     
@@ -37,13 +38,17 @@ class SelectedPhotosManager: ObservableObject {
     func updateSelectedAssets(with results: [PHPickerResult]) {
         print("📸 SelectedPhotosManager: 开始更新资产，收到 \(results.count) 个结果")
         
-        // 提取有效的 assetIdentifier
+        // 提取有效的 assetIdentifier 并去重（保持顺序）
         let identifiers = results.compactMap { $0.assetIdentifier }
-        print("📸 SelectedPhotosManager: 提取了 \(identifiers.count) 个有效标识符")
+        let uniqueIdentifiers = deduplicatedIdentifiers(from: identifiers)
+        if identifiers.count != uniqueIdentifiers.count {
+            print("📸 SelectedPhotosManager: 去除了重复的标识符 \(identifiers.count - uniqueIdentifiers.count) 个")
+        }
+        print("📸 SelectedPhotosManager: 提取了 \(uniqueIdentifiers.count) 个有效标识符")
         
         // 如果有标识符，使用它们；否则直接加载图片
-        if !identifiers.isEmpty {
-            selectedAssetIdentifiers = identifiers
+        if !uniqueIdentifiers.isEmpty {
+            selectedAssetIdentifiers = uniqueIdentifiers
             fetchAssets()
         } else {
             // 如果没有 assetIdentifier（可能是从其他来源选择的照片），直接加载图片
@@ -119,6 +124,7 @@ class SelectedPhotosManager: ObservableObject {
         selectedAssets = assets
         selectedAssetIdentifiers = assets.map { $0.localIdentifier }
         print("📸 已更新照片选择: \(assets.count) 张")
+        loadLatestImages()
     }
     
     // MARK: - Private Methods
@@ -151,7 +157,9 @@ class SelectedPhotosManager: ObservableObject {
     
     func loadLatestImages() {
         selectedImages.removeAll()
-        let assetsToLoad = selectedAssets.suffix(3) // Get the latest 3 for preview
+        loadedAssetIds.removeAll()  // 重置已加载的图片集合
+        
+        let assetsToLoad = Array(selectedAssets.suffix(3)) // Get the latest 3 for preview
         
         print("📸 SelectedPhotosManager: 开始加载最新 \(assetsToLoad.count) 张图片")
         
@@ -172,28 +180,55 @@ class SelectedPhotosManager: ObservableObject {
             manager.cancelImageRequest(requestID)
         }
         
+        let totalCount = assetsToLoad.count
+        
         // Load images in reverse order to get the latest 3 efficiently
-        var loadedCount = 0
         for asset in assetsToLoad.reversed() {
+            let assetId = asset.localIdentifier
+            
             imageRequestID = manager.requestImage(
                 for: asset,
                 targetSize: CGSize(width: 400, height: 400),
                 contentMode: .aspectFit,
                 options: options
-            ) { image, _ in
+            ) { [weak self] image, info in
+                guard let self = self else { return }
+                
+                // ✅ 检查是否是最终图片（非占位图）
+                let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                
                 if let image = image {
                     DispatchQueue.main.async {
-                        self.selectedImages.insert(image, at: 0)
-                        loadedCount += 1
-                        print("📸 SelectedPhotosManager: 已加载 \(loadedCount)/\(assetsToLoad.count) 张图片")
-                        if loadedCount == assetsToLoad.count {
-                            self.imageRequestID = nil
-                            print("📸 SelectedPhotosManager: 所有图片加载完成，共 \(self.selectedImages.count) 张")
+                        // ✅ 只有当这个 asset 还没有被添加时才添加
+                        if !self.loadedAssetIds.contains(assetId) {
+                            self.loadedAssetIds.insert(assetId)
+                            self.selectedImages.insert(image, at: 0)
+                            print("📸 SelectedPhotosManager: 已加载 \(self.loadedAssetIds.count)/\(totalCount) 张图片 (isDegraded: \(isDegraded))")
+                            
+                            if self.loadedAssetIds.count == totalCount {
+                                self.imageRequestID = nil
+                                print("📸 SelectedPhotosManager: 所有图片加载完成，共 \(self.selectedImages.count) 张")
+                            }
+                        } else {
+                            print("📸 SelectedPhotosManager: 跳过重复图片 \(assetId.prefix(8))... (isDegraded: \(isDegraded))")
                         }
                     }
                 }
             }
         }
     }
-}
 
+    /// 去重并保持原始顺序
+    private func deduplicatedIdentifiers(from identifiers: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        
+        for id in identifiers {
+            if !seen.contains(id) {
+                seen.insert(id)
+                result.append(id)
+            }
+        }
+        return result
+    }
+}

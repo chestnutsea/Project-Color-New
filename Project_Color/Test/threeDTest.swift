@@ -98,27 +98,8 @@ struct ColorSpace3DView: UIViewRepresentable {
     }
 
     private func addBoundingCube(to scene: SCNScene) {
-        if scene.rootNode.childNode(withName: "boundingCube", recursively: false) != nil {
-            return
-        }
-        
-        let cube = SCNBox(
-            width: LayoutConstants.cubeEdgeWidth,
-            height: LayoutConstants.cubeEdgeWidth,
-            length: LayoutConstants.cubeEdgeWidth,
-            chamferRadius: 0
-        )
-        let cubeMaterial = SCNMaterial()
-        cubeMaterial.diffuse.contents = LayoutConstants.cubeEdgeColor
-        cubeMaterial.fillMode = .lines
-        cube.firstMaterial = cubeMaterial
-        
-        let cubeNode = SCNNode(geometry: cube)
-        cubeNode.name = "boundingCube"
-        // 将立方体移动到第一象限（中心点在 edgeLength/2）
-        let halfEdge = Float(LayoutConstants.cubeEdgeWidth) / 2.0
-        cubeNode.position = SCNVector3(halfEdge, halfEdge, halfEdge)
-        scene.rootNode.addChildNode(cubeNode)
+        // 不再添加正方体边框，只保留 LCh 三轴
+        // 坐标轴已经在 makeAxisHelper 中创建
     }
     
     private func rebuildColorNodes(in scene: SCNScene) {
@@ -217,8 +198,15 @@ struct ColorSpace3DView: UIViewRepresentable {
 
 // MARK: - threeDView 容器
 struct threeDView: View {
+    private enum Layout {
+        static let closeButtonFontSize: CGFloat = 16  // 关闭按钮字体大小（布局常量）
+        static let closeButtonPadding: CGFloat = 8  // 关闭按钮内边距（布局常量）
+        static let helpIconFontSize: CGFloat = 18  // 帮助图标字体大小（布局常量）
+    }
+    
     @Environment(\.dismiss) private var dismiss
     @State private var selectedColorInfo: String? = nil
+    @State private var showHelpText: Bool = false
     
     let points: [ColorSpacePoint]
     
@@ -235,6 +223,38 @@ struct threeDView: View {
             }
             
             closeButton
+            
+            // 右下角帮助按钮和说明文字
+            if !points.isEmpty {
+                VStack {
+                    Spacer()
+                    HStack {
+                        // 帮助说明文字
+                        if showHelpText {
+                            Text("L： 明度，C： 色度/饱和度，H：色相")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.white.opacity(0.4))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Color.black.opacity(0.4))
+                                .cornerRadius(8)
+                        }
+                        
+                        Spacer()
+                        
+                        // 帮助图标按钮（白色半透明，在黑色背景上可见）
+                        Button(action: {
+                            showHelpText.toggle()
+                        }) {
+                            Image(systemName: "questionmark.circle.fill")
+                                .font(.system(size: Layout.helpIconFontSize))
+                                .foregroundColor(.white.opacity(0.4))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(20)
+                }
+            }
         }
         .animation(.easeInOut, value: selectedColorInfo)
     }
@@ -257,9 +277,9 @@ struct threeDView: View {
     private var closeButton: some View {
         Button(action: { dismiss() }) {
             Image(systemName: "chevron.down")
-                .font(.system(size: 20, weight: .semibold))
+                .font(.system(size: Layout.closeButtonFontSize, weight: .semibold))
                 .foregroundColor(.primary)
-                .padding(10)
+                .padding(Layout.closeButtonPadding)
                 .background(.ultraThinMaterial)
                 .clipShape(Circle())
                 .shadow(color: .black.opacity(0.2), radius: 6, x: 0, y: 4)

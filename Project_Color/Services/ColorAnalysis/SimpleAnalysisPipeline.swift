@@ -516,20 +516,8 @@ class SimpleAnalysisPipeline {
                     // 用户手动设置了，直接使用
                     dynamicMinClusterSize = userMinClusterSize
                 } else {
-                    // 根据照片数量和合并阈值动态计算
-                    let photoCount = assets.count
-                    let mergeThreshold = settings.effectiveMergeThreshold
-                    
-                    if photoCount <= 20 {
-                        // 小数量：无论什么模式，都设为 1
-                        dynamicMinClusterSize = 1
-                    } else if mergeThreshold <= 10.0 {
-                        // 大数量 + 多彩模式（严格合并）：设为 1，保留更多色系
-                        dynamicMinClusterSize = 1
-                    } else {
-                        // 大数量 + 其他模式：使用默认值 2
-                        dynamicMinClusterSize = 2
-                    }
+                    // 统一设为 1，保留所有非空簇（包括只有 1 张照片的簇）
+                    dynamicMinClusterSize = 1
                 }
                 
                 let adaptiveConfig = AdaptiveClusterManager.Config(
@@ -594,6 +582,14 @@ class SimpleAnalysisPipeline {
             } else {
                 result.clusters = clusters
             }
+        }
+        
+        // 按照原始 assets 顺序排序 photoInfos，确保顺序与用户选择时一致
+        let assetOrder = Dictionary(uniqueKeysWithValues: assets.enumerated().map { ($0.element.localIdentifier, $0.offset) })
+        photoInfos.sort { (a, b) -> Bool in
+            let orderA = assetOrder[a.assetIdentifier] ?? Int.max
+            let orderB = assetOrder[b.assetIdentifier] ?? Int.max
+            return orderA < orderB
         }
         
         result.photoInfos = photoInfos
@@ -1029,6 +1025,9 @@ class SimpleAnalysisPipeline {
                 brightnessCDF: extractionResult.brightnessCDF
             )
             
+            // ✅ 计算视觉代表色（5个主色在 LAB 空间的加权平均）
+            photoInfo.computeVisualRepresentativeColor()
+            
             // 调试日志
             let cdf = extractionResult.brightnessCDF
             if !cdf.isEmpty {
@@ -1076,6 +1075,13 @@ class SimpleAnalysisPipeline {
         #endif
     }
     
+    // MARK: - 欧几里得距离（与 SimpleKMeans 保持一致）
+    /// 在 LAB 空间使用欧几里得距离，将颜色视为 3D 向量 (L, a, b)
+    private func euclideanDistance(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
+        let diff = a - b
+        return sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z)
+    }
+    
     // MARK: - 为照片分配主簇（Phase 2: 使用 LAB 空间）
     private func assignPhotoToCluster(
         photoInfo: inout PhotoColorInfo,
@@ -1092,9 +1098,9 @@ class SimpleAnalysisPipeline {
             var minDistance = Float.greatestFiniteMagnitude
             var closestCluster = 0
             
-            // Phase 2: 使用 ΔE 距离
+            // 使用欧几里得距离（与聚类保持一致）
             for (index, centroidLAB) in centroidsLAB.enumerated() {
-                let distance = converter.deltaE(colorLAB, centroidLAB)
+                let distance = euclideanDistance(colorLAB, centroidLAB)
                 if distance < minDistance {
                     minDistance = distance
                     closestCluster = index

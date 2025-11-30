@@ -11,7 +11,12 @@ import Foundation
 /// 聚类质量评估器
 class ClusterQualityEvaluator {
     
-    private let converter = ColorSpaceConverter()
+    // MARK: - 欧几里得距离（与 SimpleKMeans 保持一致）
+    /// 在 LAB 空间使用欧几里得距离，将颜色视为 3D 向量 (L, a, b)
+    private func euclideanDistance(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
+        let diff = a - b
+        return sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z)
+    }
     
     // MARK: - Silhouette Score
     
@@ -92,7 +97,7 @@ class ClusterQualityEvaluator {
         
         for i in 0..<points.count {
             if i != pointIndex && assignments[i] == clusterIndex {
-                let distance = converter.deltaE(point, points[i])
+                let distance = euclideanDistance(point, points[i])
                 totalDistance += Double(distance)
                 count += 1
             }
@@ -121,7 +126,7 @@ class ClusterQualityEvaluator {
             
             for i in 0..<points.count {
                 if assignments[i] == clusterIndex {
-                    let distance = converter.deltaE(point, points[i])
+                    let distance = euclideanDistance(point, points[i])
                     totalDistance += Double(distance)
                     count += 1
                 }
@@ -174,7 +179,7 @@ class ClusterQualityEvaluator {
         
         for i in 0..<points.count {
             let clusterIndex = assignments[i]
-            let distance = converter.deltaE(points[i], centroids[clusterIndex])
+            let distance = euclideanDistance(points[i], centroids[clusterIndex])
             clusterRadii[clusterIndex] += Double(distance)
             clusterCounts[clusterIndex] += 1
         }
@@ -191,7 +196,7 @@ class ClusterQualityEvaluator {
             var maxRatio = 0.0
             for j in 0..<k {
                 if i != j {
-                    let centroidDistance = Double(converter.deltaE(centroids[i], centroids[j]))
+                    let centroidDistance = Double(euclideanDistance(centroids[i], centroids[j]))
                     if centroidDistance > 0 {
                         let ratio = (clusterRadii[i] + clusterRadii[j]) / centroidDistance
                         maxRatio = max(maxRatio, ratio)

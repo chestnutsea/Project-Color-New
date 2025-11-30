@@ -8,44 +8,34 @@
 import SwiftUI
 
 struct BrightnessCDFView: View {
+    private enum Layout {
+        static let curveOpacity: Double = 0.8  // CDF 曲线透明度（布局常量）
+        static let labelSpace: CGFloat = 18  // 为"累计百分比"标签预留的空间（与散点图一致）
+    }
+    
     let photoInfos: [PhotoColorInfo]
+    var showTitle: Bool = true  // 控制是否显示标题
+    var fixedChartSize: CGFloat? = nil  // 外部传入的固定图表尺寸（包含标签）
     
     var body: some View {
         // 调试：统计有多少照片有 CDF 数据
         let photosWithCDF = photoInfos.filter { $0.brightnessCDF != nil && !($0.brightnessCDF?.isEmpty ?? true) }
         
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Image(systemName: "chart.line.uptrend.xyaxis")
-                    .foregroundColor(.blue)
-                Text("累计亮度分布（CDF）")
-                    .font(.headline)
-                Spacer()
-                Text("\(photosWithCDF.count)/\(photoInfos.count)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            
-            if photoInfos.isEmpty {
-                Text("暂无数据")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding()
-            } else if photosWithCDF.isEmpty {
-                Text("照片亮度数据正在计算中...")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding()
-            } else {
-                GeometryReader { geometry in
-                    Canvas { context, size in
-                        drawCDFChart(context: context, size: size)
-                    }
-                    .frame(height: 300)
+        if showTitle {
+            // 有标题时，使用 VStack 布局
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .foregroundColor(.blue)
+                    Text("累计亮度分布（CDF）")
+                        .font(.headline)
+                    Spacer()
+                    Text("\(photosWithCDF.count)/\(photoInfos.count)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-                .frame(height: 300)
+                
+                chartContent(photosWithCDF: photosWithCDF)
                 
                 // 图例说明
                 Text("每条曲线代表一张照片的亮度累计分布，曲线颜色为照片的主代表色")
@@ -53,24 +43,87 @@ struct BrightnessCDFView: View {
                     .foregroundColor(.secondary)
                     .padding(.top, 8)
             }
+            .padding(5)
+        } else {
+            // 无标题时，使用固定尺寸或自适应
+            chartContent(photosWithCDF: photosWithCDF)
         }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(15)
-        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
     }
     
-    private func drawCDFChart(context: GraphicsContext, size: CGSize) {
-        let padding: CGFloat = 40
-        let chartWidth = size.width - padding * 2
-        let chartHeight = size.height - padding * 2
+    @ViewBuilder
+    private func chartContent(photosWithCDF: [PhotoColorInfo]) -> some View {
+        if photoInfos.isEmpty {
+            Text("暂无数据")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding()
+        } else if photosWithCDF.isEmpty {
+            Text("照片亮度数据正在计算中...")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding()
+        } else {
+            GeometryReader { geometry in
+                cdfChartContent(geometry: geometry)
+            }
+            .frame(width: fixedChartSize, height: fixedChartSize)
+        }
+    }
+    
+    @ViewBuilder
+    private func cdfChartContent(geometry: GeometryProxy) -> some View {
+        // 图表总尺寸
+        let chartSize: CGFloat = fixedChartSize ?? min(geometry.size.width, geometry.size.height)
+        // 坐标轴长度 = 图表尺寸 - 标签空间
+        let axisSize: CGFloat = chartSize - Layout.labelSpace
         
+        // 坐标轴区域（为左侧和底部的标签留空间）
+        let chartRect = CGRect(
+            x: Layout.labelSpace,
+            y: 0,
+            width: axisSize,
+            height: axisSize
+        )
+        
+        ZStack {
+            Canvas { context, size in
+                let currentChartSize: CGFloat = fixedChartSize ?? min(size.width, size.height)
+                let currentAxisSize: CGFloat = currentChartSize - Layout.labelSpace
+                
+                // 传递正方形区域给绘制函数
+                drawCDFChart(
+                    context: context,
+                    size: size,
+                    squareSize: currentAxisSize,
+                    offsetX: Layout.labelSpace,
+                    offsetY: 0
+                )
+            }
+            
+            // Y 轴标签：累计百分比，旋转 -90 度
+            Text("累计百分比")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .rotationEffect(.degrees(-90))
+                .position(x: Layout.labelSpace / 2, y: chartRect.midY)
+            
+            // X 轴标签：亮度
+            Text("亮度")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .position(x: chartRect.midX, y: chartSize - Layout.labelSpace / 2 + 5)
+        }
+    }
+    
+    private func drawCDFChart(context: GraphicsContext, size: CGSize, squareSize: CGFloat, offsetX: CGFloat, offsetY: CGFloat) {
         // 调试日志
         let photosWithCDF = photoInfos.filter { $0.brightnessCDF != nil && !($0.brightnessCDF?.isEmpty ?? true) }
         print("📊 CDF 绘图：总照片数 \(photoInfos.count)，有 CDF 数据 \(photosWithCDF.count)")
         
-        // 绘制坐标轴
-        drawAxes(context: context, size: size, padding: padding, chartWidth: chartWidth, chartHeight: chartHeight)
+        // 绘制坐标轴（使用正方形区域）
+        drawAxes(context: context, squareSize: squareSize, offsetX: offsetX, offsetY: offsetY)
         
         // 绘制每张照片的 CDF 曲线
         var drawnCount = 0
@@ -80,98 +133,65 @@ struct BrightnessCDFView: View {
             }
             drawnCount += 1
             
-            // 获取照片的主代表色（第一个主色）
-            let color = photoInfo.dominantColors.first?.color ?? Color.gray
+            // 使用照片的视觉代表色（5个主色在 LAB 空间的加权平均）
+            let color: Color
+            if let visualRGB = photoInfo.visualRepresentativeColor {
+                color = Color(red: Double(visualRGB.x), green: Double(visualRGB.y), blue: Double(visualRGB.z))
+            } else {
+                // 如果没有视觉代表色，回退到最主要的主色
+                color = photoInfo.dominantColors.first?.color ?? Color.gray
+            }
             
             // 绘制 CDF 曲线
             drawCDFCurve(
                 context: context,
                 cdf: cdf,
                 color: color,
-                padding: padding,
-                chartWidth: chartWidth,
-                chartHeight: chartHeight
+                squareSize: squareSize,
+                offsetX: offsetX,
+                offsetY: offsetY
             )
         }
         
         print("📊 CDF 绘图完成：绘制了 \(drawnCount) 条曲线")
     }
     
-    private func drawAxes(context: GraphicsContext, size: CGSize, padding: CGFloat, chartWidth: CGFloat, chartHeight: CGFloat) {
+    private func drawAxes(context: GraphicsContext, squareSize: CGFloat, offsetX: CGFloat, offsetY: CGFloat) {
         var contextCopy = context
         
-        // X 轴
+        // X 轴（正方形区域的底部）
+        let xAxisY = offsetY + squareSize
         let xAxisPath = Path { path in
-            path.move(to: CGPoint(x: padding, y: size.height - padding))
-            path.addLine(to: CGPoint(x: size.width - padding, y: size.height - padding))
+            path.move(to: CGPoint(x: offsetX, y: xAxisY))
+            path.addLine(to: CGPoint(x: offsetX + squareSize, y: xAxisY))
         }
-        contextCopy.stroke(xAxisPath, with: .color(.gray), lineWidth: 1)
+        contextCopy.stroke(xAxisPath, with: .color(Color.secondary.opacity(0.7)), lineWidth: 1)
         
-        // Y 轴
+        // Y 轴（正方形区域的左侧）
         let yAxisPath = Path { path in
-            path.move(to: CGPoint(x: padding, y: padding))
-            path.addLine(to: CGPoint(x: padding, y: size.height - padding))
+            path.move(to: CGPoint(x: offsetX, y: offsetY))
+            path.addLine(to: CGPoint(x: offsetX, y: offsetY + squareSize))
         }
-        contextCopy.stroke(yAxisPath, with: .color(.gray), lineWidth: 1)
+        contextCopy.stroke(yAxisPath, with: .color(Color.secondary.opacity(0.7)), lineWidth: 1)
         
-        // X 轴标签（亮度 0-255）
-        let xLabels = [0, 64, 128, 192, 255]
-        for label in xLabels {
-            let x = padding + (CGFloat(label) / 255.0) * chartWidth
-            let y = size.height - padding + 15
-            
-            contextCopy.draw(
-                Text("\(label)")
-                    .font(.caption2)
-                    .foregroundColor(.secondary),
-                at: CGPoint(x: x, y: y)
-            )
-        }
-        
-        // Y 轴标签（百分比 0-100%）
-        let yLabels = [0, 25, 50, 75, 100]
-        for label in yLabels {
-            let x = padding - 20
-            let y = size.height - padding - (CGFloat(label) / 100.0) * chartHeight
-            
-            contextCopy.draw(
-                Text("\(label)%")
-                    .font(.caption2)
-                    .foregroundColor(.secondary),
-                at: CGPoint(x: x, y: y)
-            )
-        }
-        
-        // 轴标题
-        contextCopy.draw(
-            Text("亮度")
-                .font(.caption)
-                .foregroundColor(.secondary),
-            at: CGPoint(x: size.width / 2, y: size.height - 5)
-        )
-        
-        contextCopy.draw(
-            Text("累计百分比")
-                .font(.caption)
-                .foregroundColor(.secondary),
-            at: CGPoint(x: 10, y: padding / 2)
-        )
+        // 去掉刻度值，不绘制 X 轴和 Y 轴的数字标签
+        // X 轴和 Y 轴标题通过 ZStack overlay 实现，不在 Canvas 中绘制
     }
     
     private func drawCDFCurve(
         context: GraphicsContext,
         cdf: [Float],
         color: Color,
-        padding: CGFloat,
-        chartWidth: CGFloat,
-        chartHeight: CGFloat
+        squareSize: CGFloat,
+        offsetX: CGFloat,
+        offsetY: CGFloat
     ) {
         var contextCopy = context
         
         let path = Path { path in
             for (index, value) in cdf.enumerated() {
-                let x = padding + (CGFloat(index) / 255.0) * chartWidth
-                let y = padding + chartHeight - (CGFloat(value) * chartHeight)
+                let x = offsetX + (CGFloat(index) / 255.0) * squareSize
+                let y = offsetY + squareSize - (CGFloat(value) * squareSize)
                 
                 if index == 0 {
                     path.move(to: CGPoint(x: x, y: y))
@@ -183,7 +203,7 @@ struct BrightnessCDFView: View {
         
         contextCopy.stroke(
             path,
-            with: .color(color.opacity(0.6)),
+            with: .color(color.opacity(Layout.curveOpacity)),
             lineWidth: 1.5
         )
     }

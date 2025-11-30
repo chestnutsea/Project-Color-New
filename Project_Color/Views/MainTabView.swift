@@ -18,14 +18,14 @@ struct MainTabView: View {
         case scanner = 0
         case album = 1
         case emerge = 2
-        case palette = 3
+        case mine = 3
         
         var iconName: String {
             switch self {
-            case .scanner: return "scanner"
+            case .scanner: return "camera.aperture"
             case .album: return "photo.stack"
             case .emerge: return "camera.filters"
-            case .palette: return "paintpalette"
+            case .mine: return "person.crop.square.badge.camera"
             }
         }
         
@@ -34,7 +34,7 @@ struct MainTabView: View {
             case .scanner: return "扫描"
             case .album: return "相册"
             case .emerge: return "显影"
-            case .palette: return "工具"
+            case .mine: return "我的"
             }
         }
     }
@@ -61,16 +61,19 @@ struct MainTabView: View {
             
             KitView()
                 .tabItem {
-                    Label(TabItem.palette.title, systemImage: TabItem.palette.iconName)
+                    Label(TabItem.mine.title, systemImage: TabItem.mine.iconName)
                 }
-                .tag(TabItem.palette)
+                .tag(TabItem.mine)
         }
         .tint(.black)  // 设置选中颜色为黑色
         .onAppear {
-            // 设置 TabBar 的外观
+            // 设置 TabBar 的外观：透明背景
             let appearance = UITabBarAppearance()
-            appearance.configureWithDefaultBackground()
-            appearance.backgroundColor = UIColor.systemBackground
+            appearance.configureWithTransparentBackground()
+            appearance.backgroundColor = .clear
+            
+            // 保持 TabBar 图标的正常显示
+            appearance.shadowColor = .clear  // 移除阴影
             
             UITabBar.appearance().standardAppearance = appearance
             UITabBar.appearance().scrollEdgeAppearance = appearance

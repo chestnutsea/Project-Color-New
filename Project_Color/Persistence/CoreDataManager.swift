@@ -221,14 +221,21 @@ final class CoreDataManager {
         }
         session.mutableSetValue(forKey: "clusters").addObjects(from: clusterEntities)
 
+        // 保存封面照片（第一张照片的 assetIdentifier）
+        if let firstPhoto = photoInfos.first {
+            session.coverAssetIdentifier = firstPhoto.assetIdentifier
+            print("   📷 保存封面照片: \(firstPhoto.assetIdentifier.prefix(8))...")
+        }
+        
         // 保存照片分析信息
         var photoAnalysisEntities: [PhotoAnalysisEntity] = []
-        for photoInfo in photoInfos {
+        for (index, photoInfo) in photoInfos.enumerated() {
             let photoAnalysis = PhotoAnalysisEntity(context: ctx)
             photoAnalysis.id = UUID()
             photoAnalysis.assetLocalIdentifier = photoInfo.assetIdentifier
             photoAnalysis.albumIdentifier = photoInfo.albumIdentifier
             photoAnalysis.albumName = photoInfo.albumName
+            photoAnalysis.sortOrder = Int16(index)  // 保存排序顺序
             
             // 调试：记录相册信息保存
             if let albumId = photoInfo.albumIdentifier, let albumName = photoInfo.albumName {
@@ -245,6 +252,13 @@ final class CoreDataManager {
             // 保存主色信息
             if let dominantColorsData = try? JSONEncoder().encode(photoInfo.dominantColors) {
                 photoAnalysis.dominantColors = dominantColorsData
+            }
+            
+            // 保存视觉代表色（5个主色在 LAB 空间的加权平均）
+            if let visualColor = photoInfo.visualRepresentativeColor {
+                photoAnalysis.visualRepresentativeColorR = visualColor.x
+                photoAnalysis.visualRepresentativeColorG = visualColor.y
+                photoAnalysis.visualRepresentativeColorB = visualColor.z
             }
 
             // 保存簇混合向量
@@ -272,17 +286,17 @@ final class CoreDataManager {
                 if let colorCast = advancedColorAnalysis.colorCastResult {
                     photoAnalysis.colorCastRMS = colorCast.rms
                     
-                    // 高光区域色偏
-                    photoAnalysis.colorCastHighlightAMean = colorCast.highlightAMean
-                    photoAnalysis.colorCastHighlightBMean = colorCast.highlightBMean
-                    photoAnalysis.colorCastHighlightCast = colorCast.highlightCast
-                    photoAnalysis.colorCastHighlightHue = colorCast.highlightHueDegrees
+                    // 高光区域色偏（Optional，当 ratio < 1% 时为 nil）
+                    photoAnalysis.colorCastHighlightAMean = colorCast.highlightAMean ?? 0
+                    photoAnalysis.colorCastHighlightBMean = colorCast.highlightBMean ?? 0
+                    photoAnalysis.colorCastHighlightCast = colorCast.highlightCast ?? 0
+                    photoAnalysis.colorCastHighlightHue = colorCast.highlightHueDegrees ?? 0
                     
-                    // 阴影区域色偏
-                    photoAnalysis.colorCastShadowAMean = colorCast.shadowAMean
-                    photoAnalysis.colorCastShadowBMean = colorCast.shadowBMean
-                    photoAnalysis.colorCastShadowCast = colorCast.shadowCast
-                    photoAnalysis.colorCastShadowHue = colorCast.shadowHueDegrees
+                    // 阴影区域色偏（Optional，当 ratio < 1% 时为 nil）
+                    photoAnalysis.colorCastShadowAMean = colorCast.shadowAMean ?? 0
+                    photoAnalysis.colorCastShadowBMean = colorCast.shadowBMean ?? 0
+                    photoAnalysis.colorCastShadowCast = colorCast.shadowCast ?? 0
+                    photoAnalysis.colorCastShadowHue = colorCast.shadowHueDegrees ?? 0
                     
                     // 兼容性字段（平均值）
                     photoAnalysis.colorCastAMean = colorCast.aMean
@@ -316,9 +330,6 @@ final class CoreDataManager {
                 metadataEntity.shutterSpeed = metadata.shutterSpeed
                 metadataEntity.iso = Int32(metadata.iso ?? 0)
                 metadataEntity.focalLength = metadata.focalLength ?? 0
-                metadataEntity.latitude = metadata.latitude ?? 0
-                metadataEntity.longitude = metadata.longitude ?? 0
-                metadataEntity.locationName = metadata.locationName
                 metadataEntity.cameraMake = metadata.cameraMake
                 metadataEntity.cameraModel = metadata.cameraModel
                 metadataEntity.lensModel = metadata.lensModel
@@ -580,7 +591,7 @@ final class CoreDataManager {
             if nextNumber == 0 {
                 return baseName
             } else {
-                return "\(baseName)(\(nextNumber))"
+            return "\(baseName)(\(nextNumber))"
             }
         } catch {
             print("❌ 查询已有会话失败: \(error)")

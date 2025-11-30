@@ -14,18 +14,19 @@ import AppKit
 
 struct SaturationBrightnessPoint: Identifiable {
     let id = UUID()
-    let saturation: CGFloat   // 0 - 255
-    let brightness: CGFloat  // 0 - 255
+    let saturation: CGFloat   // 0 - 255 (y 轴)
+    let brightness: CGFloat  // 0 - 255 (x 轴)
+    let color: Color  // 照片的视觉代表色
 }
 
 struct SaturationBrightnessScatterView: View {
     private enum Layout {
-        static let inset: CGFloat = 48
+        static let labelSpace: CGFloat = 18  // 为标签预留的空间（与 CDF 视图一致）
         static let axisLineWidth: CGFloat = 1.0
         static let gridLineWidth: CGFloat = 0.6
         static let gridSegments: Int = 4
         static let pointDiameter: CGFloat = 10
-        static let pointOpacity: Double = 0.35
+        static let pointOpacity: Double = 0.8  // 圆点透明度（布局常量）
         static let axisColor = Color.secondary.opacity(0.7)
         static let gridColor = Color.secondary.opacity(0.25)
         #if canImport(UIKit)
@@ -35,12 +36,11 @@ struct SaturationBrightnessScatterView: View {
         #else
         static let background = Color.white
         #endif
-        static let chartHeight: CGFloat = 320
         static let maxValue: CGFloat = 255
     }
     
     var points: [SaturationBrightnessPoint]
-    var hue: Double?
+    var fixedChartSize: CGFloat? = nil  // 外部传入的固定图表尺寸（包含标签）
     
     var body: some View {
         ZStack {
@@ -50,53 +50,64 @@ struct SaturationBrightnessScatterView: View {
                 chartView
             }
         }
-        .frame(height: Layout.chartHeight)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Layout.background)
-                .shadow(color: .black.opacity(0.08), radius: 6, x: 0, y: 3)
-        )
     }
     
     private var chartView: some View {
         GeometryReader { geometry in
+            chartContent(geometry: geometry)
+        }
+        .frame(width: fixedChartSize, height: fixedChartSize)
+    }
+    
+    @ViewBuilder
+    private func chartContent(geometry: GeometryProxy) -> some View {
+        // 图表总尺寸
+        let chartSize: CGFloat = fixedChartSize ?? min(geometry.size.width, geometry.size.height)
+        // 坐标轴长度 = 图表尺寸 - 标签空间
+        let axisSize: CGFloat = chartSize - Layout.labelSpace
+        
+        // 坐标轴区域（为左侧和底部的标签留空间）
+        let chartRect = CGRect(
+            x: Layout.labelSpace,
+            y: 0,
+            width: axisSize,
+            height: axisSize
+        )
+        
+        ZStack {
             Canvas { context, size in
-                let chartRect = CGRect(
-                    x: Layout.inset,
-                    y: Layout.inset,
-                    width: size.width - Layout.inset * 2,
-                    height: size.height - Layout.inset * 2
+                let currentChartSize: CGFloat = fixedChartSize ?? min(size.width, size.height)
+                let currentAxisSize: CGFloat = currentChartSize - Layout.labelSpace
+                
+                let rect = CGRect(
+                    x: Layout.labelSpace,
+                    y: 0,
+                    width: currentAxisSize,
+                    height: currentAxisSize
                 )
                 
-                drawGrid(in: chartRect, context: &context)
-                drawAxes(in: chartRect, context: &context)
-                drawPoints(in: chartRect, context: &context)
-                drawAxisTitles(in: chartRect, context: &context)
+                drawGrid(in: rect, context: &context)
+                drawAxes(in: rect, context: &context)
+                drawPoints(in: rect, context: &context, totalSize: chartSize)
             }
+            
+            // Y 轴标签：饱和度，旋转 -90 度
+            Text("饱和度")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .rotationEffect(.degrees(-90))
+                .position(x: Layout.labelSpace / 2, y: chartRect.midY)
+            
+            // X 轴标签：亮度
+            Text("亮度")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .position(x: chartRect.midX, y: chartSize - Layout.labelSpace / 2 + 5)
         }
     }
     
     private func drawGrid(in rect: CGRect, context: inout GraphicsContext) {
-        guard Layout.gridSegments > 0 else { return }
-        
-        let step = rect.width / CGFloat(Layout.gridSegments)
-        for index in 1..<Layout.gridSegments {
-            let x = rect.minX + CGFloat(index) * step
-            var path = Path()
-            path.move(to: CGPoint(x: x, y: rect.minY))
-            path.addLine(to: CGPoint(x: x, y: rect.maxY))
-            context.stroke(path, with: .color(Layout.gridColor), lineWidth: Layout.gridLineWidth)
-        }
-        
-        let verticalStep = rect.height / CGFloat(Layout.gridSegments)
-        for index in 1..<Layout.gridSegments {
-            let y = rect.minY + CGFloat(index) * verticalStep
-            var path = Path()
-            path.move(to: CGPoint(x: rect.minX, y: y))
-            path.addLine(to: CGPoint(x: rect.maxX, y: y))
-            context.stroke(path, with: .color(Layout.gridColor), lineWidth: Layout.gridLineWidth)
-        }
+        // 去掉中间的网格线，只保留坐标轴
     }
     
     private func drawAxes(in rect: CGRect, context: inout GraphicsContext) {
@@ -111,56 +122,38 @@ struct SaturationBrightnessScatterView: View {
         context.stroke(path, with: .color(Layout.axisColor), lineWidth: Layout.axisLineWidth)
     }
     
-    private func drawPoints(in rect: CGRect, context: inout GraphicsContext) {
+    private func drawPoints(in rect: CGRect, context: inout GraphicsContext, totalSize: CGFloat = 300) {
+        // 根据视图大小动态调整点的大小
+        let scaleFactor = totalSize / 300.0
+        let pointSize = Layout.pointDiameter * min(scaleFactor, 1.0)
+        
         for point in points {
             let clampedSaturation = max(0, min(point.saturation, Layout.maxValue))
             let clampedBrightness = max(0, min(point.brightness, Layout.maxValue))
             
-            let xRatio = clampedSaturation / Layout.maxValue
-            let yRatio = clampedBrightness / Layout.maxValue
+            // x 轴是亮度，y 轴是饱和度（调换后的顺序）
+            let xRatio = clampedBrightness / Layout.maxValue
+            let yRatio = clampedSaturation / Layout.maxValue
             
             let x = rect.minX + rect.width * xRatio
             let y = rect.maxY - rect.height * yRatio
             let ellipseRect = CGRect(
-                x: x - Layout.pointDiameter / 2,
-                y: y - Layout.pointDiameter / 2,
-                width: Layout.pointDiameter,
-                height: Layout.pointDiameter
+                x: x - pointSize / 2,
+                y: y - pointSize / 2,
+                width: pointSize,
+                height: pointSize
             )
             
             let path = Path(ellipseIn: ellipseRect)
             
-            let hueValue = hue ?? 0.6
-            let saturationComponent = xRatio
-            let brightnessComponent = max(0.02, yRatio)
-            let pointColor = Color(
-                hue: hueValue,
-                saturation: saturationComponent,
-                brightness: brightnessComponent
-            )
-            
+            // 使用照片的视觉代表色
             context.fill(
                 path,
-                with: .color(pointColor.opacity(Layout.pointOpacity))
+                with: .color(point.color.opacity(Layout.pointOpacity))
             )
         }
     }
     
-    private func drawAxisTitles(in rect: CGRect, context: inout GraphicsContext) {
-        let saturationTitle = Text("饱和度 (S)").font(.caption).foregroundColor(.secondary)
-        context.draw(
-            saturationTitle,
-            at: CGPoint(x: rect.midX, y: rect.maxY + 32),
-            anchor: .top
-        )
-        
-        let brightnessTitle = Text("亮度 (V)").font(.caption).foregroundColor(.secondary)
-        context.draw(
-            brightnessTitle,
-            at: CGPoint(x: rect.minX - 36, y: rect.midY),
-            anchor: .center
-        )
-    }
     
     private var emptyState: some View {
         VStack(spacing: 12) {

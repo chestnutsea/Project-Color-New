@@ -186,14 +186,11 @@ class SimpleKMeans {
         return centroids
     }
     
-    // MARK: - 距离计算（根据颜色空间选择）
+    // MARK: - 距离计算（统一使用欧几里得距离）
+    /// 在 LAB 空间使用欧几里得距离，将颜色视为 3D 向量 (L, a, b)
+    /// 这样距离计算和质心更新在数学上保持一致
     private func calculateDistance(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
-        switch colorSpace {
-        case .rgb:
-            return euclideanDistance(a, b)
-        case .lab:
-            return converter.deltaE(a, b)
-        }
+        return euclideanDistance(a, b)
     }
     
     // MARK: - 欧氏距离

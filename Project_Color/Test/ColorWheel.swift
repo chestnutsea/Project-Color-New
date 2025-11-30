@@ -1,14 +1,6 @@
 import SwiftUI
 
-// ==========================================================
-// MARK: - Model
-// ==========================================================
-struct ColorCastPoint: Identifiable {
-    let id = UUID()
-    let hueDegrees: Double      // 0–360°
-    let strength: Double        // 0–1
-    let isHighlight: Bool       // true 高光 / false 阴影
-}
+// ColorCastPoint 已移动到 Views/Components/ColorCastWheelView.swift
 
 // ==========================================================
 // MARK: - Layout Constants
@@ -179,19 +171,19 @@ struct DualPolarScatterView: View {
 struct DualPolarScatterView_Previews: PreviewProvider {
 
     static let demoPoints: [ColorCastPoint] = [
-        // highlight
-        .init(hueDegrees: 30, strength: 0.9, isHighlight: true),
-        .init(hueDegrees: 60, strength: 0.7, isHighlight: true),
-        .init(hueDegrees: 120, strength: 0.3, isHighlight: true),
-        .init(hueDegrees: 200, strength: 0.5, isHighlight: true),
-        .init(hueDegrees: 310, strength: 0.6, isHighlight: true),
+        // highlight（暖色调）
+        .init(hueDegrees: 30, strength: 0.9, isHighlight: true, displayColor: Color(red: 1.0, green: 0.9, blue: 0.8)),
+        .init(hueDegrees: 60, strength: 0.7, isHighlight: true, displayColor: Color(red: 1.0, green: 0.95, blue: 0.8)),
+        .init(hueDegrees: 120, strength: 0.3, isHighlight: true, displayColor: Color(red: 0.85, green: 1.0, blue: 0.85)),
+        .init(hueDegrees: 200, strength: 0.5, isHighlight: true, displayColor: Color(red: 0.8, green: 0.9, blue: 1.0)),
+        .init(hueDegrees: 310, strength: 0.6, isHighlight: true, displayColor: Color(red: 1.0, green: 0.85, blue: 0.95)),
 
-        // shadow
-        .init(hueDegrees: 220, strength: 0.85, isHighlight: false),
-        .init(hueDegrees: 260, strength: 0.74, isHighlight: false),
-        .init(hueDegrees: 300, strength: 0.52, isHighlight: false),
-        .init(hueDegrees: 180, strength: 0.4, isHighlight: false),
-        .init(hueDegrees: 340, strength: 0.25, isHighlight: false)
+        // shadow（冷色调）
+        .init(hueDegrees: 220, strength: 0.85, isHighlight: false, displayColor: Color(red: 0.2, green: 0.25, blue: 0.35)),
+        .init(hueDegrees: 260, strength: 0.74, isHighlight: false, displayColor: Color(red: 0.25, green: 0.2, blue: 0.4)),
+        .init(hueDegrees: 300, strength: 0.52, isHighlight: false, displayColor: Color(red: 0.35, green: 0.25, blue: 0.35)),
+        .init(hueDegrees: 180, strength: 0.4, isHighlight: false, displayColor: Color(red: 0.2, green: 0.3, blue: 0.3)),
+        .init(hueDegrees: 340, strength: 0.25, isHighlight: false, displayColor: Color(red: 0.35, green: 0.25, blue: 0.3))
     ]
 
     static var previews: some View {

@@ -21,15 +21,15 @@ struct HueRingPoint: Identifiable {
 
 struct HueRingDistributionView: View {
     private enum Layout {
-        static let viewHeight: CGFloat = 200
+        static let viewHeight: CGFloat = 170  // 与高光阴影轮高度一致（布局常量）
         static let ringLineWidth: CGFloat = 1
         static let ringOpacity: Double = 0.25
-        static let ringDiameterRatio: CGFloat = 0.75
+        static let ringDiameter: CGFloat = 140  // 色相环直径（布局常量，与高光阴影轮统一）
         static let pointOpacity: Double = 0.45
         static let minPointDiameter: CGFloat = 10
         static let maxAdditionalDiameter: CGFloat = 36
-        static let iconFontSize: CGFloat = 25
-        static let iconPadding: CGFloat = 20
+        static let iconFontSize: CGFloat = 18  // LCh 空间入口按钮字体大小（布局常量）
+        static let iconPadding: CGFloat = 12  // LCh 空间入口按钮内边距（布局常量）
         #if canImport(UIKit)
         static let cardBackground = Color(UIColor.systemBackground)
         #elseif canImport(AppKit)
@@ -83,17 +83,12 @@ struct HueRingDistributionView: View {
         }
         .frame(height: Layout.viewHeight)
         .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Layout.cardBackground.opacity(0.9))
-                .shadow(color: .black.opacity(0.08), radius: 6, x: 0, y: 3)
-        )
     }
     
     private var ringContent: some View {
         GeometryReader { geometry in
             Canvas { context, size in
-                let diameter = min(size.width, size.height) * Layout.ringDiameterRatio
+                let diameter = Layout.ringDiameter  // 使用固定直径（布局常量）
                 let radius = diameter / 2
                 let center = CGPoint(x: size.width / 2, y: size.height / 2)
                 

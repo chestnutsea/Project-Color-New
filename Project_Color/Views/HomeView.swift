@@ -68,12 +68,14 @@ struct HomeView: View {
     @State private var showShareSheet = false  // 导出分享
     @State private var shareURL: URL?  // 分享文件 URL
     private let analysisPipeline = SimpleAnalysisPipeline()
+    @State private var hasPrewarmedAnalysis = false
     private let progressThrottler = ProgressThrottler(interval: 0.15)
     
     // 扫描预备弹窗相关
     @State private var showScanPrepareAlert = false  // 扫描预备弹窗
     @State private var showFeelingSheet = false  // 添加感受 Sheet
     @State private var userFeeling: String = ""  // 用户输入的感受
+    @State private var showInkCircle = false  // InkCircle 测试页面
     
 #if DEBUG
     private let enableVerboseLogging = false
@@ -171,6 +173,22 @@ struct HomeView: View {
                         VStack {
                             HStack {
                                 Spacer()
+                                
+                                // InkCircle 测试按钮
+                                #if DEBUG
+                                Button(action: {
+                                    showInkCircle = true
+                                }) {
+                                    Image(systemName: "circle.grid.3x3.fill")
+                                        .font(.system(size: 24))
+                                        .foregroundColor(.primary)
+                                        .padding(12)
+                                        .background(Color.white.opacity(0.9))
+                                        .clipShape(Circle())
+                                        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+                                }
+                                .padding(.trailing, 8)
+                                #endif
                                 
                                 // Vision 标签库菜单
                                 Menu {
@@ -287,6 +305,8 @@ struct HomeView: View {
                     if let result = analysisResult {
                         AnalysisResultView(result: result, onDismiss: {
                             showAnalysisResult = false
+                            // 退出分析结果页后清空照片选择
+                            selectionManager.clearSelection()
                         })
                         .navigationBarBackButtonHidden(true)
                         .toolbar(.hidden, for: .tabBar)
@@ -294,11 +314,11 @@ struct HomeView: View {
                 }
                 .toolbar(showAnalysisResult ? .hidden : .visible, for: .tabBar)  // 根据状态控制 TabBar 显示
             }
-            .sheet(isPresented: $showPhotoPicker) {
-                PhotoPickerView { results in
-                    selectionManager.updateSelectedAssets(with: results)
+            .fullScreenCover(isPresented: $showPhotoPicker) {
+                CustomPhotoPickerView { assets in
+                    selectionManager.updateSelection(assets)
+                    resetDragState()  // 重新选片后立即恢复照片堆展示状态
                 }
-                .tint(Color.black) // 设置 sheet 的 tint color 为黑色
             }
             .sheet(isPresented: $showAnalysisHistory) {
                 AnalysisHistoryView()
@@ -321,13 +341,17 @@ struct HomeView: View {
             // 扫描预备弹窗
             .alert("扫描预备中...", isPresented: $showScanPrepareAlert) {
                 Button("添加感受") {
-                    // 先让照片堆消失，延迟后显示 sheet（等待 alert 关闭动画完成）
+                    // 先让照片堆消失，随后立刻打开输入页
+                    showScanPrepareAlert = false
                     hidePhotoStack()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    DispatchQueue.main.async {
                         showFeelingSheet = true
                     }
                 }
                 Button("确认选片") {
+                    // 触感反馈：扫描开始
+                    let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                    impactFeedback.impactOccurred()
                     startProcessing()
                 }
             }
@@ -336,6 +360,9 @@ struct HomeView: View {
                 FeelingInputSheet(
                     feeling: $userFeeling,
                     onConfirm: {
+                        // 触感反馈：扫描开始
+                        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                        impactFeedback.impactOccurred()
                         showFeelingSheet = false
                         startProcessing()
                     },
@@ -349,11 +376,34 @@ struct HomeView: View {
                     }
                 )
             }
+            // InkCircle 测试页面
+            .fullScreenCover(isPresented: $showInkCircle) {
+                NavigationStack {
+                    MetaballDemoView()
+                        .toolbar {
+                            ToolbarItem(placement: .navigationBarTrailing) {
+                                Button("关闭") {
+                                    showInkCircle = false
+                                }
+                            }
+                        }
+                }
+            }
             .onAppear {
+                prewarmAnalysisStack()
                 checkPhotoLibraryStatus()
+                
+                // 如果已有选中的照片但图片未加载，重新加载图片
+                if !selectionManager.selectedAssets.isEmpty && selectionManager.selectedImages.isEmpty {
+                    selectionManager.loadLatestImages()
+                }
             }
             .onChange(of: selectionManager.selectedAssets) { _ in
                 resetDragState()
+                // 当选中照片变化时，确保图片已加载
+                if !selectionManager.selectedAssets.isEmpty && selectionManager.selectedImages.isEmpty {
+                    selectionManager.loadLatestImages()
+                }
             }
         }
     }
@@ -423,6 +473,17 @@ struct HomeView: View {
         }
     }
     
+    private func prewarmAnalysisStack() {
+        guard !hasPrewarmedAnalysis else { return }
+        hasPrewarmedAnalysis = true
+        
+        // 在后台线程提前初始化重型依赖，避免首次弹窗/键盘时阻塞主线程
+        Task.detached(priority: .utility) {
+            _ = ColorNameResolver.shared  // 预加载 2.8 万色名
+            _ = CoreDataManager.shared.viewContext  // 启动持久化容器
+        }
+    }
+    
     private func startProcessing() {
         debugLog("=== startProcessing called ===")
         debugLog("Current opacity: \(photoStackOpacity)")
@@ -434,14 +495,14 @@ struct HomeView: View {
         }
         
         // 直接开始处理动画
-        DispatchQueue.main.async {
-            debugLog("Animation started - opacity set to 0, dragOffset reset")
-            
-            // 延迟后开始显示进度条并开始分析
-            DispatchQueue.main.asyncAfter(deadline: .now() + self.fadeOutDuration) {
-                debugLog("Starting analysis")
-                self.isProcessing = true
-                self.startColorAnalysis()
+            DispatchQueue.main.async {
+                debugLog("Animation started - opacity set to 0, dragOffset reset")
+                
+                // 延迟后开始显示进度条并开始分析
+                DispatchQueue.main.asyncAfter(deadline: .now() + self.fadeOutDuration) {
+                    debugLog("Starting analysis")
+                    self.isProcessing = true
+                    self.startColorAnalysis()
             }
         }
     }
@@ -520,9 +581,15 @@ struct HomeView: View {
             await MainActor.run {
                 self.analysisResult = result
                 self.isProcessing = false
+                self.photoStackOpacity = 1.0
+                self.dragOffset = .zero
                 
                 // 清空用户感受（为下次分析准备）
                 self.userFeeling = ""
+                
+                // 触感反馈：进入分析结果页
+                let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+                impactFeedback.impactOccurred()
                 
                 // 使用 NavigationStack 跳转到结果页
                 self.showAnalysisResult = true
@@ -558,10 +625,24 @@ struct HomeView: View {
     
     // MARK: - 相册权限处理
     private func checkPhotoLibraryStatus() {
-        photoAuthorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        photoAuthorizationStatus = status
+        
+        // 预先请求权限，避免首次点击时的长等待
+        if status == .notDetermined {
+            PHPhotoLibrary.requestAuthorization(for: .readWrite) { newStatus in
+                DispatchQueue.main.async {
+                    photoAuthorizationStatus = newStatus
+                }
+            }
+        }
     }
     
     private func handleImageTap() {
+        // 即刻给出触感反馈，避免点击后长时间无响应的感知
+        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+        impactFeedback.impactOccurred()
+        
         switch photoAuthorizationStatus {
         case .authorized, .limited:
             // 已授权，直接打开照片选择器
@@ -887,7 +968,7 @@ struct FeelingInputSheet: View {
     
     @FocusState private var isTextFieldFocused: Bool
     
-    private let maxCharacters = 100
+    private let maxCharacters = 500
     
     private var characterCount: Int {
         feeling.count
@@ -961,8 +1042,8 @@ struct FeelingInputSheet: View {
                 }
             }
             .onAppear {
-                // 延迟唤出键盘，等待 sheet 动画完成
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                // 立即唤起键盘以减少等待
+                DispatchQueue.main.async {
                     isTextFieldFocused = true
                 }
             }

@@ -59,6 +59,9 @@ struct AnalysisResultView: View {
     @State private var cachedHueRingPoints: [HueRingPoint] = []
     @State private var cachedScatterPoints: [SaturationBrightnessPoint] = []
     @State private var cachedColorSpacePoints: [ColorSpacePoint] = []
+    @State private var cachedColorCastPoints: [ColorCastPoint] = []
+    @State private var cachedHighlightStatus: ColorCastStatus = .noneSignificant
+    @State private var cachedShadowStatus: ColorCastStatus = .noneSignificant
     @State private var isDistributionDataReady = false
     
     private let labConverter = ColorSpaceConverter()
@@ -268,11 +271,15 @@ struct AnalysisResultView: View {
                     let huePoints = await computeHueRingPoints()
                     let scatterPts = await computeScatterPoints()
                     let spacePts = await computeColorSpacePoints()
+                    let (colorCastPts, highlightStat, shadowStat) = await computeColorCastPoints()
                     
                     await MainActor.run {
                         cachedHueRingPoints = huePoints
                         cachedScatterPoints = scatterPts
                         cachedColorSpacePoints = spacePts
+                        cachedColorCastPoints = colorCastPts
+                        cachedHighlightStatus = highlightStat
+                        cachedShadowStatus = shadowStat
                         isDistributionDataReady = true
                     }
                 }
@@ -388,6 +395,7 @@ struct AnalysisResultView: View {
     private var distributionTabContent: some View {
         VStack(spacing: 20) {
             if isDistributionDataReady {
+                // 色相环（带 card）
                 HueRingDistributionView(
                     points: cachedHueRingPoints,
                     dominantHue: dominantHue,
@@ -396,110 +404,125 @@ struct AnalysisResultView: View {
                         show3DView = true
                     }
                 )
+                .padding()
+                .background(Color(.systemBackground))
+                .cornerRadius(15)
+                .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
                 
-                SaturationBrightnessScatterView(
-                    points: cachedScatterPoints,
-                    hue: dominantHue
+                // 色偏分析轮（高光和阴影，带 card）
+                ColorCastWheelView(
+                    points: cachedColorCastPoints,
+                    highlightStatus: cachedHighlightStatus,
+                    shadowStatus: cachedShadowStatus
                 )
+                .padding()
+                .background(Color(.systemBackground))
+                .cornerRadius(15)
+                .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+                
+                // 散点图和 CDF 图表并排显示（带 card，左右对齐）
+                ScatterAndCDFCardView(
+                    scatterPoints: cachedScatterPoints,
+                    photoInfos: result.photoInfos
+                )
+                
+                // 温度分布图（带 card，放到最下面）
+                if let warmCoolDist = result.warmCoolDistribution,
+                   !warmCoolDist.scores.isEmpty,
+                   let dominantColor = dominantCluster?.color {
+                    TemperatureDistributionView(
+                        distribution: warmCoolDist,
+                        dominantColor: dominantColor,
+                        photoInfos: result.photoInfos
+                    )
+                    .background(Color(.systemBackground))
+                    .cornerRadius(15)
+                    .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+                }
             } else {
                 ProgressView("正在计算分布数据...")
                     .padding()
             }
             
-            // 温度分布图（新版）
-            if let warmCoolDist = result.warmCoolDistribution,
-               !warmCoolDist.scores.isEmpty,
-               let dominantColor = dominantCluster?.color {
-                TemperatureDistributionView(
-                    distribution: warmCoolDist,
-                    dominantColor: dominantColor
-                )
-            } else if result.isCompleted {
-                // 调试信息：显示为什么没有显示温度分布
-                VStack(spacing: 8) {
-                    HStack {
-                        Image(systemName: "thermometer")
-                            .foregroundColor(.orange)
-                        Text("温度分布")
-                            .font(.headline)
-                    }
-                    
-                    if result.warmCoolDistribution == nil {
-                        Text("暂无温度评分数据")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    } else if result.warmCoolDistribution?.scores.isEmpty == true {
-                        Text("评分数据为空")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    } else if dominantCluster == nil {
-                        Text("无代表色簇")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding()
-                .background(Color(.systemBackground))
-                .cornerRadius(15)
-                .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
-            }
-            
-            // 累计亮度分布（CDF）图表
-            BrightnessCDFView(photoInfos: result.photoInfos)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text("3D 视图展示的是 LCh 色彩空间（Lab 的极坐标形式），这种表示方式更符合人眼对颜色的感知。")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                
-                Text("• H (色相): 0-360°，表示颜色类型（红、橙、黄、绿、青、蓝、紫）")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                
-                Text("• C (色度): 0-110，表示颜色的鲜艳程度（饱和感）")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                
-                Text("• L (亮度): 0-100，表示颜色的明暗程度")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
     
     private var aiEvaluationTabContent: some View {
         VStack(spacing: 20) {
-            // 用户输入的感受（如果有）
+            // 用户输入的感受（如果有）- 始终显示在最上方
             if let userMessage = result.userMessage, !userMessage.isEmpty {
                 userMessageView(userMessage)
             }
             
             if let evaluation = result.aiEvaluation {
                 if evaluation.isLoading {
-                    // 加载状态
+                    // 加载状态：显示提示卡片
                     aiLoadingView
                 } else if let error = evaluation.error {
-                    // 错误状态
-                    aiErrorView(error: error)
+                    // 错误状态：显示提示卡片
+                    if isNetworkError(error) {
+                        aiErrorMessageView(message: "开启视角需连接网络。")
                 } else {
+                        aiErrorMessageView(message: error)
+                    }
+                } else {
+                    // 检查 AI 返回的内容是否为空
+                    let fullText = evaluation.overallEvaluation?.fullText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let hasContent = !fullText.isEmpty || !evaluation.clusterEvaluations.isEmpty
+                    
+                    if !hasContent {
+                        // AI 返回的内容为空：只显示提示卡片，不显示评论内容卡片
+                        aiErrorMessageView(message: "暂无合适的视角。")
+                    } else {
+                        // 有内容时，显示评价内容（不显示提示卡片）
                     // 评价内容
-                    if let overall = evaluation.overallEvaluation {
+                        if let overall = evaluation.overallEvaluation, !overall.fullText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         overallEvaluationCard(overall)
                     }
                     
                     if !evaluation.clusterEvaluations.isEmpty {
                         clusterEvaluationsSection(evaluation.clusterEvaluations)
+                        }
                     }
                 }
             } else {
-                // 初始状态（正在生成）
+                // 初始状态（正在生成）：显示提示卡片
                 aiLoadingView
             }
         }
     }
     
-    // 用户输入的感受视图
+    // 检查是否是网络错误
+    private func isNetworkError(_ error: String) -> Bool {
+        let lowercased = error.lowercased()
+        return lowercased.contains("网络") || 
+               lowercased.contains("network") || 
+               lowercased.contains("连接") ||
+               lowercased.contains("connection") ||
+               lowercased.contains("timeout") ||
+               lowercased.contains("超时")
+    }
+    
+    // 错误消息视图
+    private func aiErrorMessageView(message: String) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.circle")
+                .font(.system(size: 40))
+                .foregroundColor(.secondary.opacity(0.6))
+            
+            Text(message)
+                .font(.body)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(40)
+        .background(Color(.systemBackground))
+        .cornerRadius(15)
+        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+    }
+    
+    // 用户输入的感受视图（独立卡片）
     private func userMessageView(_ message: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 4) {
@@ -528,6 +551,10 @@ struct AnalysisResultView: View {
             }
             .padding(.top, 4)
         }
+        .padding(20)
+        .background(Color(.systemBackground))
+        .cornerRadius(15)
+        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
     }
     
     private var aiLoadingView: some View {
@@ -940,8 +967,16 @@ struct AnalysisResultView: View {
     // MARK: - 异步计算方法
     
     private func computeScatterPoints() async -> [SaturationBrightnessPoint] {
-        result.photoInfos.compactMap { photo -> SaturationBrightnessPoint? in
-            guard !photo.dominantColors.isEmpty else { return nil }
+        #if DEBUG
+        print("📊 computeScatterPoints 开始，照片数: \(result.photoInfos.count)")
+        #endif
+        return result.photoInfos.compactMap { photo -> SaturationBrightnessPoint? in
+            guard !photo.dominantColors.isEmpty else {
+                #if DEBUG
+                print("📊 照片 \(photo.assetIdentifier.prefix(8))... 无主色，跳过")
+                #endif
+                return nil
+            }
             
             var weightedSaturation: Float = 0
             var totalWeight: Float = 0
@@ -984,12 +1019,36 @@ struct AnalysisResultView: View {
             }
             let bri = CGFloat(medianBrightness) * 255.0
             
-            return SaturationBrightnessPoint(saturation: sat, brightness: bri)
+            // 使用视觉代表色（5个主色在 LAB 空间的加权平均）
+            let visualColor: Color
+            if let visualRGB = photo.visualRepresentativeColor {
+                #if DEBUG
+                print("📊 散点图颜色 - 照片 \(photo.assetIdentifier.prefix(8))...")
+                print("   视觉代表色 RGB: R=\(visualRGB.x), G=\(visualRGB.y), B=\(visualRGB.z)")
+                #endif
+                visualColor = Color(red: Double(visualRGB.x), green: Double(visualRGB.y), blue: Double(visualRGB.z))
+            } else {
+                // 如果没有视觉代表色，回退到最主要的主色
+                #if DEBUG
+                print("📊 散点图颜色 - 照片 \(photo.assetIdentifier.prefix(8))... 无视觉代表色，使用主色")
+                #endif
+                visualColor = photo.dominantColors.first?.color ?? Color.gray
+            }
+            
+            // 注意：x 是亮度，y 是饱和度（调换后的顺序）
+            return SaturationBrightnessPoint(saturation: sat, brightness: bri, color: visualColor)
         }
     }
     
     private var dominantCluster: ColorCluster? {
-        result.clusters.max(by: { $0.photoCount < $1.photoCount })
+        let cluster = result.clusters.max(by: { $0.photoCount < $1.photoCount })
+        #if DEBUG
+        if let c = cluster {
+            print("📊 聚类质心颜色 - Cluster \(c.index)")
+            print("   质心 RGB: R=\(c.centroid.x), G=\(c.centroid.y), B=\(c.centroid.z)")
+        }
+        #endif
+        return cluster
     }
     
     private var dominantColor: Color {
@@ -1099,6 +1158,88 @@ struct AnalysisResultView: View {
                 )
             }
         }
+    }
+    
+    /// 计算色偏散点数据（从每张照片的 ColorCastResult 提取高光和阴影点）
+    private func computeColorCastPoints() async -> ([ColorCastPoint], ColorCastStatus, ColorCastStatus) {
+        var points: [ColorCastPoint] = []
+        var highlightCount = 0
+        var highlightNilCount = 0
+        var shadowCount = 0
+        var shadowNilCount = 0
+        
+        #if DEBUG
+        print("🎯 computeColorCastPoints: 开始处理 \(result.photoInfos.count) 张照片")
+        #endif
+        
+        for (index, photoInfo) in result.photoInfos.enumerated() {
+            guard let colorCast = photoInfo.advancedColorAnalysis?.colorCastResult else {
+                // 没有色偏数据，两者都算 nil
+                highlightNilCount += 1
+                shadowNilCount += 1
+                #if DEBUG
+                print("   [\(index)] 无 colorCastResult")
+                #endif
+                continue
+            }
+            
+            #if DEBUG
+            print("   [\(index)] ColorCastResult:")
+            print("      高光: hue=\(String(describing: colorCast.highlightHueDegrees)), cast=\(String(describing: colorCast.highlightCast))")
+            print("      阴影: hue=\(String(describing: colorCast.shadowHueDegrees)), cast=\(String(describing: colorCast.shadowCast))")
+            print("      RMS=\(colorCast.rms)")
+            #endif
+            
+            // 提取高光点
+            if let highlightPoint = ColorCastPoint.highlightPoint(from: colorCast) {
+                points.append(highlightPoint)
+                highlightCount += 1
+                #if DEBUG
+                print("      → 高光点: hue=\(highlightPoint.hueDegrees), strength=\(highlightPoint.strength)")
+                #endif
+            } else {
+                highlightNilCount += 1
+            }
+            
+            // 提取阴影点
+            if let shadowPoint = ColorCastPoint.shadowPoint(from: colorCast) {
+                points.append(shadowPoint)
+                shadowCount += 1
+                #if DEBUG
+                print("      → 阴影点: hue=\(shadowPoint.hueDegrees), strength=\(shadowPoint.strength)")
+                #endif
+            } else {
+                shadowNilCount += 1
+            }
+        }
+        
+        #if DEBUG
+        print("🎯 computeColorCastPoints: 完成")
+        print("   高光点: \(highlightCount), 高光nil: \(highlightNilCount)")
+        print("   阴影点: \(shadowCount), 阴影nil: \(shadowNilCount)")
+        print("   总点数: \(points.count)")
+        #endif
+        
+        // 确定状态
+        let highlightStatus: ColorCastStatus
+        if highlightCount == 0 {
+            highlightStatus = .noneSignificant
+        } else if highlightNilCount == 0 {
+            highlightStatus = .allSignificant
+        } else {
+            highlightStatus = .partialSignificant
+        }
+        
+        let shadowStatus: ColorCastStatus
+        if shadowCount == 0 {
+            shadowStatus = .noneSignificant
+        } else if shadowNilCount == 0 {
+            shadowStatus = .allSignificant
+        } else {
+            shadowStatus = .partialSignificant
+        }
+        
+        return (points, highlightStatus, shadowStatus)
     }
     
     private func normalizedLChPosition(for rgb: SIMD3<Float>) -> SIMD3<Float> {
@@ -1839,6 +1980,88 @@ struct FormattedTextView: View {
     struct TextSegment {
         let text: String
         let isBold: Bool
+    }
+}
+
+// MARK: - 散点图和 CDF 图表组合卡片
+private struct ScatterAndCDFCardView: View {
+    private enum Layout {
+        static let edgePadding: CGFloat = 5  // 左右边缘 padding
+        static let middleSpacing: CGFloat = 5  // 中间间距
+        static let verticalPadding: CGFloat = 16  // 上下 padding
+    }
+    
+    let scatterPoints: [SaturationBrightnessPoint]
+    let photoInfos: [PhotoColorInfo]
+    
+    @State private var cardWidth: CGFloat = 0
+    
+    // 图表尺寸（含标签）= (cardWidth - 15) / 2
+    private var chartSize: CGFloat {
+        guard cardWidth > 0 else { return 100 }  // 默认尺寸
+        let totalPadding = Layout.edgePadding * 2 + Layout.middleSpacing
+        return (cardWidth - totalPadding) / 2
+    }
+    
+    // 根据宽度计算高度
+    private var cardHeight: CGFloat {
+        guard cardWidth > 0 else { return 200 }  // 默认高度
+        return chartSize + Layout.verticalPadding * 2
+    }
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 0) {
+                // 左边距
+                Spacer()
+                    .frame(width: Layout.edgePadding)
+                
+                // 亮度-饱和度散点图（靠左）
+                SaturationBrightnessScatterView(
+                    points: scatterPoints,
+                    fixedChartSize: chartSize
+                )
+                .frame(width: chartSize, height: chartSize)
+                
+                // 中间间距
+                Spacer()
+                    .frame(width: Layout.middleSpacing)
+                
+                // 累计亮度分布（CDF）图表（靠右）
+                BrightnessCDFView(
+                    photoInfos: photoInfos,
+                    showTitle: false,
+                    fixedChartSize: chartSize
+                )
+                .frame(width: chartSize, height: chartSize)
+                
+                // 右边距
+                Spacer()
+                    .frame(width: Layout.edgePadding)
+            }
+            .padding(.vertical, Layout.verticalPadding)
+        }
+        .frame(height: cardHeight)
+        .frame(maxWidth: .infinity)
+        .background(
+            GeometryReader { geometry in
+                Color.clear.preference(key: WidthPreferenceKey.self, value: geometry.size.width)
+            }
+        )
+        .onPreferenceChange(WidthPreferenceKey.self) { width in
+            cardWidth = width
+        }
+        .background(Color(.systemBackground))
+        .cornerRadius(15)
+        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+    }
+}
+
+// 用于获取宽度的 PreferenceKey
+private struct WidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 

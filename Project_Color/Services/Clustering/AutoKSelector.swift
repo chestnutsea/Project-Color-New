@@ -298,18 +298,24 @@ class AutoKSelector {
 
 extension AutoKSelector {
     
+    // MARK: - 欧几里得距离（与 SimpleKMeans 保持一致）
+    /// 在 LAB 空间使用欧几里得距离，将颜色视为 3D 向量 (L, a, b)
+    private func euclideanDistance(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
+        let diff = a - b
+        return sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z)
+    }
+    
     /// 手肘法（计算簇内距离总和）
     func calculateInertia(
         points: [SIMD3<Float>],
         assignments: [Int],
         centroids: [SIMD3<Float>]
     ) -> Double {
-        let converter = ColorSpaceConverter()
         var totalInertia = 0.0
         
         for i in 0..<points.count {
             let clusterIndex = assignments[i]
-            let distance = converter.deltaE(points[i], centroids[clusterIndex])
+            let distance = euclideanDistance(points[i], centroids[clusterIndex])
             totalInertia += Double(distance * distance)
         }
         

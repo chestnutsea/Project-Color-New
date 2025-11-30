@@ -87,19 +87,19 @@ struct LegendItem: View {
 // MARK: - 预览
 struct ColorCastScatterView_Previews: PreviewProvider {
     static let demoPoints: [ColorCastPoint] = [
-        // 高光点
-        .init(hueDegrees: 30, strength: 0.8, isHighlight: true),
-        .init(hueDegrees: 45, strength: 0.6, isHighlight: true),
-        .init(hueDegrees: 120, strength: 0.4, isHighlight: true),
-        .init(hueDegrees: 200, strength: 0.5, isHighlight: true),
-        .init(hueDegrees: 310, strength: 0.7, isHighlight: true),
+        // 高光点（暖色调）
+        .init(hueDegrees: 30, strength: 0.8, isHighlight: true, displayColor: Color(red: 1.0, green: 0.9, blue: 0.8)),
+        .init(hueDegrees: 45, strength: 0.6, isHighlight: true, displayColor: Color(red: 1.0, green: 0.95, blue: 0.85)),
+        .init(hueDegrees: 120, strength: 0.4, isHighlight: true, displayColor: Color(red: 0.85, green: 1.0, blue: 0.85)),
+        .init(hueDegrees: 200, strength: 0.5, isHighlight: true, displayColor: Color(red: 0.8, green: 0.9, blue: 1.0)),
+        .init(hueDegrees: 310, strength: 0.7, isHighlight: true, displayColor: Color(red: 1.0, green: 0.85, blue: 0.95)),
         
-        // 阴影点
-        .init(hueDegrees: 220, strength: 0.9, isHighlight: false),
-        .init(hueDegrees: 240, strength: 0.7, isHighlight: false),
-        .init(hueDegrees: 180, strength: 0.5, isHighlight: false),
-        .init(hueDegrees: 300, strength: 0.6, isHighlight: false),
-        .init(hueDegrees: 60, strength: 0.3, isHighlight: false)
+        // 阴影点（冷色调）
+        .init(hueDegrees: 220, strength: 0.9, isHighlight: false, displayColor: Color(red: 0.2, green: 0.25, blue: 0.35)),
+        .init(hueDegrees: 240, strength: 0.7, isHighlight: false, displayColor: Color(red: 0.25, green: 0.25, blue: 0.4)),
+        .init(hueDegrees: 180, strength: 0.5, isHighlight: false, displayColor: Color(red: 0.2, green: 0.3, blue: 0.3)),
+        .init(hueDegrees: 300, strength: 0.6, isHighlight: false, displayColor: Color(red: 0.35, green: 0.25, blue: 0.35)),
+        .init(hueDegrees: 60, strength: 0.3, isHighlight: false, displayColor: Color(red: 0.3, green: 0.3, blue: 0.25))
     ]
     
     static var previews: some View {
