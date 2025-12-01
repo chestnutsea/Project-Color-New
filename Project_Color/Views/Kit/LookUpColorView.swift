@@ -38,27 +38,14 @@ struct LookUpColorView: View {
             }
         }
         .background(Color.white)
-        .ignoresSafeArea()
     }
     
     // MARK: - Sections
     private func upperSection(height: CGFloat) -> some View {
         ZStack {
             topBackgroundColor
-                .ignoresSafeArea(edges: .top)
             
             VStack {
-                HStack {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "chevron.backward")
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(topTextColor)
-                    }
-                    Spacer()
-                }
-                .padding(.top, 12)
-                .padding(.horizontal, 16)
-                
                 Spacer()
                 
                 TextField(
@@ -101,7 +88,6 @@ struct LookUpColorView: View {
     private func lowerSection(height: CGFloat) -> some View {
         ZStack {
             bottomBackgroundColor
-                .ignoresSafeArea(edges: .bottom)
             
             VStack {
                 if isValidHex && !bottomRgbText.isEmpty {

@@ -9,147 +9,191 @@ import SwiftUI
 
 struct KitView: View {
     // MARK: - 布局常量
-    private let titleFont: Font = .system(size: 18, weight: .semibold)
-    private let titleColor: Color = .primary
-    private let descriptionFont: Font = .system(size: 14, weight: .regular)
-    private let descriptionColor: Color = .secondary
-    private let dividerColor: Color = Color(.separator)
-    private let menuItemPadding: CGFloat = 16
-    private let menuItemVerticalPadding: CGFloat = 16
-    
-    // MARK: - 菜单数据
-    private let menuItems: [(title: String, description: String)] = [
-        ("集色", "颜色收藏与历史分析记录"),
-        ("查色", "为颜色找到最贴近的名字"),
-        ("寻色", "寻找含特定颜色的照片"),
-        ("探色", "根据关键词探索颜色"),
-        ("算色", "在不同颜色空间中进行换算"),
-        ("筑色", "生成两种颜色间的过渡色"),
-        ("采色", "为单张照片采集代表色"),
-        ("遇色", "偶遇一种颜色")
-    ]
-    
-    @State private var showLookUpColor = false
+    private enum Layout {
+        static let cornerRadius: CGFloat = 20
+        static let horizontalPadding: CGFloat = 16
+        static let cardSpacing: CGFloat = 16
+        static let rowVerticalPadding: CGFloat = 14
+        static let rowHorizontalPadding: CGFloat = 16
+    }
     
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(Array(menuItems.enumerated()), id: \.offset) { index, item in
-                        Group {
-                            if item.title == "寻色" {
-                                NavigationLink {
-                                    SearchColorView()
-                                } label: {
-                                    menuRow(for: item)
-                                }
-                                .buttonStyle(.plain)
-                            } else if item.title == "算色" {
-                                NavigationLink {
-                                    CalculateColorView()
-                                } label: {
-                                    menuRow(for: item)
-                                }
-                                .buttonStyle(.plain)
-                            } else {
-                                menuRow(for: item) {
-                                    if item.title == "查色" {
-                                        showLookUpColor = true
-                                    }
-                                }
-                            }
-                        }
-                        
-                        if index < menuItems.count - 1 {
-                            Divider()
-                                .background(dividerColor)
-                                .padding(.leading, menuItemPadding)
-                        }
-                    }
+                VStack(spacing: Layout.cardSpacing) {
+                    // 第一个卡片：解锁 AI 视角
+                    aiUnlockCard
+                    
+                    // 第二个卡片：功能入口
+                    featuresCard
+                    
+                    // 第三个卡片：迭代记录和隐私说明
+                    infoCard
+                    
+                    // 第四个卡片：更多选项（反馈、鼓励、分享）
+                    moreOptionsCard
                 }
+                .padding(.horizontal, Layout.horizontalPadding)
+                .padding(.top, Layout.cardSpacing)
             }
-            .navigationTitle("调色盘")
-            .background(Color(.systemBackground))
-            .fullScreenCover(isPresented: $showLookUpColor) {
-                LookUpColorView()
-            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("我的")
         }
     }
     
-    // MARK: - Menu Row
-    @ViewBuilder
-    private func menuRow(for item: (title: String, description: String), onTap: (() -> Void)? = nil) -> some View {
-        MenuItemRow(
-            title: item.title,
-            description: item.description,
-            titleFont: titleFont,
-            titleColor: titleColor,
-            descriptionFont: descriptionFont,
-            descriptionColor: descriptionColor,
-            onTap: onTap
-        )
-        .padding(.horizontal, menuItemPadding)
-        .padding(.vertical, menuItemVerticalPadding)
+    // MARK: - AI 解锁卡片
+    private var aiUnlockCard: some View {
+        Button {
+            // TODO: 添加解锁 AI 视角功能
+        } label: {
+            KitMenuRow(
+                icon: "atom",
+                title: "解锁 AI 视角"
+            )
+        }
+        .buttonStyle(.plain)
+        .background(Color(.systemBackground))
+        .cornerRadius(Layout.cornerRadius)
+    }
+    
+    // MARK: - 功能入口卡片
+    private var featuresCard: some View {
+        VStack(spacing: 0) {
+            // 云相册
+            Button {
+                // TODO: 添加云相册功能
+            } label: {
+                KitMenuRow(
+                    icon: "cloud",
+                    title: "云相册"
+                )
+            }
+            .buttonStyle(.plain)
+            
+            // 批处理
+            NavigationLink {
+                BatchProcessView()
+            } label: {
+                KitMenuRow(
+                    icon: "square.stack.3d.up",
+                    title: "批处理"
+                )
+            }
+            .buttonStyle(.plain)
+            
+            // 实验暗房
+            NavigationLink {
+                LabView()
+            } label: {
+                KitMenuRow(
+                    icon: "flask",
+                    title: "实验暗房"
+                )
+            }
+            .buttonStyle(.plain)
+        }
+        .background(Color(.systemBackground))
+        .cornerRadius(Layout.cornerRadius)
+    }
+    
+    // MARK: - 信息卡片
+    private var infoCard: some View {
+        VStack(spacing: 0) {
+            // 迭代记录
+            Button {
+                // TODO: 添加迭代记录功能
+            } label: {
+                KitMenuRow(
+                    icon: "shoeprints.fill",
+                    title: "迭代记录"
+                )
+            }
+            .buttonStyle(.plain)
+            
+            // 隐私与数据说明
+            Button {
+                // TODO: 添加隐私与数据说明功能
+            } label: {
+                KitMenuRow(
+                    icon: "lock.shield",
+                    title: "隐私与数据说明"
+                )
+            }
+            .buttonStyle(.plain)
+        }
+        .background(Color(.systemBackground))
+        .cornerRadius(Layout.cornerRadius)
+    }
+    
+    // MARK: - 更多选项卡片
+    private var moreOptionsCard: some View {
+        VStack(spacing: 0) {
+            // 反馈与联系
+            Button {
+                // TODO: 添加反馈与联系功能
+            } label: {
+                KitMenuRow(
+                    icon: "envelope",
+                    title: "反馈与联系"
+                )
+            }
+            .buttonStyle(.plain)
+            
+            // 鼓励一下
+            Button {
+                // TODO: 添加鼓励一下功能
+            } label: {
+                KitMenuRow(
+                    icon: "hand.thumbsup",
+                    title: "鼓励一下"
+                )
+            }
+            .buttonStyle(.plain)
+            
+            // 分享给朋友
+            Button {
+                // TODO: 添加分享给朋友功能
+            } label: {
+                KitMenuRow(
+                    icon: "paperplane",
+                    title: "分享给朋友"
+                )
+            }
+            .buttonStyle(.plain)
+        }
+        .background(Color(.systemBackground))
+        .cornerRadius(Layout.cornerRadius)
     }
 }
 
-// MARK: - 菜单项行视图
-struct MenuItemRow: View {
+// MARK: - 菜单行视图
+private struct KitMenuRow: View {
+    let icon: String
     let title: String
-    let description: String
-    let titleFont: Font
-    let titleColor: Color
-    let descriptionFont: Font
-    let descriptionColor: Color
-    let onTap: (() -> Void)?
-    
-    init(
-        title: String,
-        description: String,
-        titleFont: Font,
-        titleColor: Color,
-        descriptionFont: Font,
-        descriptionColor: Color,
-        onTap: (() -> Void)? = nil
-    ) {
-        self.title = title
-        self.description = description
-        self.titleFont = titleFont
-        self.titleColor = titleColor
-        self.descriptionFont = descriptionFont
-        self.descriptionColor = descriptionColor
-        self.onTap = onTap
-    }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(titleFont)
-                .foregroundColor(titleColor)
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 20))
+                .foregroundColor(.primary)
+                .frame(width: 28)
             
-            Text(description)
-                .font(descriptionFont)
-                .foregroundColor(descriptionColor)
+            Text(title)
+                .font(.system(size: 17, weight: .regular))
+                .foregroundColor(.primary)
+            
+            Spacer()
+            
+            Image(systemName: "chevron.right")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .contentShape(Rectangle())
-        .ifLet(onTap) { view, action in
-            view.onTapGesture { action() }
-        }
     }
 }
 
 #Preview {
     KitView()
-}
-
-private extension View {
-    @ViewBuilder
-    func ifLet<T>(_ value: T?, transform: (Self, T) -> some View) -> some View {
-        if let value {
-            transform(self, value)
-        } else {
-            self
-        }
-    }
 }

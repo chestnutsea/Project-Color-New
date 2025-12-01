@@ -10,12 +10,17 @@ import SwiftUI
 struct BrightnessCDFView: View {
     private enum Layout {
         static let curveOpacity: Double = 0.8  // CDF 曲线透明度（布局常量）
-        static let labelSpace: CGFloat = 18  // 为"累计百分比"标签预留的空间（与散点图一致）
+        static var labelSpace: CGFloat { ChartLabelMetrics.captionLineHeight }  // 标签占用的高度/宽度
     }
     
     let photoInfos: [PhotoColorInfo]
     var showTitle: Bool = true  // 控制是否显示标题
     var fixedChartSize: CGFloat? = nil  // 外部传入的固定图表尺寸（包含标签）
+    var labelSpaceOverride: CGFloat? = nil  // 允许外部控制标签占用空间（与卡片计算保持一致）
+    
+    private var resolvedLabelSpace: CGFloat {
+        labelSpaceOverride ?? Layout.labelSpace
+    }
     
     var body: some View {
         // 调试：统计有多少照片有 CDF 数据
@@ -77,11 +82,11 @@ struct BrightnessCDFView: View {
         // 图表总尺寸
         let chartSize: CGFloat = fixedChartSize ?? min(geometry.size.width, geometry.size.height)
         // 坐标轴长度 = 图表尺寸 - 标签空间
-        let axisSize: CGFloat = chartSize - Layout.labelSpace
+        let axisSize: CGFloat = max(chartSize - resolvedLabelSpace, 0)
         
         // 坐标轴区域（为左侧和底部的标签留空间）
         let chartRect = CGRect(
-            x: Layout.labelSpace,
+            x: resolvedLabelSpace,
             y: 0,
             width: axisSize,
             height: axisSize
@@ -90,14 +95,14 @@ struct BrightnessCDFView: View {
         ZStack {
             Canvas { context, size in
                 let currentChartSize: CGFloat = fixedChartSize ?? min(size.width, size.height)
-                let currentAxisSize: CGFloat = currentChartSize - Layout.labelSpace
+                let currentAxisSize: CGFloat = max(currentChartSize - resolvedLabelSpace, 0)
                 
                 // 传递正方形区域给绘制函数
                 drawCDFChart(
                     context: context,
                     size: size,
                     squareSize: currentAxisSize,
-                    offsetX: Layout.labelSpace,
+                    offsetX: resolvedLabelSpace,
                     offsetY: 0
                 )
             }
@@ -107,13 +112,13 @@ struct BrightnessCDFView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .rotationEffect(.degrees(-90))
-                .position(x: Layout.labelSpace / 2, y: chartRect.midY)
+                .position(x: resolvedLabelSpace / 2, y: chartRect.midY)
             
             // X 轴标签：亮度
             Text("亮度")
                 .font(.caption)
                 .foregroundColor(.secondary)
-                .position(x: chartRect.midX, y: chartSize - Layout.labelSpace / 2 + 5)
+                .position(x: chartRect.midX, y: chartSize - resolvedLabelSpace / 2 + 5)
         }
     }
     
@@ -244,4 +249,3 @@ struct BrightnessCDFView_Previews: PreviewProvider {
             .previewLayout(.sizeThatFits)
     }
 }
-

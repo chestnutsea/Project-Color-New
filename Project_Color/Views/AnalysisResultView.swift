@@ -232,7 +232,7 @@ struct AnalysisResultView: View {
                 FavoriteAlertView(
                     sessionId: sessionId,
                     defaultName: generateDefaultName(),
-                    defaultDate: Date(),
+                    defaultDate: generateDefaultDate(),
                     onConfirm: { name, date in
                         saveFavorite(name: name, date: date)
                     },
@@ -338,7 +338,37 @@ struct AnalysisResultView: View {
     private func generateDefaultName() -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy.MM.dd"
-        return formatter.string(from: Date())
+        
+        // 检查设置：是否使用照片时间作为默认名称
+        if BatchProcessSettings.usePhotoTimeAsDefault, let photoDate = getEarliestPhotoDate() {
+            return formatter.string(from: photoDate)
+        } else {
+            // 使用分析时间
+            return formatter.string(from: result.timestamp)
+        }
+    }
+    
+    /// 生成默认日期
+    private func generateDefaultDate() -> Date {
+        // 检查设置：是否使用照片时间作为默认日期
+        if BatchProcessSettings.usePhotoTimeAsDefault, let photoDate = getEarliestPhotoDate() {
+            return photoDate
+        } else {
+            // 使用分析时间
+            return result.timestamp
+        }
+    }
+    
+    /// 获取最早的照片拍摄时间
+    private func getEarliestPhotoDate() -> Date? {
+        let dates = result.photoInfos.compactMap { photoInfo -> Date? in
+            return photoInfo.metadata?.captureDate
+        }
+        
+        guard !dates.isEmpty else { return nil }
+        
+        // 返回最早的日期
+        return dates.min()
     }
     
     /// 保存收藏
@@ -1983,77 +2013,90 @@ struct FormattedTextView: View {
     }
 }
 
-// MARK: - 散点图和 CDF 图表组合卡片
+// MARK: - 散点图和 CDF 图表组合卡片（两个独立 card）
 private struct ScatterAndCDFCardView: View {
     private enum Layout {
-        static let edgePadding: CGFloat = 5  // 左右边缘 padding
-        static let middleSpacing: CGFloat = 5  // 中间间距
-        static let verticalPadding: CGFloat = 16  // 上下 padding
+        static let cardPadding: CGFloat = 8  // Card 内部 padding（布局常量）
+        static let totalHorizontalInset: CGFloat = 60  // 屏幕左右总留白（布局常量）
     }
     
     let scatterPoints: [SaturationBrightnessPoint]
     let photoInfos: [PhotoColorInfo]
     
-    @State private var cardWidth: CGFloat = 0
+    @State private var screenWidth: CGFloat = 0
     
-    // 图表尺寸（含标签）= (cardWidth - 15) / 2
-    private var chartSize: CGFloat {
-        guard cardWidth > 0 else { return 100 }  // 默认尺寸
-        let totalPadding = Layout.edgePadding * 2 + Layout.middleSpacing
-        return (cardWidth - totalPadding) / 2
+    private var labelHeight: CGFloat {
+        ChartLabelMetrics.captionLineHeight
     }
     
-    // 根据宽度计算高度
+    // 每个 card 的宽度 = (屏幕宽度 - 60) / 2
+    private var cardWidth: CGFloat {
+        guard screenWidth > 0 else { return 100 }
+        return max((screenWidth - Layout.totalHorizontalInset) / 2, 50)
+    }
+    
+    // 轴长度 = card 宽度 - 2 * padding - labelHeight
+    private var axisLength: CGFloat {
+        return max(cardWidth - Layout.cardPadding * 2 - labelHeight, 50)
+    }
+    
+    // 图表总尺寸（含标签）= 轴长度 + labelHeight
+    private var chartSize: CGFloat {
+        return axisLength + labelHeight
+    }
+    
+    // Card 高度 = 图表尺寸 + 2 * padding
     private var cardHeight: CGFloat {
-        guard cardWidth > 0 else { return 200 }  // 默认高度
-        return chartSize + Layout.verticalPadding * 2
+        return chartSize + Layout.cardPadding * 2
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 0) {
-                // 左边距
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
                 Spacer()
-                    .frame(width: Layout.edgePadding)
                 
-                // 亮度-饱和度散点图（靠左）
-                SaturationBrightnessScatterView(
-                    points: scatterPoints,
-                    fixedChartSize: chartSize
-                )
-                .frame(width: chartSize, height: chartSize)
+                // 左侧 Card：亮度-饱和度散点图
+                VStack(spacing: 0) {
+                    SaturationBrightnessScatterView(
+                        points: scatterPoints,
+                        fixedChartSize: chartSize,
+                        labelSpaceOverride: labelHeight
+                    )
+                    .frame(width: chartSize, height: chartSize)
+                }
+                .frame(width: cardWidth, height: cardHeight)
+                .background(Color(.systemBackground))
+                .cornerRadius(15)
+                .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
                 
-                // 中间间距
                 Spacer()
-                    .frame(width: Layout.middleSpacing)
                 
-                // 累计亮度分布（CDF）图表（靠右）
-                BrightnessCDFView(
-                    photoInfos: photoInfos,
-                    showTitle: false,
-                    fixedChartSize: chartSize
-                )
-                .frame(width: chartSize, height: chartSize)
+                // 右侧 Card：累计亮度分布（CDF）
+                VStack(spacing: 0) {
+                    BrightnessCDFView(
+                        photoInfos: photoInfos,
+                        showTitle: false,
+                        fixedChartSize: chartSize,
+                        labelSpaceOverride: labelHeight
+                    )
+                    .frame(width: chartSize, height: chartSize)
+                }
+                .frame(width: cardWidth, height: cardHeight)
+                .background(Color(.systemBackground))
+                .cornerRadius(15)
+                .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
                 
-                // 右边距
                 Spacer()
-                    .frame(width: Layout.edgePadding)
             }
-            .padding(.vertical, Layout.verticalPadding)
+            .frame(height: cardHeight)
+            .onAppear {
+                screenWidth = geometry.size.width
+            }
+            .onChange(of: geometry.size.width) { newWidth in
+                screenWidth = newWidth
+            }
         }
         .frame(height: cardHeight)
-        .frame(maxWidth: .infinity)
-        .background(
-            GeometryReader { geometry in
-                Color.clear.preference(key: WidthPreferenceKey.self, value: geometry.size.width)
-            }
-        )
-        .onPreferenceChange(WidthPreferenceKey.self) { width in
-            cardWidth = width
-        }
-        .background(Color(.systemBackground))
-        .cornerRadius(15)
-        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
     }
 }
 
@@ -2064,4 +2107,3 @@ private struct WidthPreferenceKey: PreferenceKey {
         value = nextValue()
     }
 }
-

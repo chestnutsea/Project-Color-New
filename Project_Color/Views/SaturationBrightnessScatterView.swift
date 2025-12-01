@@ -21,7 +21,7 @@ struct SaturationBrightnessPoint: Identifiable {
 
 struct SaturationBrightnessScatterView: View {
     private enum Layout {
-        static let labelSpace: CGFloat = 18  // 为标签预留的空间（与 CDF 视图一致）
+        static var labelSpace: CGFloat { ChartLabelMetrics.captionLineHeight }  // 标签占用的高度/宽度
         static let axisLineWidth: CGFloat = 1.0
         static let gridLineWidth: CGFloat = 0.6
         static let gridSegments: Int = 4
@@ -41,6 +41,11 @@ struct SaturationBrightnessScatterView: View {
     
     var points: [SaturationBrightnessPoint]
     var fixedChartSize: CGFloat? = nil  // 外部传入的固定图表尺寸（包含标签）
+    var labelSpaceOverride: CGFloat? = nil  // 允许外部控制标签占用空间（保持与卡片计算一致）
+    
+    private var resolvedLabelSpace: CGFloat {
+        labelSpaceOverride ?? Layout.labelSpace
+    }
     
     var body: some View {
         ZStack {
@@ -64,11 +69,11 @@ struct SaturationBrightnessScatterView: View {
         // 图表总尺寸
         let chartSize: CGFloat = fixedChartSize ?? min(geometry.size.width, geometry.size.height)
         // 坐标轴长度 = 图表尺寸 - 标签空间
-        let axisSize: CGFloat = chartSize - Layout.labelSpace
+        let axisSize: CGFloat = max(chartSize - resolvedLabelSpace, 0)
         
         // 坐标轴区域（为左侧和底部的标签留空间）
         let chartRect = CGRect(
-            x: Layout.labelSpace,
+            x: resolvedLabelSpace,
             y: 0,
             width: axisSize,
             height: axisSize
@@ -77,10 +82,10 @@ struct SaturationBrightnessScatterView: View {
         ZStack {
             Canvas { context, size in
                 let currentChartSize: CGFloat = fixedChartSize ?? min(size.width, size.height)
-                let currentAxisSize: CGFloat = currentChartSize - Layout.labelSpace
+                let currentAxisSize: CGFloat = max(currentChartSize - resolvedLabelSpace, 0)
                 
                 let rect = CGRect(
-                    x: Layout.labelSpace,
+                    x: resolvedLabelSpace,
                     y: 0,
                     width: currentAxisSize,
                     height: currentAxisSize
@@ -96,13 +101,13 @@ struct SaturationBrightnessScatterView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .rotationEffect(.degrees(-90))
-                .position(x: Layout.labelSpace / 2, y: chartRect.midY)
+                .position(x: resolvedLabelSpace / 2, y: chartRect.midY)
             
             // X 轴标签：亮度
             Text("亮度")
                 .font(.caption)
                 .foregroundColor(.secondary)
-                .position(x: chartRect.midX, y: chartSize - Layout.labelSpace / 2 + 5)
+                .position(x: chartRect.midX, y: chartSize - resolvedLabelSpace / 2 + 5)
         }
     }
     
@@ -169,5 +174,4 @@ struct SaturationBrightnessScatterView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
-
 
