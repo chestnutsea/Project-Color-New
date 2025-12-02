@@ -15,10 +15,14 @@ final class AlbumFavoritesStore {
     
     func load() -> Set<String> {
         let ids = defaults.stringArray(forKey: key) ?? []
+        print("📌 AlbumFavoritesStore.load(): \(ids)")
         return Set(ids)
     }
     
     func save(_ ids: Set<String>) {
-        defaults.set(Array(ids), forKey: key)
+        let array = Array(ids)
+        defaults.set(array, forKey: key)
+        defaults.synchronize()  // 强制同步
+        print("📌 AlbumFavoritesStore.save(): \(array)")
     }
 }

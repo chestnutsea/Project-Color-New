@@ -144,6 +144,7 @@ struct AlbumLibraryView: View {
                                 }
                             },
                             onFavorite: {
+                                print("📌 onFavorite 闭包被调用: \(album.id)")
                                 viewModel.toggleFavorite(albumId: album.id)
                             },
                             onDelete: {
@@ -194,7 +195,10 @@ struct AlbumCard: View {
             .clipped()
             .cornerRadius(12)
             .contextMenu {
-                Button(action: onFavorite) {
+                Button {
+                    print("📌 contextMenu 收藏按钮被点击")
+                    onFavorite()
+                } label: {
                     Label(album.isFavorite ? "移除收藏" : "收藏", systemImage: album.isFavorite ? "heart.slash" : "heart")
                 }
                 
@@ -409,24 +413,24 @@ class AlbumLibraryViewModel: ObservableObject {
         }
     }
     
-    /// 切换收藏状态（占位实现，相册暂不支持收藏）
+    /// 切换收藏状态
     func toggleFavorite(albumId: String) {
+        print("📌 toggleFavorite 被调用: albumId=\(albumId)")
+        print("📌 当前 favoriteAlbumIds: \(favoriteAlbumIds)")
+        
         let willFavorite = !favoriteAlbumIds.contains(albumId)
         if willFavorite {
             favoriteAlbumIds.insert(albumId)
         } else {
             favoriteAlbumIds.remove(albumId)
         }
+        
+        print("📌 更新后 favoriteAlbumIds: \(favoriteAlbumIds)")
         AlbumFavoritesStore.shared.save(favoriteAlbumIds)
         
-        // 更新 UI
-        albums = albums.map { album in
-            if album.id == albumId {
-                var updated = album
-                updated.isFavorite = willFavorite
-                return updated
-            }
-            return album
+        // 更新 UI：直接修改对应元素，避免重新创建整个数组
+        if let index = albums.firstIndex(where: { $0.id == albumId }) {
+            albums[index].isFavorite = willFavorite
         }
         print("📌 相册\(willFavorite ? "加入" : "移除")收藏: \(albumId)")
     }
@@ -491,9 +495,11 @@ struct AlbumEditAlertView: View {
                     Text("日期")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
+                    
                     DatePicker("", selection: $albumDate, displayedComponents: .date)
                         .datePickerStyle(.compact)
                         .labelsHidden()
+                        .environment(\.locale, Locale(identifier: "zh_CN"))
                 }
             }
             .padding(.horizontal, 20)

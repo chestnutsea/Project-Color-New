@@ -25,14 +25,16 @@ class AutoKSelector {
         let maxK: Int
         let maxIterations: Int
         let colorSpace: ColorSpace
-        let weights: [Float]?  // 新增：可选权重
+        let weights: [Float]?  // 可选权重
+        let analysisMode: DevelopmentAnalysisMode  // 显影解析模式
         
         static let `default` = Config(
             minK: 3,
             maxK: 12,
             maxIterations: 50,
             colorSpace: .lab,
-            weights: nil
+            weights: nil,
+            analysisMode: .comprehensive
         )
     }
     
@@ -80,13 +82,14 @@ class AutoKSelector {
             
             print("\n📊 测试 K=\(k)...")
             
-            // 执行聚类（传递权重）
+            // 执行聚类（传递权重和解析模式）
             guard let clustering = kmeans.cluster(
                 points: points,
                 k: k,
                 maxIterations: config.maxIterations,
                 colorSpace: config.colorSpace,
-                weights: config.weights
+                weights: config.weights,
+                analysisMode: config.analysisMode
             ) else {
                 print("   ⚠️ K=\(k) 聚类失败")
                 continue
@@ -96,7 +99,8 @@ class AutoKSelector {
             let score = evaluator.calculateSilhouetteScore(
                 points: points,
                 assignments: clustering.assignments,
-                centroids: clustering.centroids
+                centroids: clustering.centroids,
+                analysisMode: config.analysisMode
             )
             
             scores[k] = score
@@ -226,13 +230,14 @@ class AutoKSelector {
                     
                     print("\n📊 测试 K=\(k)...")
                     
-                    // 执行聚类（传递权重）
+                    // 执行聚类（传递权重和解析模式）
                     guard let clustering = localKMeans.cluster(
                         points: points,
                         k: k,
                         maxIterations: config.maxIterations,
                         colorSpace: config.colorSpace,
-                        weights: config.weights
+                        weights: config.weights,
+                        analysisMode: config.analysisMode
                     ) else {
                         return (k, nil, nil)
                     }
@@ -241,7 +246,8 @@ class AutoKSelector {
                     let score = localEvaluator.calculateSilhouetteScore(
                         points: points,
                         assignments: clustering.assignments,
-                        centroids: clustering.centroids
+                        centroids: clustering.centroids,
+                        analysisMode: config.analysisMode
                     )
                     
                     return (k, score, clustering)

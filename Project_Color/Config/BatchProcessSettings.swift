@@ -20,6 +20,7 @@ struct BatchProcessSettings {
     private enum SettingsKey {
         static let usePhotoTimeAsDefault = "usePhotoTimeAsDefault"
         static let developmentMode = "developmentMode"
+        static let developmentFavoriteOnly = "developmentFavoriteOnly"
     }
     
     /// 是否使用照片时间作为默认名称与日期
@@ -50,6 +51,17 @@ struct BatchProcessSettings {
             if let data = try? JSONEncoder().encode(newValue) {
                 UserDefaults.standard.set(data, forKey: SettingsKey.developmentMode)
             }
+        }
+    }
+    
+    /// 只对收藏照片进行显影
+    static var developmentFavoriteOnly: Bool {
+        get {
+            // 如果从未设置过，默认为 false（关闭）
+            return UserDefaults.standard.bool(forKey: SettingsKey.developmentFavoriteOnly)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: SettingsKey.developmentFavoriteOnly)
         }
     }
 }

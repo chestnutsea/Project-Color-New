@@ -4,6 +4,7 @@
 //
 //  Created by AI Assistant on 2025/11/9.
 //  Micro-Phase 4: 聚类质量评估（Silhouette Score）
+//  Updated: 支持色调模式（只用 a, b 计算距离）和综合模式（L, a, b 计算距离）
 //
 
 import Foundation
@@ -11,11 +12,28 @@ import Foundation
 /// 聚类质量评估器
 class ClusterQualityEvaluator {
     
-    // MARK: - 欧几里得距离（与 SimpleKMeans 保持一致）
-    /// 在 LAB 空间使用欧几里得距离，将颜色视为 3D 向量 (L, a, b)
+    // MARK: - 距离计算
+    
+    /// 根据模式计算距离
+    private func calculateDistance(_ a: SIMD3<Float>, _ b: SIMD3<Float>, analysisMode: DevelopmentAnalysisMode) -> Float {
+        if analysisMode == .tone {
+            return euclideanDistance2D(a, b)
+        } else {
+            return euclideanDistance(a, b)
+        }
+    }
+    
+    /// 欧几里得距离（三维，L, a, b）
     private func euclideanDistance(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
         let diff = a - b
         return sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z)
+    }
+    
+    /// 欧几里得距离（二维，只用 a, b）
+    private func euclideanDistance2D(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
+        let diffA = a.y - b.y  // a 分量
+        let diffB = a.z - b.z  // b 分量
+        return sqrt(diffA * diffA + diffB * diffB)
     }
     
     // MARK: - Silhouette Score
@@ -25,11 +43,13 @@ class ClusterQualityEvaluator {
     ///   - points: 所有数据点（LAB空间）
     ///   - assignments: 每个点的簇分配
     ///   - centroids: 各簇的质心（LAB空间）
+    ///   - analysisMode: 显影解析模式（色调模式只用 a, b，综合模式用 L, a, b）
     /// - Returns: Silhouette Score，范围 [-1, 1]，越接近1越好
     func calculateSilhouetteScore(
         points: [SIMD3<Float>],
         assignments: [Int],
-        centroids: [SIMD3<Float>]
+        centroids: [SIMD3<Float>],
+        analysisMode: DevelopmentAnalysisMode = .comprehensive
     ) -> Double {
         guard points.count > 0 && points.count == assignments.count else {
             return 0.0
@@ -40,7 +60,8 @@ class ClusterQualityEvaluator {
             return 0.0  // 只有1个簇时无法计算
         }
         
-        print("🔍 计算 Silhouette Score (K=\(k), N=\(points.count))...")
+        let modeDesc = analysisMode == .tone ? "色调模式" : "综合模式"
+        print("🔍 计算 Silhouette Score (K=\(k), N=\(points.count), \(modeDesc))...")
         
         var totalScore = 0.0
         var validSamples = 0
@@ -56,7 +77,8 @@ class ClusterQualityEvaluator {
                 pointIndex: i,
                 clusterIndex: clusterIndex,
                 points: points,
-                assignments: assignments
+                assignments: assignments,
+                analysisMode: analysisMode
             )
             
             // b(i): 点到最近邻簇的平均距离
@@ -65,7 +87,8 @@ class ClusterQualityEvaluator {
                 currentCluster: clusterIndex,
                 k: k,
                 points: points,
-                assignments: assignments
+                assignments: assignments,
+                analysisMode: analysisMode
             )
             
             // s(i) = (b - a) / max(a, b)
@@ -90,14 +113,15 @@ class ClusterQualityEvaluator {
         pointIndex: Int,
         clusterIndex: Int,
         points: [SIMD3<Float>],
-        assignments: [Int]
+        assignments: [Int],
+        analysisMode: DevelopmentAnalysisMode
     ) -> Double {
         var totalDistance = 0.0
         var count = 0
         
         for i in 0..<points.count {
             if i != pointIndex && assignments[i] == clusterIndex {
-                let distance = euclideanDistance(point, points[i])
+                let distance = calculateDistance(point, points[i], analysisMode: analysisMode)
                 totalDistance += Double(distance)
                 count += 1
             }
@@ -112,7 +136,8 @@ class ClusterQualityEvaluator {
         currentCluster: Int,
         k: Int,
         points: [SIMD3<Float>],
-        assignments: [Int]
+        assignments: [Int],
+        analysisMode: DevelopmentAnalysisMode
     ) -> Double {
         var minAvgDistance = Double.greatestFiniteMagnitude
         
@@ -126,7 +151,7 @@ class ClusterQualityEvaluator {
             
             for i in 0..<points.count {
                 if assignments[i] == clusterIndex {
-                    let distance = euclideanDistance(point, points[i])
+                    let distance = calculateDistance(point, points[i], analysisMode: analysisMode)
                     totalDistance += Double(distance)
                     count += 1
                 }

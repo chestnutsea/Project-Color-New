@@ -25,6 +25,8 @@ struct PhotoColorInfo: Identifiable {
     var albumName: String? = nil  // 相册名称
     var brightnessCDF: [Float]? = nil  // 亮度累计分布函数（256个值，0-1）
     var visualRepresentativeColor: SIMD3<Float>? = nil  // 视觉代表色（5个主色聚类后最大簇的质心）
+    var brightnessMedian: Float? = nil  // 明度中位数（0-100），从 CDF 计算的 50% 分位数
+    var brightnessContrast: Float? = nil  // 对比度（0-100），95% 分位亮度 - 5% 分位亮度
     
     /// 计算视觉代表色（对 5 个主色在 LAB 空间进行带权重的 KMeans 聚类，取最大簇的质心）
     /// 与全局聚类规则保持一致
@@ -114,6 +116,47 @@ struct PhotoColorInfo: Identifiable {
         if let rgb = visualRepresentativeColor {
             print("   质心 RGB: R=\(rgb.x), G=\(rgb.y), B=\(rgb.z)")
         }
+        #endif
+    }
+    
+    /// 从 CDF 计算明度中位数和对比度
+    /// - CDF 是 256 个值的累计分布函数（0-1 范围）
+    /// - 明度中位数：CDF = 0.5 对应的亮度值，映射到 L 空间 0-100
+    /// - 对比度：P95 的 L 值 - P5 的 L 值，直接得到 0-100 范围
+    mutating func computeBrightnessStatistics() {
+        guard let cdf = brightnessCDF, cdf.count == 256 else { return }
+        
+        // 从 CDF 找到指定百分位对应的亮度索引（0-255）
+        func findPercentileIndex(_ percentile: Float) -> Int {
+            for (index, value) in cdf.enumerated() {
+                if value >= percentile {
+                    return index
+                }
+            }
+            return 255
+        }
+        
+        // 将亮度索引（0-255）映射到 L 空间（0-100）
+        func indexToL(_ index: Int) -> Float {
+            return Float(index) / 255.0 * 100.0
+        }
+        
+        // 计算明度中位数（50% 分位数）
+        let medianIndex = findPercentileIndex(0.5)
+        brightnessMedian = indexToL(medianIndex)
+        
+        // 计算对比度：P95 的 L 值 - P5 的 L 值
+        // 先将百分位索引转为 L 值，再相减，结果自然在 0-100 范围
+        let p5Index = findPercentileIndex(0.05)
+        let p95Index = findPercentileIndex(0.95)
+        let p5L = indexToL(p5Index)
+        let p95L = indexToL(p95Index)
+        brightnessContrast = max(0, p95L - p5L)  // 对比度 = P95的L - P5的L
+        
+        #if DEBUG
+        print("📊 亮度统计计算:")
+        print("   明度中位数: \(brightnessMedian ?? 0) (index: \(medianIndex))")
+        print("   对比度: \(brightnessContrast ?? 0) (P5 L=\(p5L), P95 L=\(p95L))")
         #endif
     }
 }

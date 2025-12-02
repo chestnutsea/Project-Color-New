@@ -249,12 +249,16 @@ class ImagePreprocessor {
         options.isNetworkAccessAllowed = true
         
         return await withCheckedContinuation { continuation in
+            var hasResumed = false  // ✅ 防止重复 resume
             PHImageManager.default().requestImage(
                 for: asset,
                 targetSize: PHImageManagerMaximumSize,
                 contentMode: .default,
                 options: options
             ) { image, _ in
+                guard !hasResumed else { return }
+                hasResumed = true
+                
                 if let uiImage = image, let cgImage = uiImage.cgImage {
                     continuation.resume(returning: cgImage)
                 } else {

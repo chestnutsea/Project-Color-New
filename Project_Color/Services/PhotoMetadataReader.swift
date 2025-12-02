@@ -76,6 +76,7 @@ class PhotoMetadataReader {
     /// 从 PHAsset 加载 CGImageSource
     private func loadImageSource(from asset: PHAsset) async -> CGImageSource? {
         return await withCheckedContinuation { continuation in
+            var hasResumed = false  // ✅ 防止重复 resume
             let options = PHImageRequestOptions()
             options.isSynchronous = false
             options.deliveryMode = .highQualityFormat
@@ -86,6 +87,9 @@ class PhotoMetadataReader {
                 for: asset,
                 options: options
             ) { data, _, _, _ in
+                guard !hasResumed else { return }
+                hasResumed = true
+                
                 guard let data = data else {
                     continuation.resume(returning: nil)
                     return

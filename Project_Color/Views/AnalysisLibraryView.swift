@@ -66,6 +66,8 @@ struct AnalysisLibraryView: View {
         }
         .onAppear {
             viewModel.loadSessions()
+            // ✅ 优化：预加载最近的分析结果，避免首次点击时等待
+            viewModel.preloadRecentResults()
         }
         .sheet(item: $selectedSession) { sessionInfo in
             // 显示分析结果详情
@@ -302,15 +304,25 @@ struct AnalysisResultSheetView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .onAppear {
+            // ✅ 优化：先同步检查缓存，如果有缓存就直接显示（瞬间打开）
+            if let cachedResult = AnalysisResultCache.shared.result(for: sessionInfo.id) {
+                analysisResult = cachedResult
+                print("📦 分析结果缓存命中（同步）: \(sessionInfo.id)")
+            }
+        }
         .task {
-            await loadAnalysisResult()
+            // 如果缓存未命中，才异步加载
+            if analysisResult == nil {
+                await loadAnalysisResult()
+            }
         }
     }
     
     private func loadAnalysisResult() async {
         if let result = await viewModel.loadAnalysisResultAsync(for: sessionInfo.id) {
             await MainActor.run {
-            analysisResult = result
+                analysisResult = result
             }
         }
     }
@@ -406,29 +418,38 @@ struct LibrarySessionCard: View {
             return
         }
         
-        // 缓存未命中，在后台线程加载
-        Task.detached(priority: .userInitiated) {
+        // ✅ 优化：缓存未命中，使用异步加载，避免阻塞
+        Task {
             let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil)
             guard let asset = fetchResult.firstObject else { return }
             
             let options = PHImageRequestOptions()
-            options.deliveryMode = .opportunistic
+            options.deliveryMode = .highQualityFormat  // ✅ 使用 highQualityFormat 确保只回调一次
             options.resizeMode = .fast
             options.isNetworkAccessAllowed = false
-            options.isSynchronous = true
+            options.isSynchronous = false
             
-            PHImageManager.default().requestImage(
-                for: asset,
-                targetSize: CGSize(width: 300, height: 300),
-                contentMode: .aspectFill,
-                options: options
-            ) { image, _ in
-                if let image = image {
-                    // 存入缓存
-                    ThumbnailCache.shared.setImage(image, for: assetId)
-                    Task { @MainActor in
-                        self.coverImage = image
-                    }
+            // ✅ 修复：使用 actor 隔离来防止重复 resume
+            let loadedImage: UIImage? = await withCheckedContinuation { continuation in
+                var hasResumed = false
+                PHImageManager.default().requestImage(
+                    for: asset,
+                    targetSize: CGSize(width: 300, height: 300),
+                    contentMode: .aspectFill,
+                    options: options
+                ) { image, info in
+                    // ✅ 防止重复 resume（即使 highQualityFormat 也可能在某些情况下多次回调）
+                    guard !hasResumed else { return }
+                    hasResumed = true
+                    continuation.resume(returning: image)
+                }
+            }
+            
+            if let image = loadedImage {
+                // 存入缓存
+                ThumbnailCache.shared.setImage(image, for: assetId)
+                await MainActor.run {
+                    self.coverImage = image
                 }
             }
         }
@@ -520,6 +541,37 @@ class AnalysisLibraryViewModel: ObservableObject {
     func forceRefresh() {
         hasLoadedOnce = false
         loadSessions()
+    }
+    
+    /// 预加载最近的分析结果（后台执行，不阻塞 UI）
+    func preloadRecentResults() {
+        // 如果会话列表还没加载，跳过（不要递归）
+        guard !sessions.isEmpty else { return }
+        
+        // 只预加载前 3 个分析结果（最常用的）
+        let recentSessionIds = sessions.prefix(3).map { $0.id }
+        guard !recentSessionIds.isEmpty else { return }
+        
+        Task.detached(priority: .background) { [weak self] in
+            guard let self = self else { return }
+            
+            print("🔥 预加载最近 \(recentSessionIds.count) 个分析结果...")
+            
+            for sessionId in recentSessionIds {
+                // 如果缓存中已有，跳过
+                if AnalysisResultCache.shared.result(for: sessionId) != nil {
+                    continue
+                }
+                
+                // 后台加载并缓存
+                let result = await self.loadAnalysisResultAsync(for: sessionId)
+                if result != nil {
+                    print("✅ 预加载完成: \(sessionId)")
+                }
+            }
+            
+            print("✅ 预加载完成")
+        }
     }
     
     /// 从 Core Data 加载完整的分析结果（异步版本，在后台线程执行）
@@ -623,6 +675,17 @@ class AnalysisLibraryViewModel: ObservableObject {
                             Array(buffer.bindMemory(to: Float.self))
                         }
                         photoInfo.brightnessCDF = cdfArray
+                    }
+                    
+                    // 加载明度中位数和对比度
+                    let median = photoEntity.brightnessMedian
+                    let contrast = photoEntity.brightnessContrast
+                    if median != 0 || contrast != 0 {
+                        photoInfo.brightnessMedian = median
+                        photoInfo.brightnessContrast = contrast
+                    } else if photoInfo.brightnessCDF != nil {
+                        // 如果有 CDF 但没有统计值，重新计算
+                        photoInfo.computeBrightnessStatistics()
                     }
                     
                     // 加载高级色彩分析
@@ -742,9 +805,15 @@ struct SessionEditAlertView: View {
                     Text("日期")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                    DatePicker("", selection: $sessionDate, displayedComponents: .date)
-                        .datePickerStyle(.compact)
-                        .labelsHidden()
+                    HStack {
+                        Text(formatDate(sessionDate))
+                            .foregroundColor(.primary)
+                        Spacer()
+                        DatePicker("", selection: $sessionDate, displayedComponents: .date)
+                            .datePickerStyle(.compact)
+                            .labelsHidden()
+                            .environment(\.locale, Locale(identifier: "zh_CN"))
+                    }
                 }
             }
             .padding(.horizontal, 20)
@@ -773,6 +842,13 @@ struct SessionEditAlertView: View {
                 .disabled(sessionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy 年 M 月 d 日"
+        return formatter.string(from: date)
     }
 }
 

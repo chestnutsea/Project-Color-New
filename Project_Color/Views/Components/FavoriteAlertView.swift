@@ -49,19 +49,16 @@ struct FavoriteAlertView: View {
                         .textFieldStyle(.roundedBorder)
                 }
                 
-                // 日期选择器
+                // 日期选择器（只显示日期选择器，不显示格式化文本）
                 VStack(alignment: .leading, spacing: 8) {
                     Text("日期")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                     
-                    DatePicker(
-                        "",
-                        selection: $customDate,
-                        displayedComponents: .date
-                    )
-                    .datePickerStyle(.compact)
-                    .labelsHidden()
+                    DatePicker("", selection: $customDate, displayedComponents: .date)
+                        .datePickerStyle(.compact)
+                        .labelsHidden()
+                        .environment(\.locale, Locale(identifier: "zh_CN"))
                 }
             }
             .padding(.horizontal, 20)
@@ -82,14 +79,14 @@ struct FavoriteAlertView: View {
                     .frame(height: 44)
                 
                 Button("确认") {
-                    onConfirm(customName, customDate)
+                    onConfirm(customName.trimmingCharacters(in: .whitespacesAndNewlines), customDate)
                     onDismiss()
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
                 .foregroundColor(.blue)
                 .fontWeight(.semibold)
-                .disabled(customName.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(customName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
     }

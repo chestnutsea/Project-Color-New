@@ -307,6 +307,8 @@ struct HomeView: View {
                             showAnalysisResult = false
                             // 退出分析结果页后清空照片选择
                             selectionManager.clearSelection()
+                            // ✅ 标记相册预热需要刷新（用户可能在分析期间拍了新照片）
+                            AlbumPreheater.shared.markNeedsRefresh()
                         })
                         .navigationBarBackButtonHidden(true)
                         .toolbar(.hidden, for: .tabBar)
@@ -392,6 +394,11 @@ struct HomeView: View {
             .onAppear {
                 prewarmAnalysisStack()
                 checkPhotoLibraryStatus()
+                
+                // ✅ 预热相册数据（后台执行，用户点开相册时会更快）
+                Task.detached(priority: .background) {
+                    await AlbumPreheater.shared.preheatDefaultAlbum()
+                }
                 
                 // 如果已有选中的照片但图片未加载，重新加载图片
                 if !selectionManager.selectedAssets.isEmpty && selectionManager.selectedImages.isEmpty {

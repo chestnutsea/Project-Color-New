@@ -70,24 +70,24 @@ struct KitView: View {
             }
             .buttonStyle(.plain)
             
-            // 批处理
+            // 暗房参数
             NavigationLink {
                 BatchProcessView()
             } label: {
                 KitMenuRow(
-                    icon: "square.stack.3d.up",
-                    title: "批处理"
+                    icon: "slider.horizontal.3",
+                    title: "暗房参数"
                 )
             }
             .buttonStyle(.plain)
             
-            // 实验暗房
+            // 色彩实验室
             NavigationLink {
                 LabView()
             } label: {
                 KitMenuRow(
-                    icon: "flask",
-                    title: "实验暗房"
+                    icon: "paintpalette",
+                    title: "色彩实验室"
                 )
             }
             .buttonStyle(.plain)

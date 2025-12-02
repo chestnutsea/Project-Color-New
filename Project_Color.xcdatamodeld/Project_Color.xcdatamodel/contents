@@ -89,6 +89,8 @@
         <attribute name="visualRepresentativeColorR" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="visualRepresentativeColorG" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="visualRepresentativeColorB" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="brightnessMedian" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="brightnessContrast" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
         <relationship name="metadata" optional="YES" toMany="NO" deletionRule="Cascade" destinationEntity="PhotoMetadataEntity" inverseName="photoAnalysis" inverseEntity="PhotoMetadataEntity"/>
         <relationship name="primaryCluster" optional="YES" deletionRule="Nullify" destinationEntity="ColorClusterEntity" inverseName="photoAnalyses" inverseEntity="ColorClusterEntity"/>
         <relationship name="session" optional="YES" deletionRule="Nullify" destinationEntity="AnalysisSessionEntity" inverseName="photoAnalyses" inverseEntity="AnalysisSessionEntity"/>
@@ -156,5 +158,12 @@
         <attribute name="cameraModel" optional="YES" attributeType="String"/>
         <attribute name="lensModel" optional="YES" attributeType="String"/>
         <relationship name="photoAnalysis" optional="YES" toMany="NO" deletionRule="Nullify" destinationEntity="PhotoAnalysisEntity" inverseName="metadata" inverseEntity="PhotoAnalysisEntity"/>
+    </entity>
+    <entity name="DevelopmentClusterCacheEntity" representedClassName="DevelopmentClusterCacheEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="id" attributeType="UUID" defaultValueString="00000000-0000-0000-0000-000000000000" usesScalarValueType="NO"/>
+        <attribute name="mode" attributeType="String" defaultValueString="tone"/>
+        <attribute name="lastUpdated" attributeType="Date" defaultDateTimeInterval="0" usesScalarValueType="NO"/>
+        <attribute name="photoCount" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="clustersData" optional="YES" attributeType="Binary"/>
     </entity>
 </model>

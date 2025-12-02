@@ -65,6 +65,19 @@ class PhotoColorCache {
                     print("  📊 复用 brightnessCDF: \(cdfArray.count) 个值")
                 }
                 
+                // 复用明度中位数和对比度
+                let median = entity.brightnessMedian
+                let contrast = entity.brightnessContrast
+                if median != 0 || contrast != 0 {
+                    photoInfo.brightnessMedian = median
+                    photoInfo.brightnessContrast = contrast
+                    print("  📊 复用明度统计: 中位数=\(median), 对比度=\(contrast)")
+                } else if photoInfo.brightnessCDF != nil {
+                    // 如果有 CDF 但没有统计值，重新计算
+                    photoInfo.computeBrightnessStatistics()
+                    print("  📊 从 CDF 重新计算明度统计")
+                }
+                
                 // 复用 AdvancedColorAnalysis（包含冷暖评分、色偏等）
                 if let analysisData = entity.advancedColorAnalysisData,
                    let analysis = try? JSONDecoder().decode(AdvancedColorAnalysis.self, from: analysisData) {
@@ -122,6 +135,7 @@ class PhotoColorCache {
     func calculateSHA256(for asset: PHAsset) async -> String? {
         #if canImport(UIKit)
         return await withCheckedContinuation { continuation in
+            var hasResumed = false  // ✅ 防止重复 resume
             let manager = PHImageManager.default()
             let options = PHImageRequestOptions()
             options.deliveryMode = .highQualityFormat
@@ -130,6 +144,9 @@ class PhotoColorCache {
             
             // 请求原图（用于计算哈希）
             manager.requestImageDataAndOrientation(for: asset, options: options) { data, _, _, _ in
+                guard !hasResumed else { return }
+                hasResumed = true
+                
                 guard let data = data else {
                     continuation.resume(returning: nil)
                     return

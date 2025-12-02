@@ -2,7 +2,7 @@
 //  BatchProcessView.swift
 //  Project_Color
 //
-//  批处理页面 - 设置和工具
+//  暗房参数页面 - 设置和工具
 //
 
 import SwiftUI
@@ -18,9 +18,9 @@ struct BatchProcessView: View {
     }
     
     // MARK: - State
-    @State private var usePhotoTimeAsDefault: Bool = true
-    @State private var developmentMode: BatchProcessSettings.DevelopmentMode = .tone
-    @State private var showDevelopmentModePicker = false
+    @State private var usePhotoTimeAsDefault: Bool = BatchProcessSettings.usePhotoTimeAsDefault
+    @State private var developmentFavoriteOnly: Bool = BatchProcessSettings.developmentFavoriteOnly
+    @State private var developmentMode: BatchProcessSettings.DevelopmentMode = BatchProcessSettings.developmentMode
     
     var body: some View {
         ScrollView {
@@ -53,44 +53,73 @@ struct BatchProcessView: View {
                     Divider()
                         .padding(.leading, Layout.rowHorizontalPadding + 28 + 12)
                     
-                    // 显影解析方式
-                    Button {
-                        showDevelopmentModePicker = true
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "camera.filters")
-                                .font(.system(size: 20))
-                                .foregroundColor(.primary)
-                                .frame(width: 28)
-                            
-                            Text("显影解析方式")
+                    // 只对收藏照片进行显影
+                    HStack(spacing: 12) {
+                        Image(systemName: "heart")
+                            .font(.system(size: 20))
+                            .foregroundColor(.primary)
+                            .frame(width: 28)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("只对收藏照片进行显影")
                                 .font(.system(size: 17, weight: .regular))
                                 .foregroundColor(.primary)
-                            
-                            Spacer()
-                            
-                            Text(developmentMode.rawValue)
-                                .font(.system(size: 17, weight: .regular))
-                                .foregroundColor(.secondary)
-                            
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.secondary)
                         }
-                        .padding(.horizontal, Layout.rowHorizontalPadding)
-                        .padding(.vertical, Layout.rowVerticalPadding)
-                        .contentShape(Rectangle())
+                        
+                        Spacer()
+                        
+                        Toggle("", isOn: $developmentFavoriteOnly)
+                            .tint(.black)
+                            .labelsHidden()
                     }
-                    .buttonStyle(.plain)
-                    .confirmationDialog("选择显影解析方式", isPresented: $showDevelopmentModePicker, titleVisibility: .visible) {
-                        ForEach(BatchProcessSettings.DevelopmentMode.allCases, id: \.self) { mode in
-                            Button(mode.rawValue) {
-                                developmentMode = mode
-                                BatchProcessSettings.developmentMode = mode
+                    .padding(.horizontal, Layout.rowHorizontalPadding)
+                    .padding(.vertical, Layout.rowVerticalPadding)
+                    .contentShape(Rectangle())
+                    
+                    Divider()
+                        .padding(.leading, Layout.rowHorizontalPadding + 28 + 12)
+                    
+                    // 显影解析方式
+                    HStack(spacing: 12) {
+                        Image(systemName: "camera.filters")
+                            .font(.system(size: 20))
+                            .foregroundColor(.primary)
+                            .frame(width: 28)
+                        
+                        Text("显影解析方式")
+                            .font(.system(size: 17, weight: .regular))
+                            .foregroundColor(.primary)
+                        
+                        Spacer()
+                        
+                        Menu {
+                            ForEach(BatchProcessSettings.DevelopmentMode.allCases, id: \.self) { mode in
+                                Button {
+                                    developmentMode = mode
+                                    BatchProcessSettings.developmentMode = mode
+                                } label: {
+                                    if mode == developmentMode {
+                                        Label(mode.rawValue, systemImage: "checkmark")
+                                    } else {
+                                        Text(mode.rawValue)
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(developmentMode.rawValue)
+                                    .font(.system(size: 17, weight: .regular))
+                                    .foregroundColor(.secondary)
+                                
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.secondary)
                             }
                         }
-                        Button("取消", role: .cancel) {}
                     }
+                    .padding(.horizontal, Layout.rowHorizontalPadding)
+                    .padding(.vertical, Layout.rowVerticalPadding)
+                    .contentShape(Rectangle())
                     
                     Divider()
                         .padding(.leading, Layout.rowHorizontalPadding + 28 + 12)
@@ -113,21 +142,32 @@ struct BatchProcessView: View {
             .padding(.top, Layout.verticalSpacing)
         }
         .background(Color(.systemGroupedBackground))
-        .navigationTitle("批处理")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("暗房参数")
+                    .font(.headline)
+            }
+        }
+        .toolbarBackground(.visible, for: .navigationBar)
         .onAppear {
-            // 加载设置
+            // 每次进入页面时从设置读取最新值
             usePhotoTimeAsDefault = BatchProcessSettings.usePhotoTimeAsDefault
+            developmentFavoriteOnly = BatchProcessSettings.developmentFavoriteOnly
             developmentMode = BatchProcessSettings.developmentMode
         }
         .onChange(of: usePhotoTimeAsDefault) { newValue in
             // 保存设置
             BatchProcessSettings.usePhotoTimeAsDefault = newValue
         }
+        .onChange(of: developmentFavoriteOnly) { newValue in
+            // 保存设置
+            BatchProcessSettings.developmentFavoriteOnly = newValue
+        }
     }
 }
 
-// MARK: - 批处理菜单行
+// MARK: - 暗房参数菜单行
 private struct BatchProcessMenuRow: View {
     let icon: String
     let title: String

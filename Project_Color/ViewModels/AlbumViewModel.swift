@@ -177,6 +177,7 @@ class AlbumViewModel: ObservableObject {
     // MARK: - 获取缩略图
     private func fetchThumbnail(for asset: PHAsset) async -> UIImage? {
         return await withCheckedContinuation { continuation in
+            var hasResumed = false  // ✅ 防止重复 resume
             let manager = PHImageManager.default()
             let options = PHImageRequestOptions()
             options.deliveryMode = .highQualityFormat
@@ -192,6 +193,8 @@ class AlbumViewModel: ObservableObject {
                 contentMode: .aspectFill,
                 options: options
             ) { image, _ in
+                guard !hasResumed else { return }
+                hasResumed = true
                 continuation.resume(returning: image)
             }
         }

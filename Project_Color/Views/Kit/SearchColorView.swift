@@ -442,6 +442,7 @@ struct SearchColorView: View {
     // MARK: - Helpers
     private func requestImage(for asset: PHAsset, targetSize: CGSize) async -> UIImage? {
         await withCheckedContinuation { continuation in
+            var hasResumed = false  // ✅ 防止重复 resume
             let manager = PHImageManager.default()
             let options = PHImageRequestOptions()
             options.deliveryMode = .highQualityFormat
@@ -455,6 +456,8 @@ struct SearchColorView: View {
                 contentMode: .aspectFill,
                 options: options
             ) { image, _ in
+                guard !hasResumed else { return }
+                hasResumed = true
                 continuation.resume(returning: image)
             }
         }

@@ -667,6 +667,11 @@ struct AnalysisResultView: View {
         // 分离关键词和正文
         let (mainText, keywordsText) = parseTextAndKeywords(text)
         
+        // 将正文按段落分割（双换行符）
+        let paragraphs = mainText.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        
         return VStack(alignment: .leading, spacing: 20) {
             // 关键词 tag 显示在最上方
             if !keywordsText.isEmpty {
@@ -675,13 +680,18 @@ struct AnalysisResultView: View {
             }
             
             // 正文显示（支持 **加粗** 格式，无背景色）
-            if !mainText.isEmpty {
-                FormattedTextView(text: mainText)
-                    .font(.body)
-                    .foregroundColor(.primary)
-                    .lineSpacing(6)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+            // 段落间距 16pt，行间距 6pt
+            if !paragraphs.isEmpty {
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(paragraphs.indices, id: \.self) { index in
+                        FormattedTextView(text: paragraphs[index])
+                            .font(.body)
+                            .foregroundColor(.primary)
+                            .lineSpacing(6)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
         }
     }

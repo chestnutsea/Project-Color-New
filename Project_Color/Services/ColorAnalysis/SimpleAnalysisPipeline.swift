@@ -242,7 +242,22 @@ class SimpleAnalysisPipeline {
             }
         }
         
-        // 获取收集的所有压缩图片（按照 photoInfos 的顺序）
+        // ✅ 修复顺序问题：按照用户选择的原始顺序重新排序 photoInfos
+        // 创建 assetIdentifier -> 原始索引的映射
+        let originalOrderMap: [String: Int] = Dictionary(
+            uniqueKeysWithValues: assets.enumerated().map { ($1.localIdentifier, $0) }
+        )
+        
+        // 按原始顺序排序 photoInfos
+        await MainActor.run {
+            result.photoInfos.sort { info1, info2 in
+                let index1 = originalOrderMap[info1.assetIdentifier] ?? Int.max
+                let index2 = originalOrderMap[info2.assetIdentifier] ?? Int.max
+                return index1 < index2
+            }
+        }
+        
+        // 获取收集的所有压缩图片（按照排序后的 photoInfos 顺序）
         let orderedIdentifiers = result.photoInfos.map { $0.assetIdentifier }
         let compressedImages = await imageCollector.getAll(orderedBy: orderedIdentifiers)
         await MainActor.run {
@@ -252,7 +267,7 @@ class SimpleAnalysisPipeline {
             print("   - 总照片数: \(assets.count) 张")
             print("   - 缓存照片: \(cachedInfos.count) 张")
             print("   - 新分析照片: \(assetsToProcess.count) 张")
-            print("   - 图片顺序: 与 photoInfos 一致")
+            print("   - ✅ 图片顺序: 与用户选择顺序一致")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         }
         
@@ -284,6 +299,19 @@ class SimpleAnalysisPipeline {
         
         // 阶段2: 全局聚类（Phase 5: 并发自动选择最优K 或 使用手动K值）
         
+        // 读取显影解析模式
+        let developmentMode = BatchProcessSettings.developmentMode
+        let analysisMode: DevelopmentAnalysisMode = {
+            switch developmentMode {
+            case .tone:
+                return .tone
+            case .shadow, .comprehensive:
+                return .comprehensive
+            }
+        }()
+        let modeDesc = analysisMode == .tone ? "色调模式" : "综合模式"
+        print("   🎨 显影解析模式: \(modeDesc)")
+        
         // 检查是否手动指定了 K 值
         let clusteringResult: SimpleKMeans.ClusteringResult
         
@@ -309,7 +337,8 @@ class SimpleAnalysisPipeline {
                 k: manualK,
                 maxIterations: 50,
                 colorSpace: .lab,
-                weights: allColorWeights
+                weights: allColorWeights,
+                analysisMode: analysisMode
             ) else {
                 print("❌ 手动K值聚类失败，使用默认K=5")
                 result.optimalK = 5
@@ -374,7 +403,8 @@ class SimpleAnalysisPipeline {
                     maxK: maxK,
                     maxIterations: 50,
                     colorSpace: .lab,
-                    weights: allColorWeights  // 传递权重
+                    weights: allColorWeights,  // 传递权重
+                    analysisMode: analysisMode  // 传递解析模式
                 ),
                 progressHandler: { currentK, totalK in
                     Task { @MainActor in
@@ -458,7 +488,8 @@ class SimpleAnalysisPipeline {
                 assignPhotoToCluster(
                     photoInfo: &photoInfos[i],
                     clusters: clusters,
-                    centroidsLAB: centroidsLAB
+                    centroidsLAB: centroidsLAB,
+                    analysisMode: analysisMode
                 )
             }
             
@@ -851,66 +882,9 @@ class SimpleAnalysisPipeline {
     // MARK: - 为缓存的照片更新冷暖评分和 Vision 信息
     private func updateWarmCoolScore(asset: PHAsset, photoInfo: PhotoColorInfo) async -> PhotoColorInfo? {
         #if canImport(UIKit)
-        return await withCheckedContinuation { continuation in
-            let manager = PHImageManager.default()
-            let options = PHImageRequestOptions()
-            options.deliveryMode = .highQualityFormat
-            options.isSynchronous = false
-            options.isNetworkAccessAllowed = true
-            options.resizeMode = .fast
-            
-            // 计算目标尺寸：最长边400，保持宽高比
-            let targetSize = self.calculateTargetSize(for: asset, maxDimension: 400)
-            
-            manager.requestImage(
-                for: asset,
-                targetSize: targetSize,
-                contentMode: .aspectFit,
-                options: options
-            ) { [weak self] image, info in
-                guard let self = self,
-                      let image = image,
-                      let cgImage = image.cgImage else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                
-                // 并行计算冷暖评分、Vision 分析和元数据读取
-                Task {
-                    async let warmCoolScore = self.warmCoolCalculator.calculateScore(
-                        image: cgImage,
-                        dominantColors: photoInfo.dominantColors
-                    )
-                    
-                    async let visionInfo = self.visionAnalyzer.analyzeImage(image)
-                    
-                    async let metadata = self.metadataReader.readMetadata(from: asset)
-                    
-                    // 等待三个任务完成
-                    let (score, vision, meta) = await (warmCoolScore, visionInfo, metadata)
-                    
-                    var updatedInfo = photoInfo
-                    updatedInfo.advancedColorAnalysis = score
-                    updatedInfo.visionInfo = vision
-                    updatedInfo.metadata = meta
-                    
-                    continuation.resume(returning: updatedInfo)
-                }
-            }
-        }
-        #else
-        return nil
-        #endif
-    }
-    
-    // MARK: - 为 AI 分析加载图片（不进行颜色分析）
-    private func loadImageForAI(
-        asset: PHAsset,
-        identifier: String,
-        imageCollector: CompressedImageCollector
-    ) async {
-        #if canImport(UIKit)
-        let loadedImage = await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
+        // ✅ 修复：先加载图片，再处理，防止 continuation 重复 resume
+        let loadedImage: (UIImage, CGImage)? = await withCheckedContinuation { continuation in
+            var hasResumed = false
             let manager = PHImageManager.default()
             let options = PHImageRequestOptions()
             options.deliveryMode = .highQualityFormat
@@ -927,6 +901,72 @@ class SimpleAnalysisPipeline {
                 contentMode: .aspectFit,
                 options: options
             ) { image, info in
+                guard !hasResumed else { return }
+                hasResumed = true
+                
+                if let image = image, let cgImage = image.cgImage {
+                    continuation.resume(returning: (image, cgImage))
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+        
+        guard let (image, cgImage) = loadedImage else {
+            return nil
+        }
+        
+        // 并行计算冷暖评分、Vision 分析和元数据读取
+        async let warmCoolScore = self.warmCoolCalculator.calculateScore(
+            image: cgImage,
+            dominantColors: photoInfo.dominantColors
+        )
+        
+        async let visionInfo = self.visionAnalyzer.analyzeImage(image)
+        
+        async let metadata = self.metadataReader.readMetadata(from: asset)
+        
+        // 等待三个任务完成
+        let (score, vision, meta) = await (warmCoolScore, visionInfo, metadata)
+        
+        var updatedInfo = photoInfo
+        updatedInfo.advancedColorAnalysis = score
+        updatedInfo.visionInfo = vision
+        updatedInfo.metadata = meta
+        
+        return updatedInfo
+        #else
+        return nil
+        #endif
+    }
+    
+    // MARK: - 为 AI 分析加载图片（不进行颜色分析）
+    private func loadImageForAI(
+        asset: PHAsset,
+        identifier: String,
+        imageCollector: CompressedImageCollector
+    ) async {
+        #if canImport(UIKit)
+        let loadedImage = await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
+            var hasResumed = false  // ✅ 防止重复 resume
+            let manager = PHImageManager.default()
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .highQualityFormat
+            options.isSynchronous = false
+            options.isNetworkAccessAllowed = true
+            options.resizeMode = .fast
+            
+            // 计算目标尺寸：最长边400，保持宽高比
+            let targetSize = self.calculateTargetSize(for: asset, maxDimension: 400)
+            
+            manager.requestImage(
+                for: asset,
+                targetSize: targetSize,
+                contentMode: .aspectFit,
+                options: options
+            ) { image, info in
+                guard !hasResumed else { return }
+                hasResumed = true
                 continuation.resume(returning: image)
             }
         }
@@ -946,6 +986,7 @@ class SimpleAnalysisPipeline {
         #if canImport(UIKit)
         // 第一步：快速获取图像（在 PHImageManager 回调中只做最少的工作）
         let loadedImage = await withCheckedContinuation { (continuation: CheckedContinuation<(UIImage, CGImage)?, Never>) in
+            var hasResumed = false  // ✅ 防止重复 resume
             let manager = PHImageManager.default()
             let options = PHImageRequestOptions()
             options.deliveryMode = .highQualityFormat
@@ -963,6 +1004,9 @@ class SimpleAnalysisPipeline {
                 contentMode: .aspectFit,
                 options: options
             ) { image, info in
+                guard !hasResumed else { return }
+                hasResumed = true
+                
                 if let image = image, let cgImage = image.cgImage {
                     NSLog("   ✓ 实际加载尺寸: \(Int(image.size.width))x\(Int(image.size.height)), CGImage: \(cgImage.width)x\(cgImage.height)")
                     continuation.resume(returning: (image, cgImage))
@@ -1028,6 +1072,9 @@ class SimpleAnalysisPipeline {
             // ✅ 计算视觉代表色（5个主色在 LAB 空间的加权平均）
             photoInfo.computeVisualRepresentativeColor()
             
+            // ✅ 计算明度中位数和对比度（从 CDF）
+            photoInfo.computeBrightnessStatistics()
+            
             // 调试日志
             let cdf = extractionResult.brightnessCDF
             if !cdf.isEmpty {
@@ -1075,18 +1122,36 @@ class SimpleAnalysisPipeline {
         #endif
     }
     
-    // MARK: - 欧几里得距离（与 SimpleKMeans 保持一致）
-    /// 在 LAB 空间使用欧几里得距离，将颜色视为 3D 向量 (L, a, b)
+    // MARK: - 距离计算
+    
+    /// 根据模式计算距离
+    private func calculateDistance(_ a: SIMD3<Float>, _ b: SIMD3<Float>, analysisMode: DevelopmentAnalysisMode) -> Float {
+        if analysisMode == .tone {
+            return euclideanDistance2D(a, b)
+        } else {
+            return euclideanDistance(a, b)
+        }
+    }
+    
+    /// 欧几里得距离（三维，L, a, b）
     private func euclideanDistance(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
         let diff = a - b
         return sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z)
+    }
+    
+    /// 欧几里得距离（二维，只用 a, b）
+    private func euclideanDistance2D(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
+        let diffA = a.y - b.y  // a 分量
+        let diffB = a.z - b.z  // b 分量
+        return sqrt(diffA * diffA + diffB * diffB)
     }
     
     // MARK: - 为照片分配主簇（Phase 2: 使用 LAB 空间）
     private func assignPhotoToCluster(
         photoInfo: inout PhotoColorInfo,
         clusters: [ColorCluster],
-        centroidsLAB: [SIMD3<Float>]
+        centroidsLAB: [SIMD3<Float>],
+        analysisMode: DevelopmentAnalysisMode = .comprehensive
     ) {
         // 计算每个主色到各个簇的距离（LAB 空间）
         var clusterScores = [Int: Double]()
@@ -1098,9 +1163,9 @@ class SimpleAnalysisPipeline {
             var minDistance = Float.greatestFiniteMagnitude
             var closestCluster = 0
             
-            // 使用欧几里得距离（与聚类保持一致）
+            // 使用距离计算（根据模式选择）
             for (index, centroidLAB) in centroidsLAB.enumerated() {
-                let distance = euclideanDistance(colorLAB, centroidLAB)
+                let distance = calculateDistance(colorLAB, centroidLAB, analysisMode: analysisMode)
                 if distance < minDistance {
                     minDistance = distance
                     closestCluster = index

@@ -50,11 +50,20 @@ struct CustomPhotoPickerView: View {
     @State private var lastScrollIndexDuringDrag: Int?
     @State private var keyAssets: [String: PHAsset] = [:]  // albumId -> key asset 缓存
     @State private var albumLoadToken = UUID()  // 防止异步加载错位
+    @State private var cachedAssets: Set<String> = []  // 已预热的 asset ID（限制最大数量）
+    
+    // ✅ 按需加载相关状态
+    @State private var currentFetchResult: PHFetchResult<PHAsset>?  // 当前相册的 fetchResult（懒加载）
+    @State private var loadedPhotoCount: Int = 0  // 已加载到内存的照片数量
+    @State private var totalPhotoCount: Int = 0  // 相册总照片数（用于滚动条计算）
+    @State private var isLoadingMorePhotos: Bool = false  // 是否正在加载更多照片
     
     // MARK: - 常量
     private let maxSelection = 9
     private let photoSpacing: CGFloat = 1
     private let columns = 3
+    private let thumbnailSize = CGSize(width: 200, height: 200)  // 缩略图尺寸
+    private let preheatBatchSize = 50  // 每批预热数量
     
     // 日期滚动条布局常量
     private let scrubberRightPadding: CGFloat = 5
@@ -187,6 +196,7 @@ struct CustomPhotoPickerView: View {
                                     asset: asset,
                                     size: photoSize,
                                     selectionIndex: selectionIndex(for: asset),
+                                    imageManager: imageManager,  // ✅ 使用预热的 PHCachingImageManager
                                     onTap: {
                                         toggleSelection(asset)
                                     }
@@ -197,6 +207,8 @@ struct CustomPhotoPickerView: View {
                                     if !isDraggingScrubber {
                                         updateScrubberFromPhotoIndex(index)
                                     }
+                                    // ✅ 按需加载更多照片（当接近底部时）
+                                    loadMorePhotosIfNeeded(currentIndex: index)
                                 }
                             }
                         }
@@ -231,7 +243,9 @@ struct CustomPhotoPickerView: View {
     private func updateScrubberFromPhotoIndex(_ index: Int) {
         guard !photos.isEmpty, index >= 0, index < photos.count else { return }
         
-        let newProgress = CGFloat(index) / CGFloat(max(1, photos.count - 1))
+        // ✅ 使用总照片数计算进度，而不是已加载的照片数
+        let total = max(1, totalPhotoCount > 0 ? totalPhotoCount : photos.count)
+        let newProgress = CGFloat(index) / CGFloat(max(1, total - 1))
         
         // 平滑更新进度
         withAnimation(.easeOut(duration: 0.1)) {
@@ -310,8 +324,29 @@ struct CustomPhotoPickerView: View {
     private func scrollToProgress(_ progress: CGFloat) {
         guard !photos.isEmpty else { return }
         
-        // 计算目标索引
-        let targetIndex = Int(round(progress * CGFloat(photos.count - 1)))
+        // ✅ 使用总照片数计算目标索引
+        let total = max(1, totalPhotoCount > 0 ? totalPhotoCount : photos.count)
+        let targetIndex = Int(round(progress * CGFloat(total - 1)))
+        
+        // ✅ 如果目标索引超出已加载范围，需要先加载
+        if targetIndex >= photos.count {
+            // 触发加载更多照片
+            loadMorePhotosIfNeeded(currentIndex: photos.count - 1)
+            // 暂时滚动到最后一张已加载的照片
+            let safeIndex = photos.count - 1
+            if let asset = photos.last {
+                currentDateText = formatDate(asset.creationDate)
+            }
+            if lastScrollIndexDuringDrag != safeIndex {
+                lastScrollIndexDuringDrag = safeIndex
+                let targetId = photos[safeIndex].localIdentifier
+                withAnimation(nil) {
+                    scrollViewProxy?.scrollTo(targetId, anchor: .top)
+                }
+            }
+            return
+        }
+        
         let safeIndex = max(0, min(targetIndex, photos.count - 1))
         
         // 更新日期文本
@@ -457,7 +492,7 @@ struct CustomPhotoPickerView: View {
                 print("📷 \(title): \(assets.count) 张照片")
                 if assets.count > 0 && !addedIds.contains(collection.localIdentifier) {
                     addedIds.insert(collection.localIdentifier)
-                    var item = AlbumItem(
+                    let item = AlbumItem(
                         id: collection.localIdentifier,
                         collection: collection,
                         title: title,
@@ -465,7 +500,7 @@ struct CustomPhotoPickerView: View {
                     )
                     if let keyAsset = self.latestAsset(in: collection, options: coverOptions) {
                         foundKeyAssets[item.id] = keyAsset
-                        item.thumbnail = self.loadThumbnailInline(for: keyAsset)
+                        // ✅ 移除同步加载，改为异步加载
                     }
                     albumItems.append(item)
                 }
@@ -487,7 +522,7 @@ struct CustomPhotoPickerView: View {
                     print("📷 \(title): \(assets.count) 张照片")
                     if assets.count > 0 && !addedIds.contains(collection.localIdentifier) {
                         addedIds.insert(collection.localIdentifier)
-                        var item = AlbumItem(
+                        let item = AlbumItem(
                             id: collection.localIdentifier,
                             collection: collection,
                             title: title,
@@ -495,7 +530,7 @@ struct CustomPhotoPickerView: View {
                         )
                         if let keyAsset = self.latestAsset(in: collection, options: coverOptions) {
                             foundKeyAssets[item.id] = keyAsset
-                            item.thumbnail = self.loadThumbnailInline(for: keyAsset)
+                            // ✅ 移除同步加载，改为异步加载
                         }
                         albumItems.append(item)
                     }
@@ -518,7 +553,7 @@ struct CustomPhotoPickerView: View {
                     addedIds.insert(collection.localIdentifier)
                     // 用户相册使用 localizedTitle，如果为空则使用"未命名相册"
                     let title = collection.localizedTitle ?? "未命名相册"
-                    var item = AlbumItem(
+                    let item = AlbumItem(
                         id: collection.localIdentifier,
                         collection: collection,
                         title: title,
@@ -526,7 +561,7 @@ struct CustomPhotoPickerView: View {
                     )
                     if let keyAsset = self.latestAsset(in: collection, options: coverOptions) {
                         foundKeyAssets[item.id] = keyAsset
-                        item.thumbnail = self.loadThumbnailInline(for: keyAsset)
+                        // ✅ 移除同步加载，改为异步加载
                     }
                     albumItems.append(item)
                 }
@@ -552,7 +587,7 @@ struct CustomPhotoPickerView: View {
                     if assets.count > 0 && !addedIds.contains(collection.localIdentifier) {
                         addedIds.insert(collection.localIdentifier)
                         let title = self.localizedAlbumTitle(collection)
-                        var item = AlbumItem(
+                        let item = AlbumItem(
                             id: collection.localIdentifier,
                             collection: collection,
                             title: title,
@@ -560,7 +595,7 @@ struct CustomPhotoPickerView: View {
                         )
                         if let keyAsset = self.latestAsset(in: collection, options: coverOptions) {
                             foundKeyAssets[item.id] = keyAsset
-                            item.thumbnail = self.loadThumbnailInline(for: keyAsset)
+                            // ✅ 移除同步加载，改为异步加载
                         }
                         albumItems.append(item)
                     }
@@ -584,7 +619,7 @@ struct CustomPhotoPickerView: View {
                 self.isLoading = false
             }
             
-            // 异步加载封面缩略图，避免阻塞展示（兜底，防止同步加载失败）
+            // ✅ 优化：异步加载封面缩略图，先显示列表再加载图片
             await withTaskGroup(of: Void.self) { group in
                 for (albumId, asset) in foundKeyAssets {
                     group.addTask {
@@ -596,32 +631,46 @@ struct CustomPhotoPickerView: View {
     }
     
     private func loadThumbnailAsync(for asset: PHAsset, albumId: String) async {
+        let assetId = asset.localIdentifier
+        
+        // ✅ 优化：先检查缓存，如果命中就直接使用
+        if let cachedImage = ThumbnailCache.shared.image(for: assetId) {
+            await MainActor.run {
+                if let index = self.albums.firstIndex(where: { $0.id == albumId }) {
+                    self.albums[index].thumbnail = cachedImage
+                }
+            }
+            return
+        }
+        
+        // 缓存未命中，才加载图片
         let options = PHImageRequestOptions()
-        options.deliveryMode = .fastFormat
+        options.deliveryMode = .highQualityFormat  // ✅ 使用 highQualityFormat 确保只回调一次
         options.resizeMode = .fast
         options.isSynchronous = false
         options.isNetworkAccessAllowed = true
         
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async {
-                var didResume = false
-                imageManager.requestImage(
-                    for: asset,
-                    targetSize: CGSize(width: 200, height: 200),
-                    contentMode: .aspectFill,
-                    options: options
-                ) { image, _ in
-                    if let image = image {
-                        Task { @MainActor in
-                            if let index = self.albums.firstIndex(where: { $0.id == albumId }) {
-                                self.albums[index].thumbnail = image
-                            }
-                        }
-                    }
-                    if !didResume {
-                        didResume = true
-                        continuation.resume()
-                    }
+        // ✅ 修复：防止重复 resume 导致闪退
+        let loadedImage: UIImage? = await withCheckedContinuation { continuation in
+            var hasResumed = false
+            imageManager.requestImage(
+                for: asset,
+                targetSize: CGSize(width: 200, height: 200),
+                contentMode: .aspectFill,
+                options: options
+            ) { image, _ in
+                guard !hasResumed else { return }
+                hasResumed = true
+                continuation.resume(returning: image)
+            }
+        }
+        
+        if let image = loadedImage {
+            // ✅ 存入缓存，下次直接使用
+            ThumbnailCache.shared.setImage(image, for: assetId)
+            await MainActor.run {
+                if let index = self.albums.firstIndex(where: { $0.id == albumId }) {
+                    self.albums[index].thumbnail = image
                 }
             }
         }
@@ -707,28 +756,157 @@ struct CustomPhotoPickerView: View {
         }
         
         Task.detached(priority: .userInitiated) {
-            let assets = PHAsset.fetchAssets(in: album.collection, options: options)
-            var photoArray: [PHAsset] = []
-            assets.enumerateObjects { asset, _, _ in
-                photoArray.append(asset)
+            let fetchResult = PHAsset.fetchAssets(in: album.collection, options: options)
+            let totalCount = fetchResult.count
+            
+            // ✅ 内存优化：只加载前 50 张到内存，其余按需加载
+            // PHFetchResult 本身是懒加载的，不会占用大量内存
+            let initialLoadCount = min(50, totalCount)
+            
+            let initialPhotos = await withCheckedContinuation { continuation in
+                var photos: [PHAsset] = []
+                photos.reserveCapacity(initialLoadCount)
+                fetchResult.enumerateObjects { asset, index, stop in
+                    if index < initialLoadCount {
+                        photos.append(asset)
+                    } else {
+                        stop.pointee = true
+                    }
+                }
+                continuation.resume(returning: photos)
             }
             
             await MainActor.run {
-                // 只处理最新一次的加载请求，避免相册错位
                 guard loadToken == albumLoadToken else { return }
-                print("📷 加载相册 \(album.title) 的照片: \(photoArray.count) 张")
-                self.photos = photoArray
-                // 切换相册后更新滚动条和日期
-                if !photoArray.isEmpty {
+                print("📷 加载相册 \(album.title) 的照片: \(initialPhotos.count)/\(totalCount) 张（初始加载）")
+                self.photos = initialPhotos
+                self.totalPhotoCount = totalCount  // ✅ 保存总数用于滚动条
+                
+                if !initialPhotos.isEmpty {
                     self.updateScrubberFromPhotoIndex(0)
+                    // ✅ 只预热前 50 张缩略图，不预热全部
+                    self.startPreheatThumbnails(for: initialPhotos)
                 } else {
                     self.currentDateText = ""
                 }
+                
+                // ✅ 存储 fetchResult 用于按需加载更多照片
+                self.currentFetchResult = fetchResult
+                self.loadedPhotoCount = initialPhotos.count
             }
         }
     }
     
+    /// 按需加载更多照片（当用户滚动到底部时调用）
+    private func loadMorePhotosIfNeeded(currentIndex: Int) {
+        guard let fetchResult = currentFetchResult else { return }
+        
+        let totalCount = fetchResult.count
+        let threshold = loadedPhotoCount - 20  // 提前 20 张开始加载
+        
+        // 如果还没滚动到接近底部，不加载
+        guard currentIndex >= threshold else { return }
+        
+        // 如果已经加载完所有照片，不再加载
+        guard loadedPhotoCount < totalCount else { return }
+        
+        // 防止重复加载
+        guard !isLoadingMorePhotos else { return }
+        isLoadingMorePhotos = true
+        
+        let currentToken = albumLoadToken
+        let startIndex = loadedPhotoCount
+        let batchSize = 50  // 每次加载 50 张
+        let endIndex = min(startIndex + batchSize, totalCount)
+        
+        Task.detached(priority: .userInitiated) {
+            // ✅ 修复 Swift 6 并发警告：使用 withCheckedContinuation 安全获取照片
+            let loadedPhotos = await withCheckedContinuation { continuation in
+                var photos: [PHAsset] = []
+                photos.reserveCapacity(endIndex - startIndex)
+                fetchResult.enumerateObjects(at: IndexSet(startIndex..<endIndex), options: []) { asset, _, _ in
+                    photos.append(asset)
+                }
+                continuation.resume(returning: photos)
+            }
+            
+            await MainActor.run {
+                guard currentToken == self.albumLoadToken else {
+                    self.isLoadingMorePhotos = false
+                    return
+                }
+                
+                self.photos.append(contentsOf: loadedPhotos)
+                self.loadedPhotoCount = self.photos.count
+                self.isLoadingMorePhotos = false
+                
+                print("📷 按需加载更多照片: \(self.loadedPhotoCount)/\(totalCount) 张")
+                
+                // ✅ 只预热新加载的照片
+                self.startPreheatThumbnails(for: loadedPhotos)
+            }
+        }
+    }
+    
+    // MARK: - PHCachingImageManager 预热
+    
+    /// ✅ 内存优化：限制预热缓存的最大数量
+    private let maxCachedAssetCount = 100
+    
+    /// 使用 PHCachingImageManager 预热缩略图（限制数量，避免内存暴涨）
+    private func startPreheatThumbnails(for assets: [PHAsset]) {
+        // 过滤出未预热的 assets
+        let uncachedAssets = assets.filter { !cachedAssets.contains($0.localIdentifier) }
+        guard !uncachedAssets.isEmpty else { return }
+        
+        // ✅ 限制预热数量，避免内存暴涨
+        let assetsToCache = Array(uncachedAssets.prefix(preheatBatchSize))
+        
+        print("🔥 预热 \(assetsToCache.count) 张缩略图（限制最大 \(preheatBatchSize) 张）")
+        
+        // 使用 PHCachingImageManager 的原生预热 API
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .opportunistic
+        options.resizeMode = .fast
+        options.isNetworkAccessAllowed = false
+        
+        imageManager.startCachingImages(
+            for: assetsToCache,
+            targetSize: thumbnailSize,
+            contentMode: .aspectFill,
+            options: options
+        )
+        
+        // 记录已预热的 assets
+        for asset in assetsToCache {
+            cachedAssets.insert(asset.localIdentifier)
+        }
+        
+        // ✅ 如果缓存的 ID 过多，清理旧的
+        if cachedAssets.count > maxCachedAssetCount {
+            // 清理超出的部分（保留最近添加的）
+            let overflow = cachedAssets.count - maxCachedAssetCount
+            let idsToRemove = Array(cachedAssets.prefix(overflow))
+            for id in idsToRemove {
+                cachedAssets.remove(id)
+            }
+            print("🧹 清理缓存 ID: 移除 \(overflow) 个旧 ID")
+        }
+    }
+    
+    /// 停止预热（切换相册时调用）
+    private func stopPreheatThumbnails() {
+        imageManager.stopCachingImagesForAllAssets()
+        cachedAssets.removeAll()
+        currentFetchResult = nil
+        loadedPhotoCount = 0
+        totalPhotoCount = 0
+        print("🛑 停止缩略图预热，清理状态")
+    }
+    
     private func selectAlbum(_ album: AlbumItem) {
+        // 切换相册时停止之前的预热
+        stopPreheatThumbnails()
         selectedAlbum = album
         albumLoadToken = UUID()
         loadPhotos(from: album, token: albumLoadToken)
@@ -767,6 +945,7 @@ struct PhotoCell: View {
     let asset: PHAsset
     let size: CGFloat
     let selectionIndex: Int?  // nil 表示未选中，1-9 表示选中序号
+    let imageManager: PHCachingImageManager  // ✅ 使用预热的缓存管理器
     let onTap: () -> Void
     
     @State private var image: UIImage?
@@ -835,14 +1014,29 @@ struct PhotoCell: View {
     }
     
     private func loadImage() {
+        let assetId = asset.localIdentifier
+        let targetSize = CGSize(width: size * 2, height: size * 2)
+        
+        // ✅ 优化：先检查缓存（即使尺寸不同，也可以先显示缓存图片，然后异步加载精确尺寸）
+        if let cachedImage = ThumbnailCache.shared.image(for: assetId) {
+            // 如果缓存图片尺寸足够大，直接使用
+            if cachedImage.size.width >= targetSize.width && cachedImage.size.height >= targetSize.height {
+                self.image = cachedImage
+                return
+            }
+            // 否则先显示缓存图片，然后加载精确尺寸
+            self.image = cachedImage
+        }
+        
         let options = PHImageRequestOptions()
         options.deliveryMode = .opportunistic
         options.resizeMode = .fast
         options.isNetworkAccessAllowed = true
         
-        PHImageManager.default().requestImage(
+        // ✅ 使用预热的 PHCachingImageManager，命中预热缓存
+        imageManager.requestImage(
             for: asset,
-            targetSize: CGSize(width: size * 2, height: size * 2),
+            targetSize: targetSize,
             contentMode: .aspectFill,
             options: options
         ) { image, _ in

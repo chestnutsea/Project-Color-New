@@ -5,6 +5,7 @@
 //  Created by AI Assistant on 2025/11/9.
 //  Micro-Phase 1: 固定K=5的KMeans聚类（RGB空间）
 //  Updated in Phase 2: 支持 LAB 空间和 ΔE 距离
+//  Updated: 支持色调模式（只用 a, b 聚类）和综合模式（L, a, b 聚类）
 //
 
 import Foundation
@@ -14,10 +15,20 @@ enum ColorSpace {
     case lab
 }
 
+/// 显影解析模式
+enum DevelopmentAnalysisMode {
+    case tone           // 色调模式：只用 a, b 进行聚类，L 固定为 50
+    case comprehensive  // 综合模式：使用完整的 L, a, b 进行聚类
+}
+
 class SimpleKMeans {
     
     private let converter = ColorSpaceConverter()
     private var colorSpace: ColorSpace = .rgb
+    private var analysisMode: DevelopmentAnalysisMode = .comprehensive
+    
+    /// 色调模式下 L 的固定值
+    private let toneModeLValue: Float = 50.0
     
     // MARK: - 聚类结果
     struct ClusteringResult {
@@ -32,19 +43,27 @@ class SimpleKMeans {
         k: Int = 5,
         maxIterations: Int = 50,
         colorSpace: ColorSpace = .rgb,
-        weights: [Float]? = nil  // 新增：可选权重
+        weights: [Float]? = nil,  // 可选权重
+        analysisMode: DevelopmentAnalysisMode = .comprehensive  // 显影解析模式
     ) -> ClusteringResult? {
         self.colorSpace = colorSpace
+        self.analysisMode = analysisMode
         
         guard points.count >= k else {
             print("Warning: Not enough points (\(points.count)) for k=\(k)")
             return nil
         }
         
-        print("🎨 KMeans clustering in \(colorSpace) space with K=\(k)")
+        let modeDesc = analysisMode == .tone ? "色调模式(a,b)" : "综合模式(L,a,b)"
+        print("🎨 KMeans clustering in \(colorSpace) space with K=\(k), \(modeDesc)")
         
         // 1. 使用k-means++初始化质心
         var centroids = initializeCentroidsKMeansPlusPlus(points: points, k: k)
+        
+        // 色调模式：将质心的 L 值固定为 50
+        if analysisMode == .tone && colorSpace == .lab {
+            centroids = centroids.map { SIMD3<Float>(toneModeLValue, $0.y, $0.z) }
+        }
         
         var assignments = [Int](repeating: 0, count: points.count)
         var hasConverged = false
@@ -84,10 +103,19 @@ class SimpleKMeans {
                 
                 for i in 0..<k {
                     if totalWeights[i] > 0 {
-                        centroids[i] = newCentroids[i] / totalWeights[i]
+                        var newCentroid = newCentroids[i] / totalWeights[i]
+                        // 色调模式：L 值固定为 50
+                        if analysisMode == .tone && colorSpace == .lab {
+                            newCentroid.x = toneModeLValue
+                        }
+                        centroids[i] = newCentroid
                     } else {
                         // 如果某个簇为空，随机重新初始化
-                        centroids[i] = points.randomElement() ?? SIMD3<Float>(0.5, 0.5, 0.5)
+                        var fallback = points.randomElement() ?? SIMD3<Float>(0.5, 0.5, 0.5)
+                        if analysisMode == .tone && colorSpace == .lab {
+                            fallback.x = toneModeLValue
+                        }
+                        centroids[i] = fallback
                     }
                 }
             } else {
@@ -103,10 +131,19 @@ class SimpleKMeans {
                 
                 for i in 0..<k {
                     if counts[i] > 0 {
-                        centroids[i] = newCentroids[i] / Float(counts[i])
+                        var newCentroid = newCentroids[i] / Float(counts[i])
+                        // 色调模式：L 值固定为 50
+                        if analysisMode == .tone && colorSpace == .lab {
+                            newCentroid.x = toneModeLValue
+                        }
+                        centroids[i] = newCentroid
                     } else {
                         // 如果某个簇为空，随机重新初始化
-                        centroids[i] = points.randomElement() ?? SIMD3<Float>(0.5, 0.5, 0.5)
+                        var fallback = points.randomElement() ?? SIMD3<Float>(0.5, 0.5, 0.5)
+                        if analysisMode == .tone && colorSpace == .lab {
+                            fallback.x = toneModeLValue
+                        }
+                        centroids[i] = fallback
                     }
                 }
             }
@@ -186,17 +223,32 @@ class SimpleKMeans {
         return centroids
     }
     
-    // MARK: - 距离计算（统一使用欧几里得距离）
-    /// 在 LAB 空间使用欧几里得距离，将颜色视为 3D 向量 (L, a, b)
-    /// 这样距离计算和质心更新在数学上保持一致
+    // MARK: - 距离计算
+    /// 根据模式计算距离：
+    /// - 综合模式：使用完整的 L, a, b 三维欧几里得距离
+    /// - 色调模式：只使用 a, b 二维欧几里得距离
     private func calculateDistance(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
-        return euclideanDistance(a, b)
+        if analysisMode == .tone && colorSpace == .lab {
+            // 色调模式：只计算 a, b 的距离
+            return euclideanDistance2D(a, b)
+        } else {
+            // 综合模式：计算完整的 L, a, b 距离
+            return euclideanDistance(a, b)
+        }
     }
     
-    // MARK: - 欧氏距离
+    // MARK: - 欧氏距离（三维）
     private func euclideanDistance(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
         let diff = a - b
         return sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z)
+    }
+    
+    // MARK: - 欧氏距离（二维，只用 a, b）
+    /// 色调模式专用：只计算 Lab 空间中 a, b 分量的距离
+    private func euclideanDistance2D(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
+        let diffA = a.y - b.y  // a 分量
+        let diffB = a.z - b.z  // b 分量
+        return sqrt(diffA * diffA + diffB * diffB)
     }
 }
 

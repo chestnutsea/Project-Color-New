@@ -272,6 +272,14 @@ final class CoreDataManager {
                 photoAnalysis.brightnessCDF = cdfData
             }
             
+            // 保存明度中位数和对比度（影调模式聚类用）
+            if let median = photoInfo.brightnessMedian {
+                photoAnalysis.brightnessMedian = median
+            }
+            if let contrast = photoInfo.brightnessContrast {
+                photoAnalysis.brightnessContrast = contrast
+            }
+            
             // 保存高级色彩分析（单张照片）
             if let advancedColorAnalysis = photoInfo.advancedColorAnalysis {
                 // 保存完整的 AdvancedColorAnalysis 结构（包含所有数据）
@@ -443,18 +451,43 @@ final class CoreDataManager {
         try viewContext.save()
     }
     
-    /// 清除所有分析会话
+    /// 清除所有分析会话（同时清除关联的 PhotoAnalysisEntity 和聚类缓存）
     func clearAllSessions() throws {
-        let request: NSFetchRequest<NSFetchRequestResult> = AnalysisSessionEntity.fetchRequest()
-        let deleteRequest = NSBatchDeleteRequest(fetchRequest: request)
-        deleteRequest.resultType = .resultTypeObjectIDs
+        // 1. 先删除所有 PhotoAnalysisEntity
+        let photoRequest: NSFetchRequest<NSFetchRequestResult> = PhotoAnalysisEntity.fetchRequest()
+        let photoDeleteRequest = NSBatchDeleteRequest(fetchRequest: photoRequest)
+        photoDeleteRequest.resultType = .resultTypeObjectIDs
         
-        let result = try viewContext.execute(deleteRequest) as? NSBatchDeleteResult
-        let objectIDArray = result?.result as? [NSManagedObjectID] ?? []
-        let changes = [NSDeletedObjectsKey: objectIDArray]
-        NSManagedObjectContext.mergeChanges(fromRemoteContextSave: changes, into: [viewContext])
+        let photoResult = try viewContext.execute(photoDeleteRequest) as? NSBatchDeleteResult
+        let photoObjectIDArray = photoResult?.result as? [NSManagedObjectID] ?? []
+        let photoChanges = [NSDeletedObjectsKey: photoObjectIDArray]
+        NSManagedObjectContext.mergeChanges(fromRemoteContextSave: photoChanges, into: [viewContext])
         
-        print("🗑️ 已清除 \(objectIDArray.count) 个分析会话")
+        print("🗑️ 已清除 \(photoObjectIDArray.count) 个照片分析记录")
+        
+        // 2. 删除所有 AnalysisSessionEntity
+        let sessionRequest: NSFetchRequest<NSFetchRequestResult> = AnalysisSessionEntity.fetchRequest()
+        let sessionDeleteRequest = NSBatchDeleteRequest(fetchRequest: sessionRequest)
+        sessionDeleteRequest.resultType = .resultTypeObjectIDs
+        
+        let sessionResult = try viewContext.execute(sessionDeleteRequest) as? NSBatchDeleteResult
+        let sessionObjectIDArray = sessionResult?.result as? [NSManagedObjectID] ?? []
+        let sessionChanges = [NSDeletedObjectsKey: sessionObjectIDArray]
+        NSManagedObjectContext.mergeChanges(fromRemoteContextSave: sessionChanges, into: [viewContext])
+        
+        print("🗑️ 已清除 \(sessionObjectIDArray.count) 个分析会话")
+        
+        // 3. 删除所有显影聚类缓存
+        let cacheRequest: NSFetchRequest<NSFetchRequestResult> = DevelopmentClusterCacheEntity.fetchRequest()
+        let cacheDeleteRequest = NSBatchDeleteRequest(fetchRequest: cacheRequest)
+        cacheDeleteRequest.resultType = .resultTypeObjectIDs
+        
+        let cacheResult = try viewContext.execute(cacheDeleteRequest) as? NSBatchDeleteResult
+        let cacheObjectIDArray = cacheResult?.result as? [NSManagedObjectID] ?? []
+        let cacheChanges = [NSDeletedObjectsKey: cacheObjectIDArray]
+        NSManagedObjectContext.mergeChanges(fromRemoteContextSave: cacheChanges, into: [viewContext])
+        
+        print("🗑️ 已清除 \(cacheObjectIDArray.count) 个显影聚类缓存")
     }
     
     // MARK: - Phase 3: 数据清理
@@ -670,5 +703,151 @@ final class CoreDataManager {
         
         try context.save()
         print("✅ 已保存到 Core Data: isFavorite=\(isFavorite)")
+    }
+    
+    // MARK: - 显影页聚类缓存管理
+    
+    /// 显影页聚类缓存数据结构
+    struct DevelopmentClusterCache: Codable {
+        let mode: String  // "tone", "shadow", "comprehensive"
+        let photoCount: Int
+        let lastUpdated: Date
+        let clusters: [CachedCluster]
+        
+        struct CachedCluster: Codable {
+            let id: UUID
+            // 色调/综合模式使用
+            let centroidL: Float?
+            let centroidA: Float?
+            let centroidB: Float?
+            let centroidR: Float?
+            let centroidG: Float?
+            let centroidB_RGB: Float?
+            // 影调模式使用
+            let centroidBrightnessMedian: Float?
+            let centroidContrast: Float?
+            // 通用
+            let photoCount: Int
+            let photoIdentifiers: [String]
+        }
+    }
+    
+    /// 保存显影页聚类缓存
+    func saveDevelopmentClusterCache(_ cache: DevelopmentClusterCache) async throws {
+        let context = container.newBackgroundContext()
+        
+        try await context.perform {
+            // 查找是否已存在该模式的缓存
+            let request: NSFetchRequest<DevelopmentClusterCacheEntity> = DevelopmentClusterCacheEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "mode == %@", cache.mode)
+            request.fetchLimit = 1
+            
+            let entity: DevelopmentClusterCacheEntity
+            if let existing = try context.fetch(request).first {
+                entity = existing
+                print("📊 更新显影缓存: \(cache.mode)")
+            } else {
+                entity = DevelopmentClusterCacheEntity(context: context)
+                entity.id = UUID()
+                print("📊 创建显影缓存: \(cache.mode)")
+            }
+            
+            entity.mode = cache.mode
+            entity.photoCount = Int32(cache.photoCount)
+            entity.lastUpdated = cache.lastUpdated
+            
+            // 编码聚类数据
+            if let clustersData = try? JSONEncoder().encode(cache.clusters) {
+                entity.clustersData = clustersData
+            }
+            
+            try context.save()
+            print("✅ 显影缓存已保存: \(cache.mode), 照片数: \(cache.photoCount), 聚类数: \(cache.clusters.count)")
+        }
+    }
+    
+    /// 加载显影页聚类缓存
+    func loadDevelopmentClusterCache(mode: String) async -> DevelopmentClusterCache? {
+        let context = container.newBackgroundContext()
+        
+        return await context.perform {
+            let request: NSFetchRequest<DevelopmentClusterCacheEntity> = DevelopmentClusterCacheEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "mode == %@", mode)
+            request.fetchLimit = 1
+            
+            do {
+                guard let entity = try context.fetch(request).first,
+                      let clustersData = entity.clustersData,
+                      let clusters = try? JSONDecoder().decode([DevelopmentClusterCache.CachedCluster].self, from: clustersData) else {
+                    print("📊 显影缓存不存在: \(mode)")
+                    return nil
+                }
+                
+                let cache = DevelopmentClusterCache(
+                    mode: entity.mode ?? mode,
+                    photoCount: Int(entity.photoCount),
+                    lastUpdated: entity.lastUpdated ?? Date.distantPast,
+                    clusters: clusters
+                )
+                
+                print("✅ 加载显影缓存: \(mode), 照片数: \(cache.photoCount), 聚类数: \(clusters.count)")
+                return cache
+            } catch {
+                print("❌ 加载显影缓存失败: \(error)")
+                return nil
+            }
+        }
+    }
+    
+    /// 获取当前照片总数（用于缓存失效检测）
+    func fetchTotalPhotoCount() async -> Int {
+        let context = container.newBackgroundContext()
+        
+        return await context.perform {
+            let request: NSFetchRequest<PhotoAnalysisEntity> = PhotoAnalysisEntity.fetchRequest()
+            do {
+                return try context.count(for: request)
+            } catch {
+                print("❌ 获取照片数量失败: \(error)")
+                return 0
+            }
+        }
+    }
+    
+    /// 获取收藏照片集中的照片数量（用于缓存失效检测）
+    /// - Parameter favoriteAlbumIds: 收藏的相册 ID 集合
+    func fetchFavoritePhotoCount(favoriteAlbumIds: Set<String>) async -> Int {
+        guard !favoriteAlbumIds.isEmpty else { return 0 }
+        
+        let context = container.newBackgroundContext()
+        
+        return await context.perform {
+            let request: NSFetchRequest<PhotoAnalysisEntity> = PhotoAnalysisEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "albumIdentifier IN %@", favoriteAlbumIds)
+            do {
+                return try context.count(for: request)
+            } catch {
+                print("❌ 获取收藏照片数量失败: \(error)")
+                return 0
+            }
+        }
+    }
+    
+    /// 删除指定模式的显影缓存
+    func deleteDevelopmentClusterCache(mode: String) async throws {
+        let context = container.newBackgroundContext()
+        
+        try await context.perform {
+            let request: NSFetchRequest<DevelopmentClusterCacheEntity> = DevelopmentClusterCacheEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "mode == %@", mode)
+            
+            let results = try context.fetch(request)
+            for entity in results {
+                context.delete(entity)
+            }
+            
+            try context.save()
+            print("🗑️ 已删除显影缓存: \(mode)")
+        }
     }
 }

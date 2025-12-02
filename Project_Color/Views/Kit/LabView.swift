@@ -2,7 +2,7 @@
 //  LabView.swift
 //  Project_Color
 //
-//  实验暗房页面 - 包含查色、算色功能
+//  色彩实验室页面 - 包含查色、算色功能
 //
 
 import SwiftUI
@@ -23,7 +23,7 @@ struct LabView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: Layout.verticalSpacing) {
-                // 实验功能卡片
+                // 色彩实验室功能卡片
                 VStack(spacing: 0) {
                     // 查色
                     Button {
@@ -56,8 +56,14 @@ struct LabView: View {
             .padding(.top, Layout.verticalSpacing)
         }
         .background(Color(.systemGroupedBackground))
-        .navigationTitle("实验暗房")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("色彩实验室")
+                    .font(.headline)
+            }
+        }
+        .toolbarBackground(.visible, for: .navigationBar)
         .fullScreenCover(isPresented: $showLookUpColor) {
             NavigationView {
                 LookUpColorWrapperView()
@@ -66,7 +72,7 @@ struct LabView: View {
     }
 }
 
-// MARK: - 实验暗房菜单行
+// MARK: - 色彩实验室菜单行
 private struct LabMenuRow: View {
     let icon: String
     let title: String
