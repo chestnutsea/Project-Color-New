@@ -17,17 +17,15 @@ struct LabView: View {
         static let rowHorizontalPadding: CGFloat = 16
     }
     
-    // MARK: - State
-    @State private var showLookUpColor = false
-    
     var body: some View {
         ScrollView {
             VStack(spacing: Layout.verticalSpacing) {
                 // 色彩实验室功能卡片
                 VStack(spacing: 0) {
                     // 查色
-                    Button {
-                        showLookUpColor = true
+                    NavigationLink {
+                        LookUpColorView()
+                            .hideTabBar()
                     } label: {
                         LabMenuRow(
                             icon: "eyedropper",
@@ -40,6 +38,7 @@ struct LabView: View {
                     // 算色
                     NavigationLink {
                         CalculateColorView()
+                            .hideTabBar()
                     } label: {
                         LabMenuRow(
                             icon: "function",
@@ -59,11 +58,6 @@ struct LabView: View {
         .navigationTitle("色彩实验室")
         .navigationBarTitleDisplayMode(.inline)
         .hideTabBar()
-        .fullScreenCover(isPresented: $showLookUpColor) {
-            NavigationView {
-                LookUpColorWrapperView()
-            }
-        }
     }
 }
 
@@ -102,29 +96,6 @@ private struct LabMenuRow: View {
     }
 }
 
-// MARK: - LookUpColor 包装视图（添加导航栏）
-struct LookUpColorWrapperView: View {
-    @Environment(\.dismiss) private var dismiss
-    
-    var body: some View {
-        LookUpColorView()
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 17, weight: .semibold))
-                            Text("返回")
-                        }
-                        .foregroundColor(.primary)
-                    }
-                }
-            }
-    }
-}
 
 #Preview {
     NavigationView {

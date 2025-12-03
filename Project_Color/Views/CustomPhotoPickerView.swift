@@ -11,6 +11,9 @@ import Photos
 #if canImport(UIKit)
 import UIKit
 #endif
+#if canImport(PhotosUI)
+import PhotosUI
+#endif
 
 // MARK: - 相册信息模型
 struct AlbumItem: Identifiable {
@@ -34,6 +37,7 @@ struct CustomPhotoPickerView: View {
     // MARK: - 状态
     @State private var albums: [AlbumItem] = []
     @State private var selectedAlbum: AlbumItem?
+    @State private var authorizationStatus: PHAuthorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     @State private var photos: [PHAsset] = []
     @State private var selectedPhotos: [PHAsset] = []  // 有序数组，保持选择顺序
     @State private var showAlbumPicker = false
@@ -47,10 +51,13 @@ struct CustomPhotoPickerView: View {
     @State private var isDraggingScrubber = false
     @State private var scrubberHideTimer: Timer?
     @State private var scrollViewProxy: ScrollViewProxy?
-    @State private var lastScrollIndexDuringDrag: Int?
     @State private var keyAssets: [String: PHAsset] = [:]  // albumId -> key asset 缓存
+    @State private var visibleIndices: Set<Int> = []  // 当前可见的所有索引
+    @State private var scrubberUpdateWorkItem: DispatchWorkItem?  // 防抖用
     @State private var albumLoadToken = UUID()  // 防止异步加载错位
     @State private var cachedAssets: Set<String> = []  // 已预热的 asset ID（限制最大数量）
+    @State private var pendingScrollIndex: Int?
+    @State private var desiredLoadedCount: Int = 0  // 需要加载到的目标数量（用于快速拖动）
     
     // ✅ 按需加载相关状态
     @State private var currentFetchResult: PHFetchResult<PHAsset>?  // 当前相册的 fetchResult（懒加载）
@@ -64,6 +71,8 @@ struct CustomPhotoPickerView: View {
     private let columns = 3
     private let thumbnailSize = CGSize(width: 200, height: 200)  // 缩略图尺寸
     private let preheatBatchSize = 50  // 每批预热数量
+    private let loadBatchSize = 80  // 每批加载数量（用于快速滚动时补齐数据）
+    private let scrubberLoadAhead = 90  // 拖动滚动条时，额外预加载的照片数量
     
     // 日期滚动条布局常量
     private let scrubberRightPadding: CGFloat = 5
@@ -92,6 +101,8 @@ struct CustomPhotoPickerView: View {
                         Spacer()
                         ProgressView()
                         Spacer()
+                    } else if photos.isEmpty {
+                        emptyStateView
                     } else {
                         photoGrid(photoSize: photoSize)
                     }
@@ -186,17 +197,76 @@ struct CustomPhotoPickerView: View {
         .background(Color(.systemBackground))
     }
     
+    // MARK: - 空状态
+    private var emptyStateView: some View {
+        VStack(spacing: 14) {
+            Spacer()
+            
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 46, weight: .regular))
+                .foregroundColor(.secondary)
+            
+            Text("没有可显示的照片")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(.primary)
+            
+            VStack(spacing: 6) {
+                Text("请检查相册权限，或稍后再试。")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                
+                if authorizationStatus == .limited {
+                    Text("当前为“部分照片”，需要添加可访问的照片。")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .padding(.horizontal, 24)
+            
+            HStack(spacing: 12) {
+                Button(action: reloadAlbums) {
+                    Text("刷新相册")
+                        .font(.system(size: 15, weight: .medium))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(Color(.systemGray5))
+                        .cornerRadius(10)
+                }
+                
+                if authorizationStatus == .limited {
+                    Button(action: manageLimitedLibrary) {
+                        Text("管理可访问照片")
+                            .font(.system(size: 15, weight: .semibold))
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 10)
+                            .background(Color.black)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                    }
+                }
+            }
+            
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
     // MARK: - 照片网格
     private func photoGrid(photoSize: CGFloat) -> some View {
         GeometryReader { geometry in
             let gridHeight = geometry.size.height
             let trackHeight = gridHeight - scrubberTopMargin - scrubberBottomMargin
-            
+
             ZStack(alignment: .trailing) {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVGrid(
-                            columns: Array(repeating: GridItem(.fixed(photoSize), spacing: photoSpacing), count: columns),
+                            columns: Array(
+                                repeating: GridItem(.fixed(photoSize), spacing: photoSpacing),
+                                count: columns
+                            ),
                             spacing: photoSpacing
                         ) {
                             ForEach(Array(photos.enumerated()), id: \.element.localIdentifier) { index, asset in
@@ -204,85 +274,108 @@ struct CustomPhotoPickerView: View {
                                     asset: asset,
                                     size: photoSize,
                                     selectionIndex: selectionIndex(for: asset),
-                                    imageManager: imageManager,  // ✅ 使用预热的 PHCachingImageManager
-                                    onTap: {
-                                        toggleSelection(asset)
-                                    }
-                                )
+                                    imageManager: imageManager
+                                ) {
+                                    toggleSelection(asset)
+                                }
                                 .id(asset.localIdentifier)
                                 .onAppear {
-                                    // 只在非拖拽状态下更新（避免拖拽时被覆盖）
-                                    if !isDraggingScrubber {
-                                        updateScrubberFromPhotoIndex(index)
-                                    }
-                                    // ✅ 按需加载更多照片（当接近底部时）
-                                    loadMorePhotosIfNeeded(currentIndex: index)
+                                    handleCellAppear(index: index)
+                                }
+                                .onDisappear {
+                                    handleCellDisappear(index: index)
                                 }
                             }
                         }
+                        .padding(.bottom, 40)
                     }
+                    .scrollIndicators(.hidden)
                     .onAppear {
                         scrollViewProxy = proxy
-                        // 初始化第一张照片的日期
-                        if !photos.isEmpty {
-                            updateScrubberFromPhotoIndex(0)
-                        }
                     }
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 5)
-                            .onChanged { _ in
-                                if !isDraggingScrubber {
-                                    showScrubberTemporarily()
-                                }
-                            }
-                    )
                 }
-                
-                // 日期滚动条
-                if showDateScrubber && !photos.isEmpty && !currentDateText.isEmpty {
+
+                if showDateScrubber && !currentDateText.isEmpty {
                     dateScrubberView(trackHeight: trackHeight)
-                        .transition(.opacity.combined(with: .move(edge: .trailing)))
                 }
             }
         }
     }
     
-    // MARK: - 更新滚动条位置（从照片索引）
-    private func updateScrubberFromPhotoIndex(_ index: Int) {
-        guard !photos.isEmpty, index >= 0, index < photos.count else { return }
+    // MARK: - Cell 出现时的处理
+    private func handleCellAppear(index: Int) {
+        // 加载更多照片
+        loadMorePhotosIfNeeded(currentIndex: index)
         
-        // ✅ 使用总照片数计算进度，而不是已加载的照片数
-        let total = max(1, totalPhotoCount > 0 ? totalPhotoCount : photos.count)
-        let newProgress = CGFloat(index) / CGFloat(max(1, total - 1))
+        // 记录可见索引
+        visibleIndices.insert(index)
         
-        // 平滑更新进度
-        withAnimation(.easeOut(duration: 0.1)) {
-            scrubberProgress = newProgress
-        }
-        if !isDraggingScrubber {
-            lastScrollIndexDuringDrag = nil
-        }
+        // 如果正在拖动日期选择器，不更新
+        guard !isDraggingScrubber else { return }
         
-        // 更新日期文本
-        let asset = photos[index]
-        currentDateText = formatDate(asset.creationDate)
+        // 防抖更新日期选择器
+        scheduleScrubberUpdate()
     }
+    
+    // MARK: - Cell 消失时的处理
+    private func handleCellDisappear(index: Int) {
+        visibleIndices.remove(index)
+    }
+    
+    // MARK: - 防抖更新日期选择器（等待滚动稳定后更新）
+    private func scheduleScrubberUpdate() {
+        // 取消之前的更新任务
+        scrubberUpdateWorkItem?.cancel()
+        
+        // 创建新的延迟更新任务（防抖 100ms）
+        let workItem = DispatchWorkItem { [self] in
+            updateScrubberFromVisibleIndices()
+        }
+        scrubberUpdateWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
+    }
+    
+    // MARK: - 根据可见索引更新日期选择器
+    private func updateScrubberFromVisibleIndices() {
+        guard !isDraggingScrubber else { return }
+        guard !visibleIndices.isEmpty else { return }
+        
+        // 使用可见索引中最小的（即屏幕顶部的照片）
+        let topIndex = visibleIndices.min() ?? 0
+        
+        guard topIndex >= 0, topIndex < photos.count else { return }
+        
+        let total = max(1, totalPhotoCount > 0 ? totalPhotoCount : photos.count)
+        let newProgress = CGFloat(topIndex) / CGFloat(max(1, total - 1))
+        
+        // 直接更新，不使用动画
+        scrubberProgress = newProgress
+        currentDateText = formatDate(photos[topIndex].creationDate)
+        
+        // 显示日期选择器
+        if !showDateScrubber {
+            showDateScrubber = true
+        }
+        startScrubberHideTimer()
+    }
+
     
     // MARK: - 临时显示滚动条
     private func showScrubberTemporarily() {
         if !showDateScrubber {
-            withAnimation(.easeOut(duration: 0.2)) {
-                showDateScrubber = true
-            }
+            showDateScrubber = true
         }
         startScrubberHideTimer()
     }
     
     // MARK: - 日期滚动条视图
     private func dateScrubberView(trackHeight: CGFloat) -> some View {
-        VStack(spacing: 0) {
+        // 计算日期标签的垂直位置
+        let labelY = scrubberTopMargin + scrubberProgress * trackHeight
+        
+        return VStack(spacing: 0) {
             Spacer()
-                .frame(height: scrubberTopMargin + scrubberProgress * trackHeight)
+                .frame(height: labelY)
             
             // 日期标签
             Text(currentDateText)
@@ -293,92 +386,57 @@ struct CustomPhotoPickerView: View {
                 .background(Color(.systemBackground))
                 .cornerRadius(scrubberCornerRadius)
                 .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
-                .gesture(
-                    DragGesture(minimumDistance: 0, coordinateSpace: .named("scrubberTrack"))
-                        .onChanged { value in
-                            if !isDraggingScrubber {
-                                isDraggingScrubber = true
-                                cancelScrubberHideTimer()
-                            }
-                            
-                            // 计算新的进度（相对于整个轨道）
-                            let dragY = value.location.y
-                            let relativeY = dragY - scrubberTopMargin
-                            let newProgress = max(0, min(1, relativeY / trackHeight))
-                            
-                            // 平滑更新进度
-                            withAnimation(.interactiveSpring(response: 0.15, dampingFraction: 0.8)) {
-                                scrubberProgress = newProgress
-                            }
-                            
-                            // 更新日期文本并滚动到对应位置
-                            scrollToProgress(newProgress)
-                        }
-                        .onEnded { _ in
-                            isDraggingScrubber = false
-                            startScrubberHideTimer()
-                            lastScrollIndexDuringDrag = nil
-                        }
-                )
             
             Spacer()
         }
         .frame(maxHeight: .infinity)
         .padding(.trailing, scrubberRightPadding)
-        .coordinateSpace(name: "scrubberTrack")
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    handleScrubberDrag(value: value, trackHeight: trackHeight)
+                }
+                .onEnded { _ in
+                    isDraggingScrubber = false
+                    startScrubberHideTimer()
+                }
+        )
     }
     
-    // MARK: - 根据进度滚动到对应位置
-    private func scrollToProgress(_ progress: CGFloat) {
-        guard !photos.isEmpty else { return }
+    // MARK: - 处理日期选择器拖动
+    private func handleScrubberDrag(value: DragGesture.Value, trackHeight: CGFloat) {
+        isDraggingScrubber = true
+        cancelScrubberHideTimer()
         
-        // ✅ 使用总照片数计算目标索引
-        let total = max(1, totalPhotoCount > 0 ? totalPhotoCount : photos.count)
-        let targetIndex = Int(round(progress * CGFloat(total - 1)))
+        // 计算新的进度
+        let dragY = value.location.y
+        let relativeY = dragY - scrubberTopMargin
+        let newProgress = max(0, min(1, relativeY / trackHeight))
         
-        // ✅ 如果目标索引超出已加载范围，需要先加载
-        if targetIndex >= photos.count {
-            // 触发加载更多照片
-            loadMorePhotosIfNeeded(currentIndex: photos.count - 1)
-            // 暂时滚动到最后一张已加载的照片
-            let safeIndex = photos.count - 1
-            if let asset = photos.last {
-                currentDateText = formatDate(asset.creationDate)
-            }
-            if lastScrollIndexDuringDrag != safeIndex {
-                lastScrollIndexDuringDrag = safeIndex
-                let targetId = photos[safeIndex].localIdentifier
-                withAnimation(nil) {
-                    scrollViewProxy?.scrollTo(targetId, anchor: .top)
-                }
-            }
-            return
+        // 更新进度
+        scrubberProgress = newProgress
+        
+        // 计算目标索引
+        let total = max(1, totalPhotoCount)
+        let targetIndex = Int(newProgress * CGFloat(total - 1))
+        
+        // 预加载数据
+        if let fetchResult = currentFetchResult {
+            queueLoadIfNeeded(upTo: targetIndex + scrubberLoadAhead, fetchResult: fetchResult)
         }
         
-        let safeIndex = max(0, min(targetIndex, photos.count - 1))
-        
-        // 更新日期文本
-        let asset = photos[safeIndex]
-        currentDateText = formatDate(asset.creationDate)
-        
-        // 避免重复滚动导致抖动
-        if lastScrollIndexDuringDrag == safeIndex {
-            return
-        }
-        lastScrollIndexDuringDrag = safeIndex
-        
-        // 滚动到目标位置：拖动时关闭动画，抬手后恢复动画
-        let targetId = photos[safeIndex].localIdentifier
-        if isDraggingScrubber {
-            withAnimation(nil) {
-                scrollViewProxy?.scrollTo(targetId, anchor: .top)
-            }
-        } else {
-            withAnimation(.easeOut(duration: 0.15)) {
-                scrollViewProxy?.scrollTo(targetId, anchor: .top)
-            }
+        // 滚动到目标位置
+        let clampedIndex = min(max(0, targetIndex), photos.count - 1)
+        if clampedIndex >= 0 && clampedIndex < photos.count {
+            let asset = photos[clampedIndex]
+            currentDateText = formatDate(asset.creationDate)
+            
+            // 使用无动画滚动，确保跟手
+            scrollViewProxy?.scrollTo(asset.localIdentifier, anchor: .top)
         }
     }
+    
     
     private func formatDate(_ date: Date?) -> String {
         guard let date = date else { return "" }
@@ -443,20 +501,44 @@ struct CustomPhotoPickerView: View {
     }
     
     // MARK: - 数据加载
+    private func reloadAlbums() {
+        // 重新加载相册与照片，清空旧状态避免空白
+        stopPreheatThumbnails()
+        albumLoadToken = UUID()
+        albums = []
+        photos = []
+        selectedAlbum = nil
+        isLoading = true
+        loadAlbums()
+    }
+    
+    private func manageLimitedLibrary() {
+        #if canImport(UIKit)
+        guard let rootVC = keyWindowRootViewController() else { return }
+        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: rootVC)
+        // 等待系统弹窗操作后刷新数据
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            self.reloadAlbums()
+        }
+        #endif
+    }
+    
     private func loadAlbums() {
         isLoading = true
+        authorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         
         // 检查相册权限
-        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        let status = authorizationStatus
         print("📷 相册权限状态: \(status.rawValue)")
         
         if status == .notDetermined {
             PHPhotoLibrary.requestAuthorization(for: .readWrite) { newStatus in
                 print("📷 权限请求结果: \(newStatus.rawValue)")
-                if newStatus == .authorized || newStatus == .limited {
-                    self.fetchAlbums()
-                } else {
-                    DispatchQueue.main.async {
+                DispatchQueue.main.async {
+                    self.authorizationStatus = newStatus
+                    if newStatus == .authorized || newStatus == .limited {
+                        self.fetchAlbums()
+                    } else {
                         self.isLoading = false
                     }
                 }
@@ -467,6 +549,16 @@ struct CustomPhotoPickerView: View {
             isLoading = false
         }
     }
+    
+    #if canImport(UIKit)
+    private func keyWindowRootViewController() -> UIViewController? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }?
+            .rootViewController
+    }
+    #endif
     
     private func fetchAlbums() {
         Task.detached(priority: .userInitiated) {
@@ -610,6 +702,36 @@ struct CustomPhotoPickerView: View {
                 }
             }
             
+            // 如果没有任何相册，尝试直接获取所有照片作为兜底
+            if albumItems.isEmpty {
+                let allAssets = PHAsset.fetchAssets(with: countOptions)
+                print("📷 兜底直接获取所有照片: \(allAssets.count) 张")
+                
+                if allAssets.count > 0 {
+                    var allAssetsArray: [PHAsset] = []
+                    allAssetsArray.reserveCapacity(allAssets.count)
+                    allAssets.enumerateObjects { asset, _, _ in
+                        allAssetsArray.append(asset)
+                    }
+                    
+                    let title = localizedAllPhotosTitle()
+                    let transient = PHAssetCollection.transientAssetCollection(
+                        with: allAssetsArray,
+                        title: title
+                    )
+                    let fallbackAlbum = AlbumItem(
+                        id: transient.localIdentifier,
+                        collection: transient,
+                        title: title,
+                        count: allAssets.count
+                    )
+                    if let firstAsset = allAssets.firstObject {
+                        foundKeyAssets[fallbackAlbum.id] = firstAsset
+                    }
+                    albumItems.append(fallbackAlbum)
+                }
+            }
+            
             print("📷 总共加载了 \(albumItems.count) 个相册")
             
             await MainActor.run {
@@ -748,6 +870,11 @@ struct CustomPhotoPickerView: View {
         return collection.localizedTitle ?? (prefersChinese ? "相册" : "Album")
     }
     
+    private func localizedAllPhotosTitle() -> String {
+        let prefersChinese = Locale.preferredLanguages.first?.hasPrefix("zh") ?? false
+        return prefersChinese ? "所有照片" : "All Photos"
+    }
+    
     private func loadPhotos(from album: AlbumItem, token: UUID? = nil) {
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
@@ -761,7 +888,8 @@ struct CustomPhotoPickerView: View {
             self.photos = []
             // self.selectedPhotos = []  // ✅ 移除：保留跨相册选择
             self.currentDateText = ""
-            self.lastScrollIndexDuringDrag = nil
+            self.pendingScrollIndex = nil
+            self.desiredLoadedCount = 0
         }
         
         Task.detached(priority: .userInitiated) {
@@ -790,9 +918,14 @@ struct CustomPhotoPickerView: View {
                 print("📷 加载相册 \(album.title) 的照片: \(initialPhotos.count)/\(totalCount) 张（初始加载）")
                 self.photos = initialPhotos
                 self.totalPhotoCount = totalCount  // ✅ 保存总数用于滚动条
+                self.desiredLoadedCount = initialPhotos.count
                 
                 if !initialPhotos.isEmpty {
-                    self.updateScrubberFromPhotoIndex(0)
+                    // 初始化日期选择器状态
+                    self.visibleIndices = [0]
+                    self.scrubberProgress = 0
+                    self.currentDateText = self.formatDate(initialPhotos[0].creationDate)
+                    self.showDateScrubber = true
                     // ✅ 只预热前 50 张缩略图，不预热全部
                     self.startPreheatThumbnails(for: initialPhotos)
                 } else {
@@ -810,34 +943,41 @@ struct CustomPhotoPickerView: View {
     private func loadMorePhotosIfNeeded(currentIndex: Int) {
         guard let fetchResult = currentFetchResult else { return }
         
-        let totalCount = fetchResult.count
-        let threshold = loadedPhotoCount - 20  // 提前 20 张开始加载
-        
-        // 如果还没滚动到接近底部，不加载
+        let threshold = max(0, loadedPhotoCount - 20)  // 提前 20 张开始加载
         guard currentIndex >= threshold else { return }
         
-        // 如果已经加载完所有照片，不再加载
-        guard loadedPhotoCount < totalCount else { return }
+        // 让加载目标稍微超前，避免滚动到终点才加载
+        let targetCount = currentIndex + loadBatchSize
+        queueLoadIfNeeded(upTo: targetCount, fetchResult: fetchResult)
+    }
+    
+    private func queueLoadIfNeeded(upTo requiredCount: Int, fetchResult: PHFetchResult<PHAsset>) {
+        let totalCount = fetchResult.count
+        let clampedCount = min(totalCount, requiredCount)
+        guard clampedCount > loadedPhotoCount else {
+            // 数据已足够，尝试完成待滚动
+            attemptScrollToPendingIndex()
+            return
+        }
         
-        // 防止重复加载
+        desiredLoadedCount = max(desiredLoadedCount, clampedCount)
+        startLoadingIfNeeded(fetchResult: fetchResult)
+    }
+    
+    private func startLoadingIfNeeded(fetchResult: PHFetchResult<PHAsset>) {
         guard !isLoadingMorePhotos else { return }
-        isLoadingMorePhotos = true
         
-        let currentToken = albumLoadToken
         let startIndex = loadedPhotoCount
-        let batchSize = 50  // 每次加载 50 张
-        let endIndex = min(startIndex + batchSize, totalCount)
+        let endIndex = min(desiredLoadedCount, fetchResult.count)
+        guard startIndex < endIndex else { return }
+        
+        isLoadingMorePhotos = true
+        let currentToken = albumLoadToken
+        let rangeEnd = min(endIndex, startIndex + loadBatchSize)
+        let loadRange = startIndex..<rangeEnd
         
         Task.detached(priority: .userInitiated) {
-            // ✅ 修复 Swift 6 并发警告：使用 withCheckedContinuation 安全获取照片
-            let loadedPhotos = await withCheckedContinuation { continuation in
-                var photos: [PHAsset] = []
-                photos.reserveCapacity(endIndex - startIndex)
-                fetchResult.enumerateObjects(at: IndexSet(startIndex..<endIndex), options: []) { asset, _, _ in
-                    photos.append(asset)
-                }
-                continuation.resume(returning: photos)
-            }
+            let loadedPhotos = await fetchAssets(from: fetchResult, range: loadRange)
             
             await MainActor.run {
                 guard currentToken == self.albumLoadToken else {
@@ -849,12 +989,40 @@ struct CustomPhotoPickerView: View {
                 self.loadedPhotoCount = self.photos.count
                 self.isLoadingMorePhotos = false
                 
-                print("📷 按需加载更多照片: \(self.loadedPhotoCount)/\(totalCount) 张")
+                print("📷 按需加载更多照片: \(self.loadedPhotoCount)/\(fetchResult.count) 张")
                 
-                // ✅ 只预热新加载的照片
                 self.startPreheatThumbnails(for: loadedPhotos)
+                self.attemptScrollToPendingIndex()
+                
+                // 如果还有目标未满足，继续加载下一批
+                if self.loadedPhotoCount < self.desiredLoadedCount {
+                    self.startLoadingIfNeeded(fetchResult: fetchResult)
+                }
             }
         }
+    }
+    
+    private func fetchAssets(from fetchResult: PHFetchResult<PHAsset>, range: Range<Int>) async -> [PHAsset] {
+        await withCheckedContinuation { continuation in
+            var assets: [PHAsset] = []
+            assets.reserveCapacity(range.count)
+            fetchResult.enumerateObjects(at: IndexSet(integersIn: range), options: []) { asset, _, _ in
+                assets.append(asset)
+            }
+            continuation.resume(returning: assets)
+        }
+    }
+    
+    private func attemptScrollToPendingIndex() {
+        guard let targetIndex = pendingScrollIndex else { return }
+        guard targetIndex < photos.count else { return }
+        
+        pendingScrollIndex = nil
+        
+        // 滚动到目标位置
+        let asset = photos[targetIndex]
+        currentDateText = formatDate(asset.creationDate)
+        scrollViewProxy?.scrollTo(asset.localIdentifier, anchor: .top)
     }
     
     // MARK: - PHCachingImageManager 预热
@@ -1103,6 +1271,8 @@ struct AlbumRow: View {
         .background(Color(.systemBackground))
     }
 }
+
+
 
 #Preview {
     CustomPhotoPickerView { assets, _ in

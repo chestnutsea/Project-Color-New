@@ -224,25 +224,24 @@ struct threeDView: View {
             
             closeButton
             
-            // 右下角帮助按钮和说明文字
+            // 右下角帮助按钮和说明文字（同一行）
             if !points.isEmpty {
                 VStack {
                     Spacer()
-                    HStack(spacing: 8) {
+                    HStack(spacing: 12) {
                         Spacer()
                         
-                        // 帮助说明文字（和按钮同一行）
-                        if showHelpText {
-                            Text("L： 明度，C： 色度/饱和度，H：色相")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.white.opacity(0.4))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(Color.black.opacity(0.4))
-                                .cornerRadius(8)
-                        }
+                        // 帮助说明文字（固定宽度，通过 opacity 控制显示/隐藏）
+                        Text("L： 明度，C： 色度/饱和度，H：色相")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white.opacity(0.4))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color.black.opacity(0.4))
+                            .cornerRadius(8)
+                            .opacity(showHelpText ? 1 : 0)
                         
-                        // 帮助图标按钮（白色半透明，在黑色背景上可见，固定不动）
+                        // 帮助图标按钮（固定位置）
                         Button(action: {
                             showHelpText.toggle()
                         }) {
@@ -251,15 +250,13 @@ struct threeDView: View {
                                 .foregroundColor(.white.opacity(0.4))
                         }
                         .buttonStyle(PlainButtonStyle())
-                        .transaction { transaction in
-                            transaction.animation = nil
-                        }
                     }
                     .padding(20)
                 }
             }
         }
         .animation(.easeInOut, value: selectedColorInfo)
+        .animation(.easeInOut(duration: 0.2), value: showHelpText)
     }
     
     @ViewBuilder

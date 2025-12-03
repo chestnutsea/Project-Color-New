@@ -79,7 +79,6 @@ struct AnalysisResultView: View {
     )
     
     var body: some View {
-        NavigationStack {
         ZStack {
             // 确保背景色延伸到导航栏
             Color(.systemBackground)
@@ -156,37 +155,27 @@ struct AnalysisResultView: View {
             .zIndex(1000)
         }
         }  // ZStack 结束
-        }  // NavigationStack 结束
         .background(Color(.systemBackground))
         .ignoresSafeArea(edges: .bottom)
         .navigationTitle("扫描结果")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button(action: {
-                    if let onDismiss = onDismiss {
-                        onDismiss()
-                    } else {
-                        dismiss()
-                    }
-                }) {
-                    if isSheetMode {
-                        // Sheet 模式：显示下箭头
+            // Sheet 模式：显示自定义关闭按钮
+            if isSheetMode {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: {
+                        if let onDismiss = onDismiss {
+                            onDismiss()
+                        } else {
+                            dismiss()
+                        }
+                    }) {
                         Image(systemName: "chevron.down")
                             .font(.system(size: 20, weight: .semibold))
-                    } else {
-                        // 普通模式：只显示左箭头
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 17, weight: .semibold))
                     }
                 }
             }
-            
-            ToolbarItem(placement: .principal) {
-                Text("扫描结果")
-                    .font(.headline)
-                    .foregroundColor(.primary)
-            }
+            // 普通模式：使用系统原生返回按钮（支持边缘左滑）
             
             // 收藏按钮（放在最右边）
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -787,17 +776,15 @@ struct AnalysisResultView: View {
                     .padding(.bottom, 10)
             }
             
-            // 正文显示（支持 **加粗** 格式，无背景色）
+            // 正文显示（支持 **加粗** 格式，支持自由文本选择）
             // 段落间距 16pt，行间距 6pt
             if !paragraphs.isEmpty {
                 VStack(alignment: .leading, spacing: 16) {
                     ForEach(paragraphs.indices, id: \.self) { index in
                         FormattedTextView(text: paragraphs[index])
-                    .font(.body)
-                    .foregroundColor(.primary)
-                    .lineSpacing(6)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                            .foregroundColor(.primary)
+                            .lineSpacing(6)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
@@ -2056,21 +2043,31 @@ extension Color {
     }
 }
 
-// MARK: - Formatted Text View (支持 **加粗** 格式)
+// MARK: - Formatted Text View (支持 **加粗** 格式和自由文本选择)
 struct FormattedTextView: View {
     let text: String
     
     var body: some View {
+        // 构建 AttributedString 以支持自由文本选择
+        Text(buildAttributedString())
+            .textSelection(.enabled)
+    }
+    
+    private func buildAttributedString() -> AttributedString {
+        var result = AttributedString()
         let segments = parseMarkdownBold(text)
         
-        // 使用 Text 的 + 运算符组合多个 Text
-        segments.reduce(Text("")) { result, segment in
+        for segment in segments {
+            var attributedSegment = AttributedString(segment.text)
             if segment.isBold {
-                return result + Text(segment.text).fontWeight(.bold)
+                attributedSegment.font = .body.bold()
             } else {
-                return result + Text(segment.text)
+                attributedSegment.font = .body
             }
+            result.append(attributedSegment)
         }
+        
+        return result
     }
     
     // 解析 **文字** 格式

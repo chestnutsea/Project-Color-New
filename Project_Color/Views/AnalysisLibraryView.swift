@@ -43,7 +43,15 @@ struct AnalysisLibraryView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Tab 选择器 - 紧贴导航栏
+                // 自定义标题
+                Text("相册")
+                    .font(.system(size: AppStyle.tabTitleFontSize, weight: AppStyle.tabTitleFontWeight))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.top, AppStyle.tabTitleTopPadding)
+                    .padding(.bottom, 8)
+                
+                // Tab 选择器
                 Picker("", selection: $selectedTab) {
                     ForEach(LibraryTab.allCases, id: \.self) { tab in
                         Text(tab.rawValue).tag(tab)
@@ -51,7 +59,6 @@ struct AnalysisLibraryView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
-                .padding(.top, 8)
                 .padding(.bottom, 16)
                 
                 // 内容区域（支持左右滑动切换）
@@ -66,8 +73,7 @@ struct AnalysisLibraryView: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
-            .navigationTitle("相册")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarHidden(true)
         }
         .onAppear {
             viewModel.loadSessions()

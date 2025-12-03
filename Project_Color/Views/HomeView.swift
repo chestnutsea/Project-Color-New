@@ -317,7 +317,7 @@ struct HomeView: View {
                             // ✅ 标记相册预热需要刷新（用户可能在分析期间拍了新照片）
                             AlbumPreheater.shared.markNeedsRefresh()
                         })
-                        .navigationBarBackButtonHidden(true)
+                        .navigationBarBackButtonHidden(false)  // 保留原生返回按钮以支持边缘左滑
                         .toolbar(.hidden, for: .tabBar)
                     }
                 }

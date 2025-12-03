@@ -71,6 +71,21 @@ struct CalculateColorView: View {
                 activeField = newFocus
             }
         }
+        // 使用系统导航栏和返回按钮（与上一级一致）
+        .navigationTitle("算色")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // 键盘收起按钮
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button(action: {
+                    focusedField = nil
+                }) {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                        .font(.system(size: 16))
+                }
+            }
+        }
     }
 }
 

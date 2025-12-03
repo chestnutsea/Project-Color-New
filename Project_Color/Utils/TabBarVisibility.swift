@@ -8,25 +8,35 @@
 import SwiftUI
 import UIKit
 
-// MARK: - TabBar 可见性控制器
+// MARK: - TabBar 可见性控制器（支持嵌套隐藏）
 
-struct TabBarVisibilityModifier: ViewModifier {
-    let isHidden: Bool
+private final class TabBarVisibilityController {
+    static let shared = TabBarVisibilityController()
     
-    func body(content: Content) -> some View {
-        content
-            .onAppear {
-                setTabBarHidden(isHidden)
-            }
-            .onDisappear {
-                // 返回时立即显示 TabBar
-                if isHidden {
-                    setTabBarHidden(false)
-                }
-            }
+    private var hideRequests: Int = 0   // 允许多个页面同时请求隐藏，避免中途闪现
+    private var lastHiddenState: Bool = false
+    
+    func requestHide() {
+        hideRequests += 1
+        updateTabBarVisibility()
     }
     
-    private func setTabBarHidden(_ hidden: Bool) {
+    func cancelHide() {
+        hideRequests = max(0, hideRequests - 1)
+        updateTabBarVisibility()
+    }
+    
+    func showIfNeeded() {
+        // 将计数清零，确保显示
+        hideRequests = 0
+        updateTabBarVisibility()
+    }
+    
+    private func updateTabBarVisibility() {
+        let shouldHide = hideRequests > 0
+        guard shouldHide != lastHiddenState else { return }
+        lastHiddenState = shouldHide
+        
         // 在主线程上执行，确保 UI 更新
         DispatchQueue.main.async {
             guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
@@ -34,29 +44,25 @@ struct TabBarVisibilityModifier: ViewModifier {
                 return
             }
             
-            // 遍历视图层级找到 UITabBarController
-            if let tabBarController = findTabBarController(in: window.rootViewController) {
-                tabBarController.tabBar.isHidden = hidden
+            if let tabBarController = Self.findTabBarController(in: window.rootViewController) {
+                tabBarController.tabBar.isHidden = shouldHide
             }
         }
     }
     
-    private func findTabBarController(in viewController: UIViewController?) -> UITabBarController? {
+    private static func findTabBarController(in viewController: UIViewController?) -> UITabBarController? {
         guard let vc = viewController else { return nil }
         
-        // 如果当前就是 UITabBarController，直接返回
         if let tabBarController = vc as? UITabBarController {
             return tabBarController
         }
         
-        // 检查子视图控制器
         for child in vc.children {
             if let tabBarController = findTabBarController(in: child) {
                 return tabBarController
             }
         }
         
-        // 检查 presented 的视图控制器
         if let presented = vc.presentedViewController {
             if let tabBarController = findTabBarController(in: presented) {
                 return tabBarController
@@ -67,10 +73,29 @@ struct TabBarVisibilityModifier: ViewModifier {
     }
 }
 
+struct TabBarVisibilityModifier: ViewModifier {
+    let isHidden: Bool
+    
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                if isHidden {
+                    TabBarVisibilityController.shared.requestHide()
+                } else {
+                    TabBarVisibilityController.shared.showIfNeeded()
+                }
+            }
+            .onDisappear {
+                if isHidden {
+                    TabBarVisibilityController.shared.cancelHide()
+                }
+            }
+    }
+}
+
 extension View {
     /// 隐藏 TabBar（进入时隐藏，返回时立即恢复）
     func hideTabBar(_ hide: Bool = true) -> some View {
         modifier(TabBarVisibilityModifier(isHidden: hide))
     }
 }
-

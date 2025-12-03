@@ -3,7 +3,7 @@ import SwiftUI
 import simd
 
 struct LookUpColorView: View {
-    @Environment(\.dismiss) private var dismiss
+    @FocusState private var isTextFieldFocused: Bool
     
     // MARK: - 布局常量
     private let nameFontSize: CGFloat = 24
@@ -14,11 +14,11 @@ struct LookUpColorView: View {
     
     // MARK: - State
     @State private var hexInput: String = ""
-    @State private var topBackgroundColor: Color = .white
-    @State private var bottomBackgroundColor: Color = .white
-    @State private var topTextColor: Color = .black
-    @State private var bottomTextColor: Color = .black
-    @State private var dividerColor: Color = .black
+    @State private var topBackgroundColor: Color = Color(.systemBackground)
+    @State private var bottomBackgroundColor: Color = Color(.systemBackground)
+    @State private var topTextColor: Color = .primary
+    @State private var bottomTextColor: Color = .primary
+    @State private var dividerColor: Color = .primary
     @State private var colorName: String = ""
     @State private var colorHex: String = ""
     @State private var topRgbText: String = ""
@@ -30,14 +30,38 @@ struct LookUpColorView: View {
     private let converter = ColorSpaceConverter()
     
     var body: some View {
-        GeometryReader { geometry in
+        ZStack {
+            // 背景色填充整个屏幕（包括安全区域）
             VStack(spacing: 0) {
-                upperSection(height: geometry.size.height / 2)
-                divider
-                lowerSection(height: geometry.size.height / 2)
+                topBackgroundColor
+                bottomBackgroundColor
+            }
+            .ignoresSafeArea()
+            
+            // 主内容
+            GeometryReader { geometry in
+                VStack(spacing: 0) {
+                    upperSection(height: geometry.size.height / 2)
+                    divider
+                    lowerSection(height: geometry.size.height / 2)
+                }
             }
         }
-        .background(Color.white)
+        // 使用系统导航栏和返回按钮（与上一级一致）
+        .navigationTitle("查色")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // 键盘收起按钮
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button(action: {
+                    isTextFieldFocused = false
+                }) {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                        .font(.system(size: 16))
+                }
+            }
+        }
     }
     
     // MARK: - Sections
@@ -51,12 +75,13 @@ struct LookUpColorView: View {
                 TextField(
                     "",
                     text: $hexInput,
-                    prompt: Text("输入 HEX 值，如 #FFFFFF").foregroundColor(topTextColor.opacity(0.6))
+                    prompt: Text("输入 HEX 值，如  FFFFFF").foregroundColor(topTextColor.opacity(0.6))
                 )
                 .textFieldStyle(.plain)
                 .font(.system(size: 18))
                 .foregroundColor(topTextColor)
                 .multilineTextAlignment(.center)
+                .focused($isTextFieldFocused)
                 #if os(iOS)
                 .keyboardType(.asciiCapable)
                 .textInputAutocapitalization(.never)
@@ -123,18 +148,28 @@ struct LookUpColorView: View {
             return
         }
         
-        let hexPattern = "^#[0-9A-Fa-f]{6}$"
-        guard trimmed.range(of: hexPattern, options: .regularExpression) != nil else {
+        // 标准化 HEX 值：移除 # 前缀（如果有），然后检查是否为 6 位十六进制
+        var hexValue = trimmed
+        if hexValue.hasPrefix("#") {
+            hexValue = String(hexValue.dropFirst())
+        }
+        
+        // 验证是否为 6 位十六进制字符
+        let hexPattern = "^[0-9A-Fa-f]{6}$"
+        guard hexValue.range(of: hexPattern, options: .regularExpression) != nil else {
             resetToDefault()
             return
         }
         
-        guard let result = colorResolver.findNearestColor(byHex: trimmed) else {
+        // 统一添加 # 前缀用于查询
+        let normalizedHex = "#" + hexValue.uppercased()
+        
+        guard let result = colorResolver.findNearestColor(byHex: normalizedHex) else {
             resetToDefault()
             return
         }
         
-        guard let inputRgb = hexToRGB(trimmed), let nearestRgb = hexToRGB(result.hex) else {
+        guard let inputRgb = hexToRGB(normalizedHex), let nearestRgb = hexToRGB(result.hex) else {
             resetToDefault()
             return
         }
@@ -174,11 +209,11 @@ struct LookUpColorView: View {
             colorHex = ""
             topRgbText = ""
             bottomRgbText = ""
-            topBackgroundColor = .white
-            bottomBackgroundColor = .white
-            topTextColor = .black
-            bottomTextColor = .black
-            dividerColor = .black
+            topBackgroundColor = Color(.systemBackground)
+            bottomBackgroundColor = Color(.systemBackground)
+            topTextColor = .primary
+            bottomTextColor = .primary
+            dividerColor = .primary
         }
     }
     

@@ -24,6 +24,14 @@ struct KitView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: Layout.cardSpacing) {
+                    // 自定义标题
+                    Text("我的")
+                        .font(.system(size: AppStyle.tabTitleFontSize, weight: AppStyle.tabTitleFontWeight))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
+                        .padding(.top, AppStyle.tabTitleTopPadding)
+                        .padding(.bottom, 8)
+                    
                     // 第一个卡片：解锁 AI 视角
                     aiUnlockCard
                     
@@ -40,10 +48,9 @@ struct KitView: View {
                     moreOptionsCard
                 }
                 .padding(.horizontal, Layout.horizontalPadding)
-                .padding(.top, Layout.cardSpacing)
             }
             .background(Color(.systemGroupedBackground))
-            .navigationTitle("我的")
+            .navigationBarHidden(true)
             .onAppear {
                 // 每次进入页面时从设置读取最新值
                 developmentMode = BatchProcessSettings.developmentMode
