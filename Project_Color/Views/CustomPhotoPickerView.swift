@@ -26,7 +26,7 @@ struct CustomPhotoPickerView: View {
     @Environment(\.dismiss) private var dismiss
     
     /// 选择完成回调，返回选中的 PHAsset 数组
-    var onSelection: ([PHAsset]) -> Void
+    var onSelection: ([PHAsset], AlbumItem?) -> Void
     
     /// 复用的缓存管理器，用于相册封面和网格缩略图
     private let imageManager = PHCachingImageManager()
@@ -158,11 +158,19 @@ struct CustomPhotoPickerView: View {
                 Spacer()
             }
             
-            // 右侧：确认按钮
-            HStack {
+            // 右侧：已选数量 + 确认按钮
+            HStack(spacing: 8) {
                 Spacer()
+                
+                // 显示已选数量（跨相册总数）
+                if !selectedPhotos.isEmpty {
+                    Text("\(selectedPhotos.count)/\(maxSelection)")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                
                 Button(action: {
-                    onSelection(selectedPhotos)
+                    onSelection(selectedPhotos, selectedAlbum)
                     dismiss()
                 }) {
                     Image(systemName: "checkmark")
@@ -748,9 +756,10 @@ struct CustomPhotoPickerView: View {
         let loadToken = token ?? albumLoadToken
         
         // 先清空当前照片，避免新旧相册混在一起
+        // 注意：不清空 selectedPhotos，保留跨相册的选择
         Task { @MainActor in
             self.photos = []
-            self.selectedPhotos = []
+            // self.selectedPhotos = []  // ✅ 移除：保留跨相册选择
             self.currentDateText = ""
             self.lastScrollIndexDuringDrag = nil
         }
@@ -1096,7 +1105,7 @@ struct AlbumRow: View {
 }
 
 #Preview {
-    CustomPhotoPickerView { assets in
+    CustomPhotoPickerView { assets, _ in
         print("Selected \(assets.count) photos")
     }
 }

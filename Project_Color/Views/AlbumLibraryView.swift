@@ -264,7 +264,6 @@ struct AlbumCard: View {
 class AlbumLibraryViewModel: ObservableObject {
     @Published var albums: [AlbumInfo] = []
     @Published var isLoading = false
-    @Published private(set) var favoriteAlbumIds: Set<String> = AlbumFavoritesStore.shared.load()
     
     private let coreDataManager = CoreDataManager.shared
     
@@ -346,13 +345,16 @@ class AlbumLibraryViewModel: ObservableObject {
                     let latestSession = sortedPhotos.first.flatMap { self.primarySession(for: $0) }
                     let albumDate = latestSession?.customDate ?? latestSession?.timestamp
                 
+                // 获取收藏状态（从 session.isFavorite）
+                let isFavorite = latestSession?.isFavorite ?? false
+                
                 return AlbumInfo(
                     id: id,
                     name: value.name,
                     photoCount: value.photos.count,
                         coverAssetIdentifier: coverAssetId,
                         date: albumDate,
-                        isFavorite: self.favoriteAlbumIds.contains(id)
+                        isFavorite: isFavorite
                 )
             }
             
@@ -375,17 +377,28 @@ class AlbumLibraryViewModel: ObservableObject {
     
     /// 兼容旧版本数据模型（session 可能为 to-one 或 to-many）
     private func primarySession(for photo: PhotoAnalysisEntity) -> AnalysisSessionEntity? {
-        let rawValue = photo.value(forKey: "session")
+        // Safely access the session using KVC
+        guard let rawValue = photo.value(forKey: "session") else {
+            return nil
+        }
+        
+        // Handle direct AnalysisSessionEntity (expected case)
         if let session = rawValue as? AnalysisSessionEntity {
             return session
         }
-        if let rawSet = rawValue as? NSSet,
-           let session = rawSet.anyObject() as? AnalysisSessionEntity {
-            return session
+        
+        // Handle NSSet (legacy data model)
+        if let rawSet = rawValue as? NSSet {
+            return rawSet.anyObject() as? AnalysisSessionEntity
         }
+        
+        // Handle Swift Set (legacy data model)
         if let sessions = rawValue as? Set<AnalysisSessionEntity> {
             return sessions.first
         }
+        
+        // Log unexpected types
+        print("⚠️  Unexpected session type: \(type(of: rawValue))")
         return nil
     }
     
@@ -413,26 +426,39 @@ class AlbumLibraryViewModel: ObservableObject {
         }
     }
     
-    /// 切换收藏状态
+    /// 切换收藏状态（更新相册对应的所有 session 的 isFavorite）
     func toggleFavorite(albumId: String) {
-        print("📌 toggleFavorite 被调用: albumId=\(albumId)")
-        print("📌 当前 favoriteAlbumIds: \(favoriteAlbumIds)")
+        guard let index = albums.firstIndex(where: { $0.id == albumId }) else { return }
         
-        let willFavorite = !favoriteAlbumIds.contains(albumId)
-        if willFavorite {
-            favoriteAlbumIds.insert(albumId)
-        } else {
-            favoriteAlbumIds.remove(albumId)
-        }
+        let willFavorite = !albums[index].isFavorite
+        print("📌 toggleFavorite: albumId=\(albumId), willFavorite=\(willFavorite)")
         
-        print("📌 更新后 favoriteAlbumIds: \(favoriteAlbumIds)")
-        AlbumFavoritesStore.shared.save(favoriteAlbumIds)
+        // 更新 Core Data 中所有属于该相册的 session 的 isFavorite
+        let context = coreDataManager.viewContext
+        let request = PhotoAnalysisEntity.fetchRequest()
+        request.predicate = NSPredicate(format: "albumIdentifier == %@", albumId)
+        request.relationshipKeyPathsForPrefetching = ["session"]
         
-        // 更新 UI：直接修改对应元素，避免重新创建整个数组
-        if let index = albums.firstIndex(where: { $0.id == albumId }) {
+        do {
+            let entities = try context.fetch(request)
+            var updatedSessions: Set<NSManagedObjectID> = []
+            
+            for entity in entities {
+                if let session = primarySession(for: entity),
+                   !updatedSessions.contains(session.objectID) {
+                    session.isFavorite = willFavorite
+                    updatedSessions.insert(session.objectID)
+                }
+            }
+            
+            try context.save()
+            print("✅ 更新 \(updatedSessions.count) 个 session 的收藏状态为 \(willFavorite)")
+            
+            // 更新 UI
             albums[index].isFavorite = willFavorite
+        } catch {
+            print("❌ 更新收藏状态失败: \(error)")
         }
-        print("📌 相册\(willFavorite ? "加入" : "移除")收藏: \(albumId)")
     }
     
     /// 删除相册（删除该相册的所有照片分析记录）
@@ -448,8 +474,6 @@ class AlbumLibraryViewModel: ObservableObject {
             }
             try context.save()
             print("✅ 删除相册成功: \(albumId)")
-            favoriteAlbumIds.remove(albumId)
-            AlbumFavoritesStore.shared.save(favoriteAlbumIds)
             // 重新加载相册列表
             loadAlbums()
         } catch {
@@ -491,16 +515,10 @@ struct AlbumEditAlertView: View {
                         .textFieldStyle(.roundedBorder)
                 }
                 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("日期")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    
-                    DatePicker("", selection: $albumDate, displayedComponents: .date)
-                        .datePickerStyle(.compact)
-                        .labelsHidden()
-                        .environment(\.locale, Locale(identifier: "zh_CN"))
-                }
+                DatePicker("", selection: $albumDate, displayedComponents: .date)
+                    .datePickerStyle(.compact)
+                    .labelsHidden()
+                    .environment(\.locale, Locale(identifier: "zh_Hans_CN"))
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 20)

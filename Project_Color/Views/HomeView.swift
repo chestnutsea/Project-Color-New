@@ -12,6 +12,11 @@ import UIKit
 #endif
 
 struct HomeView: View {
+    private struct SelectedAlbumContext {
+        let id: String
+        let name: String
+    }
+    
     // MARK: - 布局常量
     private let imageSize: CGFloat = 400 // 图片大小
     private let scannerTopOffset: CGFloat = 30 // PhotoScanner 上移距离
@@ -47,6 +52,7 @@ struct HomeView: View {
     @State private var showPhotoPicker = false
     @State private var photoAuthorizationStatus: PHAuthorizationStatus = .notDetermined
     @StateObject private var selectionManager = SelectedPhotosManager.shared
+    @State private var selectionAlbumContext: SelectedAlbumContext? = nil
     
     #if canImport(UIKit)
     @State private var selectedImages: [UIImage] = []
@@ -307,6 +313,7 @@ struct HomeView: View {
                             showAnalysisResult = false
                             // 退出分析结果页后清空照片选择
                             selectionManager.clearSelection()
+                            selectionAlbumContext = nil
                             // ✅ 标记相册预热需要刷新（用户可能在分析期间拍了新照片）
                             AlbumPreheater.shared.markNeedsRefresh()
                         })
@@ -317,8 +324,16 @@ struct HomeView: View {
                 .toolbar(showAnalysisResult ? .hidden : .visible, for: .tabBar)  // 根据状态控制 TabBar 显示
             }
             .fullScreenCover(isPresented: $showPhotoPicker) {
-                CustomPhotoPickerView { assets in
+                CustomPhotoPickerView { assets, album in
                     selectionManager.updateSelection(assets)
+                    if let album {
+                        selectionAlbumContext = SelectedAlbumContext(
+                            id: album.collection.localIdentifier,
+                            name: album.title
+                        )
+                    } else {
+                        selectionAlbumContext = nil
+                    }
                     resetDragState()  // 重新选片后立即恢复照片堆展示状态
                 }
             }
@@ -343,12 +358,10 @@ struct HomeView: View {
             // 扫描预备弹窗
             .alert("扫描预备中...", isPresented: $showScanPrepareAlert) {
                 Button("添加感受") {
-                    // 先让照片堆消失，随后立刻打开输入页
+                    // 关闭 alert 并立刻打开输入页
                     showScanPrepareAlert = false
+                    showFeelingSheet = true
                     hidePhotoStack()
-                    DispatchQueue.main.async {
-                        showFeelingSheet = true
-                    }
                 }
                 Button("确认选片") {
                     // 触感反馈：扫描开始
@@ -562,9 +575,21 @@ struct HomeView: View {
             // 获取用户输入的感受（在调用分析前获取，确保能保存到 Core Data）
             let userFeelingToPass = self.userFeeling
             
+            // 构建相册信息映射（用于显影页的相册归档）
+            let albumInfoMap: [String: (identifier: String, name: String)]
+            if let albumContext = selectionAlbumContext {
+                albumInfoMap = Dictionary(
+                    uniqueKeysWithValues: assets.map { asset in
+                        (asset.localIdentifier, (identifier: albumContext.id, name: albumContext.name))
+                    }
+                )
+            } else {
+                albumInfoMap = [:]
+            }
+            
             let result = await analysisPipeline.analyzePhotos(
                 assets: assets,
-                albumInfoMap: [:],  // 不再需要相册信息
+                albumInfoMap: albumInfoMap,
                 userMessage: userFeelingToPass.isEmpty ? nil : userFeelingToPass,
                 progressHandler: throttledHandler
             )
@@ -597,6 +622,9 @@ struct HomeView: View {
                 // 触感反馈：进入分析结果页
                 let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
                 impactFeedback.impactOccurred()
+                
+                // 通知相册 tab 刷新数据
+                NotificationCenter.default.post(name: .analysisSessionDidSave, object: nil)
                 
                 // 使用 NavigationStack 跳转到结果页
                 self.showAnalysisResult = true
@@ -1008,12 +1036,6 @@ struct FeelingInputSheet: View {
                             .frame(minHeight: 120)
                             .scrollContentBackground(.hidden)
                             .background(Color.clear)
-                            .onChange(of: feeling) { newValue in
-                                // 限制字数
-                                if newValue.count > maxCharacters {
-                                    feeling = String(newValue.prefix(maxCharacters))
-                                }
-                            }
                     }
                     .padding(12)
                     .background(Color(uiColor: .systemGray6))
@@ -1049,12 +1071,11 @@ struct FeelingInputSheet: View {
                 }
             }
             .onAppear {
-                // 立即唤起键盘以减少等待
-                DispatchQueue.main.async {
-                    isTextFieldFocused = true
-                }
+                // 立即唤起键盘
+                isTextFieldFocused = true
             }
         }
+        .interactiveDismissDisabled(false)  // 允许下滑关闭
     }
 }
 

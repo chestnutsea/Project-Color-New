@@ -11,6 +11,11 @@ import Photos
 import CoreData
 import Combine
 
+// MARK: - 通知名称
+extension Notification.Name {
+    static let analysisSessionDidSave = Notification.Name("analysisSessionDidSave")
+}
+
 /// 分析结果信息
 struct AnalysisSessionInfo: Identifiable {
     let id: UUID
@@ -49,17 +54,17 @@ struct AnalysisLibraryView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 16)
                 
-                // 内容区域
-                if viewModel.isLoading {
-                    // 加载状态
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if filteredSessions.isEmpty {
-                    emptyStateView
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    sessionGridView
+                // 内容区域（支持左右滑动切换）
+                TabView(selection: $selectedTab) {
+                    // 收藏页
+                    tabContentView(for: .favorites)
+                        .tag(LibraryTab.favorites)
+                    
+                    // 素材页
+                    tabContentView(for: .all)
+                        .tag(LibraryTab.all)
                 }
+                .tabViewStyle(.page(indexDisplayMode: .never))
             }
             .navigationTitle("相册")
             .navigationBarTitleDisplayMode(.large)
@@ -68,6 +73,10 @@ struct AnalysisLibraryView: View {
             viewModel.loadSessions()
             // ✅ 优化：预加载最近的分析结果，避免首次点击时等待
             viewModel.preloadRecentResults()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .analysisSessionDidSave)) { _ in
+            // 收到新分析保存通知，强制刷新数据
+            viewModel.forceRefresh()
         }
         .sheet(item: $selectedSession) { sessionInfo in
             // 显示分析结果详情
@@ -127,9 +136,9 @@ struct AnalysisLibraryView: View {
         .animation(.easeInOut(duration: 0.2), value: showEditOverlay)
     }
     
-    // 根据选中的 tab 过滤会话
-    private var filteredSessions: [AnalysisSessionInfo] {
-        switch selectedTab {
+    // 根据 tab 过滤会话
+    private func sessionsForTab(_ tab: LibraryTab) -> [AnalysisSessionInfo] {
+        switch tab {
         case .favorites:
             return viewModel.sessions.filter { $0.isFavorite }
         case .all:
@@ -138,22 +147,48 @@ struct AnalysisLibraryView: View {
         }
     }
     
+    // 根据选中的 tab 过滤会话（兼容旧代码）
+    private var filteredSessions: [AnalysisSessionInfo] {
+        sessionsForTab(selectedTab)
+    }
+    
+    // MARK: - Tab 内容视图
+    @ViewBuilder
+    private func tabContentView(for tab: LibraryTab) -> some View {
+        let sessions = sessionsForTab(tab)
+        
+        if viewModel.isLoading {
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if sessions.isEmpty {
+            emptyStateView(for: tab)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            sessionGridView(for: sessions)
+        }
+    }
+    
     // MARK: - 空状态
-    private var emptyStateView: some View {
+    private func emptyStateView(for tab: LibraryTab) -> some View {
         VStack(spacing: 20) {
-            Image(systemName: selectedTab == .favorites ? "heart" : "photo.stack")
+            Image(systemName: tab == .favorites ? "heart" : "photo.stack")
                 .font(.system(size: 60))
                 .foregroundColor(.secondary.opacity(0.4))
             
-            Text(selectedTab == .favorites ? "暂无收藏" : "暂无素材")
+            Text(tab == .favorites ? "暂无收藏" : "暂无素材")
                 .font(.system(size: 18, weight: .medium))
                 .foregroundColor(.secondary)
         }
         .padding(40)
     }
     
+    // 兼容旧代码
+    private var emptyStateView: some View {
+        emptyStateView(for: selectedTab)
+    }
+    
     // MARK: - 分析结果网格
-    private var sessionGridView: some View {
+    private func sessionGridView(for sessions: [AnalysisSessionInfo]) -> some View {
         GeometryReader { geometry in
             let spacing: CGFloat = 16
             let padding: CGFloat = 16
@@ -168,7 +203,7 @@ struct AnalysisLibraryView: View {
                     ],
                     spacing: spacing
                 ) {
-                    ForEach(filteredSessions) { session in
+                    ForEach(sessions) { session in
                         LibrarySessionCard(
                             session: session,
                             cardSize: cardSize,
@@ -192,6 +227,11 @@ struct AnalysisLibraryView: View {
                 .padding(padding)
             }
         }
+    }
+    
+    // 兼容旧代码
+    private var sessionGridView: some View {
+        sessionGridView(for: filteredSessions)
     }
     
     // MARK: - 操作方法
@@ -694,6 +734,35 @@ class AnalysisLibraryViewModel: ObservableObject {
                         photoInfo.advancedColorAnalysis = advancedAnalysis
                     }
                     
+                    // 加载照片元数据（用于收藏时获取照片时间和相机镜头信息）
+                    // 处理 metadata 可能是 to-many 关系的情况
+                    let metadataRelation = photoEntity.value(forKey: "metadata")
+                    var metadataEntity: PhotoMetadataEntity?
+                    
+                    if let set = metadataRelation as? NSSet {
+                        if let first = set.allObjects.first as? PhotoMetadataEntity {
+                            metadataEntity = first
+                        }
+                    } else if let single = metadataRelation as? PhotoMetadataEntity {
+                        metadataEntity = single
+                    }
+                    
+                    if let entity = metadataEntity {
+                        var metadata = PhotoMetadata()
+                        metadata.captureDate = entity.captureDate
+                        metadata.aperture = entity.aperture != 0 ? entity.aperture : nil
+                        metadata.shutterSpeed = entity.shutterSpeed
+                        metadata.iso = entity.iso != 0 ? Int(entity.iso) : nil
+                        metadata.focalLength = entity.focalLength != 0 ? entity.focalLength : nil
+                        metadata.cameraMake = entity.cameraMake
+                        metadata.cameraModel = entity.cameraModel
+                        metadata.lensModel = entity.lensModel
+                        photoInfo.metadata = metadata
+                        print("📷 加载 metadata: camera=\(entity.cameraMake ?? "nil")/\(entity.cameraModel ?? "nil"), lens=\(entity.lensModel ?? "nil"), date=\(entity.captureDate?.description ?? "nil")")
+                    } else {
+                        print("⚠️ 照片 \(photoEntity.assetLocalIdentifier ?? "unknown") 没有 metadata")
+                    }
+                    
                     return photoInfo
                 }
             }
@@ -801,20 +870,10 @@ struct SessionEditAlertView: View {
                         .textFieldStyle(.roundedBorder)
                 }
                 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("日期")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    HStack {
-                        Text(formatDate(sessionDate))
-                            .foregroundColor(.primary)
-                        Spacer()
                         DatePicker("", selection: $sessionDate, displayedComponents: .date)
                             .datePickerStyle(.compact)
                             .labelsHidden()
-                            .environment(\.locale, Locale(identifier: "zh_CN"))
-                    }
-                }
+                            .environment(\.locale, Locale(identifier: "zh_Hans_CN"))
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
@@ -842,13 +901,6 @@ struct SessionEditAlertView: View {
                 .disabled(sessionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
-    }
-    
-    private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy 年 M 月 d 日"
-        return formatter.string(from: date)
     }
 }
 

@@ -161,6 +161,7 @@ struct EmergeView: View {
     @State private var hasLoadedOnce = false
     @State private var lastKnownPhotoCount: Int = 0  // 上次已知的照片数量
     @State private var lastKnownDevelopmentMode: BatchProcessSettings.DevelopmentMode = .tone  // 上次已知的显影解析模式
+    @State private var lastKnownFavoriteOnly: Bool = BatchProcessSettings.developmentFavoriteOnly  // 上次已知的收藏过滤开关
     
     // ✅ 计算属性：根据 ID 获取实时的 circle 数据（用于颜色等信息，不用于位置）
     private var selectedCircle: ViewModel.ColorCircle? {
@@ -254,11 +255,8 @@ struct EmergeView: View {
                     errorView(message: error)
                 }
             }
-            // ✅ 全屏查看：使用 fullScreenCover 完全覆盖（包括 TabBar）
-            .fullScreenCover(isPresented: Binding(
-                get: { fullScreenPhotoIndex != nil },
-                set: { if !$0 { fullScreenPhotoIndex = nil } }
-            )) {
+            // ✅ 全屏查看：使用 overlay 覆盖（背景透明，可以露出下层内容）
+            .overlay {
                 if let photoIndex = fullScreenPhotoIndex {
                     FullScreenPhotoView(
                         photos: fullScreenPhotos,
@@ -267,15 +265,25 @@ struct EmergeView: View {
                             fullScreenPhotoIndex = nil
                         }
                     )
+                    .transition(.opacity)
+                    .zIndex(1000)  // 确保在最上层
                 }
             }
             .onAppear {
                 screenSize = geometry.size
                 
-                // ✅ 检查照片数量或显影解析模式是否变化
+                // ✅ 检查照片数量、显影解析模式或收藏过滤是否变化
                 Task {
-                    let currentPhotoCount = await viewModel.fetchCurrentPhotoCount()
+                    let currentFavoriteOnly = BatchProcessSettings.developmentFavoriteOnly
                     let currentDevelopmentMode = BatchProcessSettings.developmentMode
+                    
+                    // 根据收藏开关选择正确的照片数量来源，避免使用总数导致状态不一致
+                    let currentPhotoCount: Int
+                    if currentFavoriteOnly {
+                        currentPhotoCount = await viewModel.fetchFavoritePhotoCount()
+                    } else {
+                        currentPhotoCount = await viewModel.fetchCurrentPhotoCount()
+                    }
                     
                     await MainActor.run {
                         // 如果照片数量变化，需要重新聚类
@@ -294,10 +302,19 @@ struct EmergeView: View {
                             hasLoadedOnce = false  // 重置标志，触发重新聚类
                         }
                         
+                        // 如果收藏过滤开关变化，需要重新聚类
+                        let favoriteOnlyChanged = hasLoadedOnce && currentFavoriteOnly != lastKnownFavoriteOnly
+                        if favoriteOnlyChanged {
+                            let previousState = lastKnownFavoriteOnly ? "开启" : "关闭"
+                            let newState = currentFavoriteOnly ? "开启" : "关闭"
+                            print("📊 显影页：检测到收藏过滤开关变化 \(previousState) → \(newState)，重新聚类")
+                            hasLoadedOnce = false
+                        }
+                        
                         // 只在首次加载或设置变化时执行聚类
                         guard !hasLoadedOnce else {
                             // 恢复动画（如果已有数据）
-                            if !viewModel.colorCircles.isEmpty {
+                            if !viewModel.colorCircles.isEmpty || !viewModel.tonalSquares.isEmpty {
                                 isAnimating = true
                             }
                             return
@@ -306,6 +323,7 @@ struct EmergeView: View {
                         hasLoadedOnce = true
                         lastKnownPhotoCount = currentPhotoCount
                         lastKnownDevelopmentMode = currentDevelopmentMode
+                        lastKnownFavoriteOnly = currentFavoriteOnly
                         isAnimating = false
                         viewModel.reset()
                         
@@ -459,26 +477,40 @@ final class ViewModel: ObservableObject {
         return await coreDataManager.fetchTotalPhotoCount()
     }
     
-    /// 获取收藏照片集中的照片数量
+    /// 获取收藏照片的数量（基于 session.isFavorite）
     func fetchFavoritePhotoCount() async -> Int {
-        let favoriteAlbumIds = AlbumFavoritesStore.shared.load()
-        print("📊 收藏相册 ID 列表: \(favoriteAlbumIds)")
-        let count = await coreDataManager.fetchFavoritePhotoCount(favoriteAlbumIds: favoriteAlbumIds)
-        print("📊 收藏照片数量查询结果: \(count)")
-        return count
+        return await coreDataManager.fetchFavoritePhotoCount()
     }
     
     // MARK: - 主聚类入口（带缓存检测）
     
     /// 执行聚类（优先从缓存加载）
     func performClusteringWithCache(screenSize: CGSize) async {
-        isLoading = true
-        errorMessage = nil
-        colorCircles = []
-        tonalSquares = []
-        
         let developmentMode = BatchProcessSettings.developmentMode
         let favoriteOnly = BatchProcessSettings.developmentFavoriteOnly
+        
+        // 检查当前模式是否已有内存中的数据，如果有且模式匹配则直接使用
+        if currentMode == developmentMode && isFavoriteOnly == favoriteOnly {
+            if developmentMode == .shadow && !tonalSquares.isEmpty {
+                print("📊 显影页：使用内存中的影调模式数据")
+                isLoading = false
+                return
+            } else if developmentMode != .shadow && !colorCircles.isEmpty {
+                print("📊 显影页：使用内存中的色调/综合模式数据")
+                isLoading = false
+                return
+            }
+        }
+        
+        isLoading = true
+        errorMessage = nil
+        // 只清空当前模式的数据，保留另一个模式的数据
+        if developmentMode == .shadow {
+            tonalSquares = []
+        } else {
+            colorCircles = []
+        }
+        
         currentMode = developmentMode
         isFavoriteOnly = favoriteOnly
         
@@ -530,7 +562,8 @@ final class ViewModel: ObservableObject {
     private func restoreFromCache(cache: CoreDataManager.DevelopmentClusterCache, screenSize: CGSize) {
         let maxPhotoCount = cache.clusters.map { $0.photoCount }.max() ?? 1
         
-        if cache.mode == "shadow" {
+        // 检查是否是影调模式（包括 "shadow" 和 "shadow_favorite"）
+        if cache.mode.hasPrefix("shadow") {
             // 影调模式：恢复为 TonalSquare
             var squares: [TonalSquare] = []
             for cluster in cache.clusters {
@@ -574,6 +607,7 @@ final class ViewModel: ObservableObject {
                 print("   [缓存] 簇: L=\(String(format: "%.1f", median)), 对比度=\(String(format: "%.1f", contrast)), cornerRadius=\(String(format: "%.1f", cornerRadius)), size=\(String(format: "%.1f", size)), 照片数=\(cluster.photoCount)")
             }
             tonalSquares = squares
+            print("📊 从缓存恢复影调模式：\(squares.count) 个簇")
         } else {
             // 色调/综合模式：恢复为 ColorCircle
             var circles: [ColorCircle] = []
@@ -618,13 +652,13 @@ final class ViewModel: ObservableObject {
                 ))
             }
             colorCircles = circles
+            print("📊 从缓存恢复色调/综合模式：\(circles.count) 个簇")
         }
     }
     
     /// 执行聚类并保存缓存
     private func performClusteringAndSaveCache(screenSize: CGSize, mode: BatchProcessSettings.DevelopmentMode, photoCount: Int, favoriteOnly: Bool = false) async {
-        // 获取收藏相册 ID（如果需要）
-        let favoriteAlbumIds: Set<String>? = favoriteOnly ? AlbumFavoritesStore.shared.load() : nil
+        // favoriteOnly 模式下，聚类时只包含收藏的照片（基于 session.isFavorite）
         
         // 构建缓存 key
         let baseModeString: String = {
@@ -643,7 +677,7 @@ final class ViewModel: ObservableObject {
                     coreDataManager: coreDataManager,
                     kmeans: kmeans,
                     screenSize: screenSize,
-                    favoriteAlbumIds: favoriteAlbumIds
+                    favoriteOnly: favoriteOnly
                 )
             }.value
             
@@ -654,6 +688,7 @@ final class ViewModel: ObservableObject {
             }
             
             tonalSquares = result.squares
+            print("📊 影调模式聚类完成：\(result.squares.count) 个簇")
             
             // 保存缓存
             let cachedClusters = result.squares.map { square in
@@ -687,7 +722,7 @@ final class ViewModel: ObservableObject {
                     converter: converter,
                     screenSize: screenSize,
                     analysisMode: analysisMode,
-                    favoriteAlbumIds: favoriteAlbumIds
+                    favoriteOnly: favoriteOnly
                 )
             }.value
             
@@ -698,6 +733,7 @@ final class ViewModel: ObservableObject {
             }
             
             colorCircles = result.circles
+            print("📊 色调/综合模式聚类完成：\(result.circles.count) 个簇")
             
             // 保存缓存
             let cachedClusters = result.circles.map { circle in
@@ -750,10 +786,10 @@ final class ViewModel: ObservableObject {
         coreDataManager: CoreDataManager,
         kmeans: SimpleKMeans,
         screenSize: CGSize,
-        favoriteAlbumIds: Set<String>? = nil
+        favoriteOnly: Bool = false
     ) -> TonalClusteringBackgroundResult {
         // 获取所有照片的明度中位数和对比度
-        let (tonalData, photoCount) = fetchTonalDataBackground(coreDataManager: coreDataManager, favoriteAlbumIds: favoriteAlbumIds)
+        let (tonalData, photoCount) = fetchTonalDataBackground(coreDataManager: coreDataManager, favoriteOnly: favoriteOnly)
         
         guard photoCount >= 10 else {
             return TonalClusteringBackgroundResult(squares: [], photoCount: photoCount, error: nil)
@@ -864,34 +900,79 @@ final class ViewModel: ObservableObject {
         return TonalClusteringBackgroundResult(squares: squares, photoCount: photoCount, error: nil)
     }
     
+    // 辅助函数：获取 PhotoAnalysisEntity 的 session（兼容 to-one 或 to-many 关系）
+    nonisolated private static func primarySessionFor(_ photo: PhotoAnalysisEntity) -> AnalysisSessionEntity? {
+        // Safely access the session using KVC
+        guard let rawValue = photo.value(forKey: "session") else {
+            return nil
+        }
+        
+        // Handle direct AnalysisSessionEntity (expected case)
+        if let session = rawValue as? AnalysisSessionEntity {
+            return session
+        }
+        
+        // Handle NSSet (legacy data model)
+        if let rawSet = rawValue as? NSSet {
+            return rawSet.anyObject() as? AnalysisSessionEntity
+        }
+        
+        // Handle Swift Set (legacy data model)
+        if let sessions = rawValue as? Set<AnalysisSessionEntity> {
+            return sessions.first
+        }
+        
+        // Log unexpected types
+        print("⚠️  Unexpected session type: \(type(of: rawValue))")
+        return nil
+    }
+    
     // 获取影调数据（后台线程）
-    nonisolated private static func fetchTonalDataBackground(coreDataManager: CoreDataManager, favoriteAlbumIds: Set<String>? = nil) -> ([TonalPhotoData], Int) {
+    nonisolated private static func fetchTonalDataBackground(coreDataManager: CoreDataManager, favoriteOnly: Bool = false) -> ([TonalPhotoData], Int) {
         let context = coreDataManager.newBackgroundContext()
         var tonalData: [TonalPhotoData] = []
         var photoCount = 0
         
         context.performAndWait {
+            // 如果只聚类收藏照片，先获取收藏的 session
+            var favoriteSessionIds: [NSManagedObjectID]? = nil
+            if favoriteOnly {
+                let sessionRequest: NSFetchRequest<AnalysisSessionEntity> = AnalysisSessionEntity.fetchRequest()
+                sessionRequest.predicate = NSPredicate(format: "isFavorite == YES")
+                if let sessions = try? context.fetch(sessionRequest) {
+                    favoriteSessionIds = sessions.map { $0.objectID }
+                    print("📊 影调模式：只聚类收藏的照片 (\(sessions.count) 个收藏 session)")
+                }
+            }
+            
             let request = PhotoAnalysisEntity.fetchRequest()
             request.propertiesToFetch = [
                 "assetLocalIdentifier",
-                "albumIdentifier",
                 "brightnessMedian",
                 "brightnessContrast",
                 "brightnessCDF"
             ]
             
-            // 如果指定了收藏相册，添加过滤条件
-            if let favoriteIds = favoriteAlbumIds, !favoriteIds.isEmpty {
-                request.predicate = NSPredicate(format: "albumIdentifier IN %@", favoriteIds)
-                print("📊 影调模式：只聚类收藏照片集 (\(favoriteIds.count) 个相册)")
-            }
-            
             do {
                 let results = try context.fetch(request)
-                photoCount = results.count
+                
+                // 过滤：如果是收藏模式，只保留属于收藏 session 的照片
+                let filteredResults: [PhotoAnalysisEntity]
+                if let sessionIds = favoriteSessionIds {
+                    filteredResults = results.filter { entity in
+                        if let session = primarySessionFor(entity) {
+                            return sessionIds.contains(session.objectID)
+                        }
+                        return false
+                    }
+                } else {
+                    filteredResults = results
+                }
+                
+                photoCount = filteredResults.count
                 tonalData.reserveCapacity(photoCount)
                 
-                for entity in results {
+                for entity in filteredResults {
                     guard let assetId = entity.assetLocalIdentifier else { continue }
                     
                     var median = entity.brightnessMedian
@@ -992,10 +1073,10 @@ final class ViewModel: ObservableObject {
         converter: ColorSpaceConverter,
         screenSize: CGSize,
         analysisMode: DevelopmentAnalysisMode = .comprehensive,
-        favoriteAlbumIds: Set<String>? = nil
+        favoriteOnly: Bool = false
     ) -> ClusteringBackgroundResult {
         // 获取颜色数据和预存储的视觉代表色
-        let (colorSources, photoCount, storedVisualColors) = fetchColorsWithSourceBackground(coreDataManager: coreDataManager, favoriteAlbumIds: favoriteAlbumIds)
+        let (colorSources, photoCount, storedVisualColors) = fetchColorsWithSourceBackground(coreDataManager: coreDataManager, favoriteOnly: favoriteOnly)
         
         guard photoCount >= 10 else {
             return ClusteringBackgroundResult(circles: [], photoCount: photoCount, error: nil)
@@ -1202,33 +1283,51 @@ final class ViewModel: ObservableObject {
     }
     
     // ✅ 获取带来源的颜色信息（后台线程版本，内存优化）
-    nonisolated private static func fetchColorsWithSourceBackground(coreDataManager: CoreDataManager, favoriteAlbumIds: Set<String>? = nil) -> ([ColorWithSource], Int, [String: SIMD3<Float>]) {
+    nonisolated private static func fetchColorsWithSourceBackground(coreDataManager: CoreDataManager, favoriteOnly: Bool = false) -> ([ColorWithSource], Int, [String: SIMD3<Float>]) {
         let context = coreDataManager.newBackgroundContext()
         var colorSources: [ColorWithSource] = []
         var photoCount = 0
         var photoVisualColors: [String: SIMD3<Float>] = [:]  // 存储每张照片的视觉代表色
         
         context.performAndWait {
+            // 如果只聚类收藏照片，先获取收藏的 session
+            var favoriteSessionIds: [NSManagedObjectID]? = nil
+            if favoriteOnly {
+                let sessionRequest: NSFetchRequest<AnalysisSessionEntity> = AnalysisSessionEntity.fetchRequest()
+                sessionRequest.predicate = NSPredicate(format: "isFavorite == YES")
+                if let sessions = try? context.fetch(sessionRequest) {
+                    favoriteSessionIds = sessions.map { $0.objectID }
+                    print("📊 色调/综合模式：只聚类收藏的照片 (\(sessions.count) 个收藏 session)")
+                }
+            }
+            
             let request = PhotoAnalysisEntity.fetchRequest()
             // 获取需要的属性
             request.propertiesToFetch = [
                 "assetLocalIdentifier",
-                "albumIdentifier",
                 "dominantColors",
                 "visualRepresentativeColorR",
                 "visualRepresentativeColorG",
                 "visualRepresentativeColorB"
             ]
-            
-            // 如果指定了收藏相册，添加过滤条件
-            if let favoriteIds = favoriteAlbumIds, !favoriteIds.isEmpty {
-                request.predicate = NSPredicate(format: "albumIdentifier IN %@", favoriteIds)
-                print("📊 色调/综合模式：只聚类收藏照片集 (\(favoriteIds.count) 个相册)")
-            }
         
             do {
                 let results = try context.fetch(request)
-                photoCount = results.count
+                
+                // 过滤：如果是收藏模式，只保留属于收藏 session 的照片
+                let filteredResults: [PhotoAnalysisEntity]
+                if let sessionIds = favoriteSessionIds {
+                    filteredResults = results.filter { entity in
+                        if let session = primarySessionFor(entity) {
+                            return sessionIds.contains(session.objectID)
+                        }
+                        return false
+                    }
+                } else {
+                    filteredResults = results
+                }
+                
+                photoCount = filteredResults.count
             
                 // 预分配容量
                 colorSources.reserveCapacity(photoCount * 5)
@@ -1237,7 +1336,7 @@ final class ViewModel: ObservableObject {
                 // 复用 JSONDecoder
                 let decoder = JSONDecoder()
             
-                for entity in results {
+                for entity in filteredResults {
                     autoreleasepool {
                         guard let assetId = entity.assetLocalIdentifier,
                               let data = entity.dominantColors,
@@ -1502,8 +1601,15 @@ extension EmergeView {
     }
     
     private func photoGridView() -> some View {
-        // 使用锚点保存的照片列表
-        let photos = anchorPhotos
+        // 使用锚点保存的照片列表，去重（按 assetIdentifier 去重，保留第一次出现的）
+        var seenIdentifiers = Set<String>()
+        let uniquePhotos = anchorPhotos.filter { photo in
+            if seenIdentifiers.contains(photo.assetIdentifier) {
+                return false
+            }
+            seenIdentifiers.insert(photo.assetIdentifier)
+            return true
+        }
         
         // 计算每张照片的尺寸（正方形）
         let containerWidth = screenSize.width - LayoutConstants.detailViewPadding
@@ -1512,7 +1618,7 @@ extension EmergeView {
         let totalSpacing = LayoutConstants.photoSpacing * CGFloat(LayoutConstants.photosPerRow - 1)
         let photoSize = floor((availableWidth - totalSpacing) / CGFloat(LayoutConstants.photosPerRow))
         
-        // ✅ 使用 .fixed 确保每个格子固定尺寸，避免空位
+        // 使用 LazyVGrid，与融合模式一致
         let columns = Array(repeating: GridItem(
             .fixed(photoSize),
             spacing: LayoutConstants.photoSpacing
@@ -1520,13 +1626,13 @@ extension EmergeView {
         
         return ScrollView {
             LazyVGrid(columns: columns, spacing: LayoutConstants.photoSpacing) {
-                ForEach(photos) { photoInfo in
+                ForEach(uniquePhotos) { photoInfo in
                     PhotoThumbnailView(assetIdentifier: photoInfo.assetIdentifier, size: photoSize)
                         .frame(width: photoSize, height: photoSize)
                         .clipShape(RoundedRectangle(cornerRadius: LayoutConstants.photoCornerRadius))
                         .onTapGesture {
-                            fullScreenPhotos = photos
-                            if let index = photos.firstIndex(where: { $0.id == photoInfo.id }) {
+                            fullScreenPhotos = uniquePhotos
+                            if let index = uniquePhotos.firstIndex(where: { $0.id == photoInfo.id }) {
                                 fullScreenPhotoIndex = index
                             }
                         }
@@ -1551,9 +1657,12 @@ struct PhotoThumbnailView: View {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+                    .frame(width: size, height: size)
+                    .clipped()
             } else {
                 Rectangle()
                     .fill(Color.gray.opacity(0.2))
+                    .frame(width: size, height: size)
                     .overlay(ProgressView().scaleEffect(0.8))
             }
         }
@@ -1595,10 +1704,7 @@ struct PhotoThumbnailView: View {
 struct FullScreenPhotoView: View {
     let photos: [ViewModel.PhotoInfo]
     @State private var currentIndex: Int
-    @State private var dragOffset: CGSize = .zero
     @State private var backgroundOpacity: Double = 1.0
-    @State private var imageScale: CGFloat = 1.0
-    @State private var isDragging: Bool = false
     
     let onDismiss: () -> Void
     
@@ -1608,15 +1714,10 @@ struct FullScreenPhotoView: View {
         self.onDismiss = onDismiss
     }
     
-    // 计算拖动进度 (0~1)
-    private var dragProgress: CGFloat {
-        min(max(dragOffset.height, 0) / 300, 1.0)
-    }
-    
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // 背景：随拖动渐变透明
+                // 背景：随拖动渐变透明，露出下层内容
                 Color.black
                     .opacity(backgroundOpacity)
                     .ignoresSafeArea()
@@ -1624,92 +1725,38 @@ struct FullScreenPhotoView: View {
                 // 照片容器
                 TabView(selection: $currentIndex) {
                     ForEach(Array(photos.enumerated()), id: \.element.assetIdentifier) { index, photo in
-                        SinglePhotoView(assetIdentifier: photo.assetIdentifier)
-                            .tag(index)
+                        ZoomablePhotoView(
+                            assetIdentifier: photo.assetIdentifier,
+                            screenSize: geometry.size,
+                            backgroundOpacity: $backgroundOpacity,
+                            onDismiss: onDismiss
+                        )
+                        .tag(index)
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                .scaleEffect(imageScale)
-                .offset(dragOffset)
                 
+                // 关闭按钮
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button(action: { dismissWithAnimation() }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundStyle(.white.opacity(0.9), .black.opacity(0.3))
+                                .padding(20)
+                        }
+                    }
+                    Spacer()
+                }
+                .opacity(backgroundOpacity)
             }
             .ignoresSafeArea()
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 10)
-                    .onChanged { value in
-                        let translation = value.translation
-                        
-                        // 判断是否是向下拖动（首次移动方向决定）
-                        if !isDragging {
-                            // 只有垂直分量大于水平分量才开始拖动
-                            if abs(translation.height) > abs(translation.width) && translation.height > 0 {
-                                isDragging = true
-                            }
-                        }
-                        
-                        if isDragging {
-                            // 位置跟随手指
-                            dragOffset = translation
-                            
-                            // 背景透明度随拖动距离变化（最低到 0）
-                            let progress = dragProgress
-                            backgroundOpacity = 1.0 - progress
-                            
-                            // 图片缩小效果（最小到 0.7）
-                            imageScale = 1.0 - progress * 0.3
-                        }
-                    }
-                    .onEnded { value in
-                        guard isDragging else { return }
-                        isDragging = false
-                        
-                        let translation = value.translation
-                        let velocity = value.predictedEndTranslation.height - translation.height
-                        
-                        // 如果拖动距离或速度足够，则关闭
-                        if translation.height > 120 || velocity > 300 {
-                            // 继续动画到屏幕外
-                            let targetY = geometry.size.height
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                dragOffset = CGSize(width: translation.width * 1.5, height: targetY)
-                                backgroundOpacity = 0
-                                imageScale = 0.5
-                            }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                onDismiss()
-                            }
-                        } else {
-                            // 回弹
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                dragOffset = .zero
-                                backgroundOpacity = 1.0
-                                imageScale = 1.0
-                            }
-                        }
-                    }
-            )
-            
-            // 关闭按钮（放在手势层之上）
-            VStack {
-                HStack {
-                    Spacer()
-                    Button(action: { dismissWithAnimation() }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundStyle(.white.opacity(0.9), .black.opacity(0.3))
-                            .padding(20)
-                    }
-                }
-                Spacer()
-            }
-            .opacity(backgroundOpacity)
         }
         .statusBarHidden(true)
     }
     
     private func dismissWithAnimation() {
-        // 直接渐变透明关闭，大小位置不变
         withAnimation(.easeOut(duration: 0.25)) {
             backgroundOpacity = 0
         }
@@ -1719,16 +1766,29 @@ struct FullScreenPhotoView: View {
     }
 }
 
-// MARK: - ✅ 单张照片视图（简化版，避免手势冲突）
+// MARK: - ✅ 可缩放的单张照片视图（支持缩放、拖拽、下滑退出）
 
-struct SinglePhotoView: View {
+struct ZoomablePhotoView: View {
     let assetIdentifier: String
+    let screenSize: CGSize
+    @Binding var backgroundOpacity: Double
+    let onDismiss: () -> Void
+    
     @State private var image: UIImage?
     @State private var scale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+    @State private var isDismissing: Bool = false
     
-    private let minScale: CGFloat = 1.0
+    private let minScale: CGFloat = 0.5  // 允许缩小到 0.5
     private let maxScale: CGFloat = 4.0
+    
+    // 计算拖动进度 (0~1)，用于下滑退出
+    private var dragProgress: CGFloat {
+        guard scale <= 1.0 else { return 0 }
+        return min(max(offset.height, 0) / 300, 1.0)
+    }
     
     var body: some View {
         GeometryReader { geometry in
@@ -1738,35 +1798,10 @@ struct SinglePhotoView: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .scaleEffect(scale)
+                        .offset(offset)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .gesture(
-                            // 捏合手势：放大缩小
-                            MagnificationGesture()
-                                .onChanged { value in
-                                    let delta = value / lastScale
-                                    lastScale = value
-                                    scale = min(max(scale * delta, minScale), maxScale)
-                                }
-                                .onEnded { _ in
-                                    lastScale = 1.0
-                                    // 如果缩放小于1.1，自动回到1.0
-                                    if scale < 1.1 {
-                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                            scale = 1.0
-                                        }
-                                    }
-                                }
-                        )
-                        .simultaneousGesture(
-                            // 双击手势：快速放大/缩小
-                            TapGesture(count: 2)
-                                .onEnded {
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                        scale = scale > 1.0 ? 1.0 : 2.0
-                                        lastScale = 1.0
-                                    }
-                                }
-                        )
+                        .gesture(combinedGesture)
+                        .simultaneousGesture(doubleTapGesture)
                 } else {
                     ProgressView()
                         .tint(.white)
@@ -1777,6 +1812,121 @@ struct SinglePhotoView: View {
         .onAppear {
             loadImage()
         }
+    }
+    
+    // 组合手势：缩放 + 拖拽
+    private var combinedGesture: some Gesture {
+        SimultaneousGesture(magnificationGesture, dragGesture)
+    }
+    
+    // 缩放手势
+    private var magnificationGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                let delta = value / lastScale
+                lastScale = value
+                scale = min(max(scale * delta, minScale), maxScale)
+                
+                // 缩放时更新背景透明度（缩小时变透明）
+                if scale < 1.0 {
+                    backgroundOpacity = Double(scale)
+                } else {
+                    backgroundOpacity = 1.0
+                }
+            }
+            .onEnded { _ in
+                lastScale = 1.0
+                
+                // 如果缩放小于 1，弹回正常大小
+                if scale < 1.0 {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        scale = 1.0
+                        offset = .zero
+                        backgroundOpacity = 1.0
+                    }
+                }
+                // 如果缩放接近 1，也回到 1
+                else if scale < 1.1 {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        scale = 1.0
+                    }
+                }
+            }
+    }
+    
+    // 拖拽手势
+    private var dragGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                if scale > 1.0 {
+                    // 放大状态：自由拖拽查看图片不同区域
+                    offset = CGSize(
+                        width: lastOffset.width + value.translation.width,
+                        height: lastOffset.height + value.translation.height
+                    )
+                } else {
+                    // 正常/缩小状态：只允许垂直拖拽（用于下滑退出）
+                    let translation = value.translation
+                    offset = CGSize(width: translation.width * 0.3, height: translation.height)
+                    
+                    // 更新背景透明度
+                    let progress = dragProgress
+                    backgroundOpacity = 1.0 - progress
+                }
+            }
+            .onEnded { value in
+                if scale > 1.0 {
+                    // 放大状态：记录当前偏移
+                    lastOffset = offset
+                    
+                    // 限制偏移范围，不能超出图片边界太多
+                    let maxOffset = (scale - 1) * screenSize.width / 2
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        offset.width = min(max(offset.width, -maxOffset), maxOffset)
+                        offset.height = min(max(offset.height, -maxOffset), maxOffset)
+                    }
+                    lastOffset = offset
+                } else {
+                    // 正常/缩小状态：检查是否触发退出
+                    let translation = value.translation
+                    let velocity = value.predictedEndTranslation.height - translation.height
+                    
+                    if translation.height > 120 || velocity > 300 {
+                        // 触发退出
+                        isDismissing = true
+                        withAnimation(.easeOut(duration: 0.25)) {
+                            offset = CGSize(width: offset.width, height: screenSize.height)
+                            backgroundOpacity = 0
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                            onDismiss()
+                        }
+                    } else {
+                        // 回弹
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            offset = .zero
+                            backgroundOpacity = 1.0
+                        }
+                    }
+                    lastOffset = .zero
+                }
+            }
+    }
+    
+    // 双击手势：快速放大/缩小
+    private var doubleTapGesture: some Gesture {
+        TapGesture(count: 2)
+            .onEnded {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    if scale > 1.0 {
+                        scale = 1.0
+                        offset = .zero
+                        lastOffset = .zero
+                    } else {
+                        scale = 2.0
+                    }
+                }
+            }
     }
     
     private func loadImage() {
@@ -1790,7 +1940,6 @@ struct SinglePhotoView: View {
             options.isSynchronous = false
             
             let screenScale = UIScreen.main.scale
-            let screenSize = UIScreen.main.bounds.size
             let targetSize = CGSize(
                 width: screenSize.width * screenScale,
                 height: screenSize.height * screenScale
@@ -1818,7 +1967,7 @@ extension EmergeView {
     private var loadingView: some View {
         VStack(spacing: 16) {
             ProgressView().scaleEffect(1.5)
-            Text("正在分析色彩...")
+            Text("色彩显影中...")
                 .font(.system(size: 14))
                 .foregroundColor(.secondary)
         }

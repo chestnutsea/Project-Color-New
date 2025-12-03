@@ -222,17 +222,28 @@ class AlbumPhotosViewModel: ObservableObject {
     }
     
     private func primarySession(for photo: PhotoAnalysisEntity) -> AnalysisSessionEntity? {
-        let rawValue = photo.value(forKey: "session")
+        // Safely access the session using KVC
+        guard let rawValue = photo.value(forKey: "session") else {
+            return nil
+        }
+        
+        // Handle direct AnalysisSessionEntity (expected case)
         if let session = rawValue as? AnalysisSessionEntity {
             return session
         }
-        if let sessionSet = rawValue as? NSSet,
-           let session = sessionSet.anyObject() as? AnalysisSessionEntity {
-            return session
+        
+        // Handle NSSet (legacy data model)
+        if let sessionSet = rawValue as? NSSet {
+            return sessionSet.anyObject() as? AnalysisSessionEntity
         }
+        
+        // Handle Swift Set (legacy data model)
         if let sessions = rawValue as? Set<AnalysisSessionEntity> {
             return sessions.first
         }
+        
+        // Log unexpected types
+        print("⚠️  Unexpected session type: \(type(of: rawValue))")
         return nil
     }
 }

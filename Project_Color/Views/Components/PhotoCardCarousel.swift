@@ -27,6 +27,9 @@ struct PhotoCardCarousel: View {
     let photoInfos: [PhotoColorInfo]
     let displayAreaHeight: CGFloat  // 展示区域的高度（屏幕高度的 1/3）
     
+    // 全屏查看回调（由父视图处理）
+    var onFullScreenRequest: ((Int) -> Void)?
+    
     @State private var currentIndex: Int = 0
     @State private var loadedImages: [String: UIImage] = [:]  // 缓存加载的图片
     @State private var loadedAssets: [String: PHAsset] = [:]  // 缓存加载的 assets
@@ -67,6 +70,9 @@ struct PhotoCardCarousel: View {
                 }
             
             ZStack {
+                // 透明背景，用于捕获整个区域的手势
+                Color.clear.contentShape(Rectangle())
+                
                 if currentIndex < photoInfos.count {
                     let photoInfo = photoInfos[currentIndex]
                     PhotoCardView(
@@ -78,7 +84,10 @@ struct PhotoCardCarousel: View {
                     )
                     .id(photoInfo.assetIdentifier)  // 强制重新渲染
                     .offset(x: cardOffset)
-                    .gesture(drag)
+                    .onTapGesture {
+                        // 点击进入全屏查看（通知父视图）
+                        onFullScreenRequest?(currentIndex)
+                    }
                     .onAppear {
                         loadAssetAndImageIfNeeded(identifier: photoInfo.assetIdentifier)
                         // 预加载相邻照片
@@ -88,6 +97,8 @@ struct PhotoCardCarousel: View {
             }
             .frame(width: width, height: displayAreaHeight)
             .frame(maxWidth: .infinity)  // 确保居中
+            .contentShape(Rectangle())  // 让整个区域响应手势
+            .highPriorityGesture(drag)  // 使用高优先级手势，优先于外层 TabView
         }
         .frame(height: displayAreaHeight)
     }
@@ -280,7 +291,261 @@ private struct PhotoCardView: View {
     }
 }
 
-// MARK: - Fullscreen Photo Viewer
+// MARK: - 全屏照片查看（模仿 iOS 原生照片 App 交互）
+
+struct CarouselFullScreenPhotoView: View {
+    let photoInfos: [PhotoColorInfo]
+    @Binding var currentIndex: Int
+    let onDismiss: () -> Void
+    
+    @State private var backgroundOpacity: Double = 1.0
+    
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                // 背景：随拖动渐变透明，露出下层内容
+                Color.black
+                    .opacity(backgroundOpacity)
+                    .ignoresSafeArea()
+                
+                // 照片容器
+                TabView(selection: $currentIndex) {
+                    ForEach(Array(photoInfos.enumerated()), id: \.element.assetIdentifier) { index, photoInfo in
+                        CarouselZoomablePhotoView(
+                            assetIdentifier: photoInfo.assetIdentifier,
+                            screenSize: geometry.size,
+                            backgroundOpacity: $backgroundOpacity,
+                            onDismiss: onDismiss
+                        )
+                        .tag(index)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                
+                // 关闭按钮
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button(action: { dismissWithAnimation() }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundStyle(.white.opacity(0.9), .black.opacity(0.3))
+                                .padding(20)
+                        }
+                    }
+                    Spacer()
+                }
+                .opacity(backgroundOpacity)
+            }
+            .ignoresSafeArea()
+        }
+        .statusBarHidden(true)
+    }
+    
+    private func dismissWithAnimation() {
+        withAnimation(.easeOut(duration: 0.25)) {
+            backgroundOpacity = 0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            onDismiss()
+        }
+    }
+}
+
+// MARK: - 可缩放的单张照片视图（支持缩放、拖拽、下滑退出）
+
+struct CarouselZoomablePhotoView: View {
+    let assetIdentifier: String
+    let screenSize: CGSize
+    @Binding var backgroundOpacity: Double
+    let onDismiss: () -> Void
+    
+    @State private var image: UIImage?
+    @State private var scale: CGFloat = 1.0
+    @State private var lastScale: CGFloat = 1.0
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+    @State private var isDismissing: Bool = false
+    
+    private let minScale: CGFloat = 0.5  // 允许缩小到 0.5
+    private let maxScale: CGFloat = 4.0
+    
+    // 计算拖动进度 (0~1)，用于下滑退出
+    private var dragProgress: CGFloat {
+        guard scale <= 1.0 else { return 0 }
+        return min(max(offset.height, 0) / 300, 1.0)
+    }
+    
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                if let image = image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .scaleEffect(scale)
+                        .offset(offset)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .gesture(combinedGesture)
+                        .simultaneousGesture(doubleTapGesture)
+                } else {
+                    ProgressView()
+                        .tint(.white)
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .onAppear {
+            loadImage()
+        }
+    }
+    
+    // 组合手势：缩放 + 拖拽
+    private var combinedGesture: some Gesture {
+        SimultaneousGesture(magnificationGesture, dragGesture)
+    }
+    
+    // 缩放手势
+    private var magnificationGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                let delta = value / lastScale
+                lastScale = value
+                scale = min(max(scale * delta, minScale), maxScale)
+                
+                // 缩放时更新背景透明度（缩小时变透明）
+                if scale < 1.0 {
+                    backgroundOpacity = Double(scale)
+                } else {
+                    backgroundOpacity = 1.0
+                }
+            }
+            .onEnded { _ in
+                lastScale = 1.0
+                
+                // 如果缩放小于 1，弹回正常大小
+                if scale < 1.0 {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        scale = 1.0
+                        offset = .zero
+                        backgroundOpacity = 1.0
+                    }
+                }
+                // 如果缩放接近 1，也回到 1
+                else if scale < 1.1 {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        scale = 1.0
+                    }
+                }
+            }
+    }
+    
+    // 拖拽手势
+    private var dragGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                if scale > 1.0 {
+                    // 放大状态：自由拖拽查看图片不同区域
+                    offset = CGSize(
+                        width: lastOffset.width + value.translation.width,
+                        height: lastOffset.height + value.translation.height
+                    )
+                } else {
+                    // 正常/缩小状态：只允许垂直拖拽（用于下滑退出）
+                    let translation = value.translation
+                    offset = CGSize(width: translation.width * 0.3, height: translation.height)
+                    
+                    // 更新背景透明度
+                    let progress = dragProgress
+                    backgroundOpacity = 1.0 - progress
+                }
+            }
+            .onEnded { value in
+                if scale > 1.0 {
+                    // 放大状态：记录当前偏移
+                    lastOffset = offset
+                    
+                    // 限制偏移范围，不能超出图片边界太多
+                    let maxOffset = (scale - 1) * screenSize.width / 2
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        offset.width = min(max(offset.width, -maxOffset), maxOffset)
+                        offset.height = min(max(offset.height, -maxOffset), maxOffset)
+                    }
+                    lastOffset = offset
+                } else {
+                    // 正常/缩小状态：检查是否触发退出
+                    let translation = value.translation
+                    let velocity = value.predictedEndTranslation.height - translation.height
+                    
+                    if translation.height > 120 || velocity > 300 {
+                        // 触发退出
+                        isDismissing = true
+                        withAnimation(.easeOut(duration: 0.25)) {
+                            offset = CGSize(width: offset.width, height: screenSize.height)
+                            backgroundOpacity = 0
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                            onDismiss()
+                        }
+                    } else {
+                        // 回弹
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            offset = .zero
+                            backgroundOpacity = 1.0
+                        }
+                    }
+                    lastOffset = .zero
+                }
+            }
+    }
+    
+    // 双击手势：快速放大/缩小
+    private var doubleTapGesture: some Gesture {
+        TapGesture(count: 2)
+            .onEnded {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    if scale > 1.0 {
+                        scale = 1.0
+                        offset = .zero
+                        lastOffset = .zero
+                    } else {
+                        scale = 2.0
+                    }
+                }
+            }
+    }
+    
+    private func loadImage() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil)
+            guard let asset = fetchResult.firstObject else { return }
+            
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .highQualityFormat
+            options.isNetworkAccessAllowed = true
+            options.isSynchronous = false
+            
+            let screenScale = UIScreen.main.scale
+            let targetSize = CGSize(
+                width: screenSize.width * screenScale,
+                height: screenSize.height * screenScale
+            )
+            
+            PHImageManager.default().requestImage(
+                for: asset,
+                targetSize: targetSize,
+                contentMode: .aspectFit,
+                options: options
+            ) { image, _ in
+                DispatchQueue.main.async {
+                    self.image = image
+                }
+            }
+        }
+    }
+}
+
+// MARK: - 旧版全屏查看（保留兼容）
 struct FullscreenPhotoViewer: View {
     @Environment(\.dismiss) private var dismiss
     

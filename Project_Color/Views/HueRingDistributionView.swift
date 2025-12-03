@@ -24,12 +24,14 @@ struct HueRingDistributionView: View {
         static let viewHeight: CGFloat = 170  // 与高光阴影轮高度一致（布局常量）
         static let ringLineWidth: CGFloat = 1
         static let ringOpacity: Double = 0.25
-        static let ringDiameter: CGFloat = 140  // 色相环直径（布局常量，与高光阴影轮统一）
-        static let pointOpacity: Double = 0.45
+        static let ringDiameter: CGFloat = 200  // 色相环直径（布局常量）
         static let minPointDiameter: CGFloat = 10
         static let maxAdditionalDiameter: CGFloat = 36
         static let iconFontSize: CGFloat = 18  // LCh 空间入口按钮字体大小（布局常量）
         static let iconPadding: CGFloat = 12  // LCh 空间入口按钮内边距（布局常量）
+        static let buttonOuterGlowSize: CGFloat = 60  // 按钮外层光晕尺寸（布局常量）
+        static let buttonInnerGlowSize: CGFloat = 48  // 按钮内层光晕尺寸（布局常量）
+        static let buttonCoreRadius: CGFloat = 24  // 按钮核心半径（布局常量）
         #if canImport(UIKit)
         static let cardBackground = Color(UIColor.systemBackground)
         #elseif canImport(AppKit)
@@ -37,6 +39,18 @@ struct HueRingDistributionView: View {
         #else
         static let cardBackground = Color.white
         #endif
+        
+        // 发光效果参数（与 ColorCastWheelView 一致）
+        static let halo1SizeRatio: CGFloat = 2.0
+        static let halo1Blur: CGFloat = 8
+        static let halo1Opacity: Double = 0.7
+        
+        static let halo2SizeRatio: CGFloat = 3.0
+        static let halo2Blur: CGFloat = 14
+        static let halo2Opacity: Double = 0.4
+        
+        static let minOpacity: Double = 0.4
+        static let maxOpacity: Double = 1.0
     }
     
     var points: [HueRingPoint]
@@ -59,65 +73,81 @@ struct HueRingDistributionView: View {
                 let fallbackEnd = Color(hue: accentHue, saturation: 0.6, brightness: 0.85)
                 let gradientStart = primaryColor ?? fallbackStart
                 let gradientEnd = primaryColor?.opacity(0.75) ?? fallbackEnd
+                let glowColor = primaryColor ?? fallbackStart
+                
                 Button(action: action) {
-                    Label("3D 空间", systemImage: "cube.transparent")
-                        .labelStyle(.iconOnly)
-                        .font(.system(size: Layout.iconFontSize, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(Layout.iconPadding)
-                        .background(
-                            Circle()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [gradientStart, gradientEnd],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
+                    ZStack {
+                        // 外层光晕
+                        Circle()
+                            .fill(glowColor)
+                            .frame(width: Layout.buttonOuterGlowSize, height: Layout.buttonOuterGlowSize)
+                            .blur(radius: 16)
+                            .opacity(0.5)
+                        
+                        // 内层光晕
+                        Circle()
+                            .fill(glowColor)
+                            .frame(width: Layout.buttonInnerGlowSize, height: Layout.buttonInnerGlowSize)
+                            .blur(radius: 10)
+                            .opacity(0.7)
+                        
+                        // 按钮本体
+                        Label("3D 空间", systemImage: "cube.transparent")
+                            .labelStyle(.iconOnly)
+                            .font(.system(size: Layout.iconFontSize, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: Layout.buttonCoreRadius * 2, height: Layout.buttonCoreRadius * 2)
+                            .background(
+                                Circle()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [gradientStart, gradientEnd],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
                                     )
-                                )
-                                .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 6)
-                        )
+                            )
+                    }
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("打开 3D 色彩空间")
             }
         }
-        .frame(height: Layout.viewHeight)
         .frame(maxWidth: .infinity)
+        .aspectRatio(1, contentMode: .fit)
     }
     
     private var ringContent: some View {
         GeometryReader { geometry in
-            Canvas { context, size in
-                let diameter = Layout.ringDiameter  // 使用固定直径（布局常量）
-                let radius = diameter / 2
-                let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                
-                drawPoints(context: &context, center: center, radius: radius)
+            let diameter = Layout.ringDiameter
+            let radius = diameter / 2
+            let centerX = geometry.size.width / 2
+            let centerY = geometry.size.height / 2
+            
+            ZStack {
+                ForEach(points) { point in
+                    let angle = point.hue * 2 * .pi - .pi / 2
+                    let x = CGFloat(cos(angle)) * radius
+                    let y = CGFloat(sin(angle)) * radius
+                    
+                    glowingDot(point: point)
+                        .position(x: centerX + x, y: centerY + y)
+                }
             }
         }
     }
     
-    private func drawPoints(context: inout GraphicsContext, center: CGPoint, radius: CGFloat) {
-        for point in points {
-            let angle = Angle(radians: point.hue * 2 * .pi - .pi / 2)
-            let x = center.x + CGFloat(cos(angle.radians)) * radius
-            let y = center.y + CGFloat(sin(angle.radians)) * radius
-            
-            let clampedWeight = max(0.0, min(1.0, point.weight))
-            let diameter = Layout.minPointDiameter + CGFloat(clampedWeight) * Layout.maxAdditionalDiameter
-            let rect = CGRect(
-                x: x - diameter / 2,
-                y: y - diameter / 2,
-                width: diameter,
-                height: diameter
-            )
-            
-            let path = Path(ellipseIn: rect)
-            context.fill(
-                path,
-                with: .color(point.color.opacity(Layout.pointOpacity))
-            )
-        }
+    private func glowingDot(point: HueRingPoint) -> some View {
+        let clampedWeight = CGFloat(max(0.0, min(1.0, point.weight)))
+        let coreSize = Layout.minPointDiameter + clampedWeight * Layout.maxAdditionalDiameter
+        
+        let opacityMultiplier = Layout.minOpacity + (Layout.maxOpacity - Layout.minOpacity) * Double(clampedWeight)
+        
+        // 简单的圆点，无发光效果
+        return Circle()
+            .fill(point.color)
+            .frame(width: coreSize, height: coreSize)
+            .opacity(opacityMultiplier)
     }
     
     private var emptyState: some View {

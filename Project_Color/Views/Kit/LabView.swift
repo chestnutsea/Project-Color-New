@@ -56,14 +56,9 @@ struct LabView: View {
             .padding(.top, Layout.verticalSpacing)
         }
         .background(Color(.systemGroupedBackground))
+        .navigationTitle("色彩实验室")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("色彩实验室")
-                    .font(.headline)
-            }
-        }
-        .toolbarBackground(.visible, for: .navigationBar)
+        .hideTabBar()
         .fullScreenCover(isPresented: $showLookUpColor) {
             NavigationView {
                 LookUpColorWrapperView()

@@ -17,20 +17,26 @@ struct KitView: View {
         static let rowHorizontalPadding: CGFloat = 16
     }
     
+    // MARK: - State
+    @State private var developmentMode: BatchProcessSettings.DevelopmentMode = BatchProcessSettings.developmentMode
+    
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ScrollView {
                 VStack(spacing: Layout.cardSpacing) {
                     // 第一个卡片：解锁 AI 视角
                     aiUnlockCard
                     
-                    // 第二个卡片：功能入口
+                    // 第二个卡片：云相册 + 照片暗房 + 显影模式
                     featuresCard
                     
-                    // 第三个卡片：迭代记录和隐私说明
+                    // 第三个卡片：色彩实验室（单独）
+                    labCard
+                    
+                    // 第四个卡片：迭代记录和隐私说明
                     infoCard
                     
-                    // 第四个卡片：更多选项（反馈、鼓励、分享）
+                    // 第五个卡片：更多选项（反馈、鼓励、分享）
                     moreOptionsCard
                 }
                 .padding(.horizontal, Layout.horizontalPadding)
@@ -38,6 +44,10 @@ struct KitView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("我的")
+            .onAppear {
+                // 每次进入页面时从设置读取最新值
+                developmentMode = BatchProcessSettings.developmentMode
+            }
         }
     }
     
@@ -70,28 +80,74 @@ struct KitView: View {
             }
             .buttonStyle(.plain)
             
-            // 暗房参数
+            // 照片暗房
             NavigationLink {
                 BatchProcessView()
             } label: {
                 KitMenuRow(
-                    icon: "slider.horizontal.3",
-                    title: "暗房参数"
+                    icon: "slider.horizontal.below.square.filled.and.square",
+                    title: "照片暗房"
                 )
             }
             .buttonStyle(.plain)
             
-            // 色彩实验室
-            NavigationLink {
-                LabView()
-            } label: {
-                KitMenuRow(
-                    icon: "paintpalette",
-                    title: "色彩实验室"
-                )
+            // 显影模式
+            HStack(spacing: 12) {
+                Image(systemName: "camera.filters")
+                    .font(.system(size: 20))
+                    .foregroundColor(.primary)
+                    .frame(width: 28)
+                
+                Text("显影模式")
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundColor(.primary)
+                
+                Spacer()
+                
+                Menu {
+                    ForEach(BatchProcessSettings.DevelopmentMode.allCases, id: \.self) { mode in
+                        Button {
+                            developmentMode = mode
+                            BatchProcessSettings.developmentMode = mode
+                        } label: {
+                            if mode == developmentMode {
+                                Label(mode.rawValue, systemImage: "checkmark")
+                            } else {
+                                Text(mode.rawValue)
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(developmentMode.rawValue)
+                            .font(.system(size: 17, weight: .regular))
+                            .foregroundColor(.secondary)
+                        
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, Layout.rowHorizontalPadding)
+            .padding(.vertical, Layout.rowVerticalPadding)
+            .contentShape(Rectangle())
         }
+        .background(Color(.systemBackground))
+        .cornerRadius(Layout.cornerRadius)
+    }
+    
+    // MARK: - 色彩实验室卡片（单独）
+    private var labCard: some View {
+        NavigationLink {
+            LabView()
+        } label: {
+            KitMenuRow(
+                icon: "paintpalette",
+                title: "色彩实验室"
+            )
+        }
+        .buttonStyle(.plain)
         .background(Color(.systemBackground))
         .cornerRadius(Layout.cornerRadius)
     }

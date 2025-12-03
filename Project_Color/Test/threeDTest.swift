@@ -228,8 +228,10 @@ struct threeDView: View {
             if !points.isEmpty {
                 VStack {
                     Spacer()
-                    HStack {
-                        // 帮助说明文字
+                    HStack(spacing: 8) {
+                        Spacer()
+                        
+                        // 帮助说明文字（和按钮同一行）
                         if showHelpText {
                             Text("L： 明度，C： 色度/饱和度，H：色相")
                                 .font(.system(size: 14, weight: .medium))
@@ -240,9 +242,7 @@ struct threeDView: View {
                                 .cornerRadius(8)
                         }
                         
-                        Spacer()
-                        
-                        // 帮助图标按钮（白色半透明，在黑色背景上可见）
+                        // 帮助图标按钮（白色半透明，在黑色背景上可见，固定不动）
                         Button(action: {
                             showHelpText.toggle()
                         }) {
@@ -250,7 +250,10 @@ struct threeDView: View {
                                 .font(.system(size: Layout.helpIconFontSize))
                                 .foregroundColor(.white.opacity(0.4))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PlainButtonStyle())
+                        .transaction { transaction in
+                            transaction.animation = nil
+                        }
                     }
                     .padding(20)
                 }

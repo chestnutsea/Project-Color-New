@@ -13,7 +13,7 @@ struct BatchProcessSettings {
     enum DevelopmentMode: String, Codable, CaseIterable {
         case tone = "色调模式"
         case shadow = "影调模式"
-        case comprehensive = "综合模式"
+        case comprehensive = "融合模式"
     }
     
     // MARK: - Settings Keys
@@ -37,13 +37,13 @@ struct BatchProcessSettings {
         }
     }
     
-    /// 显影解析方式
+    /// 显影模式
     static var developmentMode: DevelopmentMode {
         get {
-            // 如果从未设置过，默认为色调模式
+            // 如果从未设置过，默认为融合模式
             guard let data = UserDefaults.standard.data(forKey: SettingsKey.developmentMode),
                   let mode = try? JSONDecoder().decode(DevelopmentMode.self, from: data) else {
-                return .tone
+                return .comprehensive
             }
             return mode
         }

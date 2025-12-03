@@ -84,26 +84,32 @@ struct BrightnessCDFView: View {
         // 坐标轴长度 = 图表尺寸 - 标签空间
         let axisSize: CGFloat = max(chartSize - resolvedLabelSpace, 0)
         
+        // 顶部留出一些空间，避免曲线被截断
+        let topPadding: CGFloat = 2
+        let adjustedAxisSize = axisSize - topPadding
+        
         // 坐标轴区域（为左侧和底部的标签留空间）
         let chartRect = CGRect(
             x: resolvedLabelSpace,
-            y: 0,
-            width: axisSize,
-            height: axisSize
+            y: topPadding,
+            width: adjustedAxisSize,
+            height: adjustedAxisSize
         )
         
         ZStack {
             Canvas { context, size in
                 let currentChartSize: CGFloat = fixedChartSize ?? min(size.width, size.height)
                 let currentAxisSize: CGFloat = max(currentChartSize - resolvedLabelSpace, 0)
+                let currentTopPadding: CGFloat = 2
+                let currentAdjustedAxisSize = currentAxisSize - currentTopPadding
                 
-                // 传递正方形区域给绘制函数
+                // 传递正方形区域给绘制函数，顶部留出空间
                 drawCDFChart(
                     context: context,
                     size: size,
-                    squareSize: currentAxisSize,
+                    squareSize: currentAdjustedAxisSize,
                     offsetX: resolvedLabelSpace,
-                    offsetY: 0
+                    offsetY: currentTopPadding
                 )
             }
             
@@ -196,7 +202,10 @@ struct BrightnessCDFView: View {
         let path = Path { path in
             for (index, value) in cdf.enumerated() {
                 let x = offsetX + (CGFloat(index) / 255.0) * squareSize
-                let y = offsetY + squareSize - (CGFloat(value) * squareSize)
+                // 确保当 value = 1.0 时，y 坐标不会超出绘制区域
+                // 使用 squareSize - 1 来确保顶部有足够空间显示完整的曲线
+                let clampedValue = min(1.0, CGFloat(value))
+                let y = offsetY + squareSize - (clampedValue * squareSize)
                 
                 if index == 0 {
                     path.move(to: CGPoint(x: x, y: y))

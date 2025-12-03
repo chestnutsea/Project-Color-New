@@ -32,7 +32,7 @@ struct FavoriteAlertView: View {
     var body: some View {
         VStack(spacing: 0) {
             // 标题
-            Text("收藏该组分析结果")
+            Text("收藏")
                 .font(.headline)
                 .padding(.top, 20)
                 .padding(.bottom, 16)
@@ -49,17 +49,12 @@ struct FavoriteAlertView: View {
                         .textFieldStyle(.roundedBorder)
                 }
                 
-                // 日期选择器（只显示日期选择器，不显示格式化文本）
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("日期")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    
-                    DatePicker("", selection: $customDate, displayedComponents: .date)
-                        .datePickerStyle(.compact)
-                        .labelsHidden()
-                        .environment(\.locale, Locale(identifier: "zh_CN"))
-                }
+                // 日期选择器（苹果原生 compact 样式）
+                // 注意：compact 样式的显示格式由系统控制，无法自定义为 "xxxx 年 x 月 x 日"
+                DatePicker("", selection: $customDate, displayedComponents: .date)
+                    .datePickerStyle(.compact)
+                    .labelsHidden()
+                    .environment(\.locale, Locale(identifier: "zh_Hans_CN"))
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 20)

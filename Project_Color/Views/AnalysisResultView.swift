@@ -15,11 +15,15 @@ import UIKit
 import simd
 
 private enum AnalysisResultTab: String, CaseIterable, Identifiable {
-    case color = "色彩"
-    case distribution = "分布"
-    case aiEvaluation = "洞察"
+    case aiEvaluation = "视角"
+    case distribution = "构成"
     
     var id: Self { self }
+    
+    // 定义顺序：视角在左边，构成在右边
+    static var orderedCases: [AnalysisResultTab] {
+        [.aiEvaluation, .distribution]
+    }
 }
 
 // MARK: - Layout Constants
@@ -39,7 +43,7 @@ struct AnalysisResultView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var result: AnalysisResult
     @State private var selectedCluster: ColorCluster?
-    @State private var selectedTab: AnalysisResultTab = .color
+    @State private var selectedTab: AnalysisResultTab = .aiEvaluation
     @State private var show3DView = false
     
     // 收藏相关
@@ -48,6 +52,10 @@ struct AnalysisResultView: View {
     @State private var sessionId: UUID?
     @State private var favoriteName: String = ""
     @State private var favoriteDate: Date = Date()
+    
+    // 全屏照片查看状态
+    @State private var showFullScreenPhoto: Bool = false
+    @State private var fullScreenPhotoIndex: Int = 0
     
     // 自定义返回回调
     var onDismiss: (() -> Void)?
@@ -84,7 +92,7 @@ struct AnalysisResultView: View {
                 // Tab Bar（固定在顶部，不随 ScrollView 滚动）
                 VStack(spacing: 0) {
                     Picker("结果视图", selection: $selectedTab) {
-                        ForEach(AnalysisResultTab.allCases) { tab in
+                        ForEach(AnalysisResultTab.orderedCases) { tab in
                             Text(tab.rawValue).tag(tab)
                         }
                     }
@@ -94,68 +102,64 @@ struct AnalysisResultView: View {
                     .background(Color(.systemBackground))
                 }
                 
-                // 内容区域
-                ZStack {
-                    // 统一背景色
-                    Color(.systemBackground)
-                        .ignoresSafeArea(edges: .bottom)
-                    
-                if selectedTab == .aiEvaluation {
-                    // 洞察 tab：显示照片 + 固定卡片（内部文字可滚动）
+                // 内容区域（支持左右滑动切换）
+                TabView(selection: $selectedTab) {
+                    // 视角 tab：显示照片 + 卡片（内部文字可滚动）
                     VStack(spacing: 0) {
                         // 照片展示区域（居中显示）
                         if !result.photoInfos.isEmpty {
                             PhotoCardCarousel(
                                 photoInfos: result.photoInfos,
-                                displayAreaHeight: displayAreaHeight
+                                displayAreaHeight: displayAreaHeight,
+                                onFullScreenRequest: { index in
+                                    fullScreenPhotoIndex = index
+                                    showFullScreenPhoto = true
+                                }
                             )
                             .frame(height: displayAreaHeight)
                         }
                         
-                        // 下方内容区域（固定卡片，内部文字可滚动）
-                        VStack(spacing: 0) {
-                            // 固定的卡片容器
-                            VStack(alignment: .leading, spacing: 0) {
-                                // 卡片内部的滚动视图
-                                ScrollView {
-                                    VStack(alignment: .leading, spacing: 20) {
-                                        aiEvaluationTabContent
-                                    }
-                                    .padding()
-                                }
+                        // 下方内容区域（滚动视图）
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 16) {
+                                aiEvaluationTabContent
                             }
-                            .background(Color(.systemBackground))
-                            .cornerRadius(12)
-                            .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
                             .padding()
                         }
                     }
-                } else {
-                        // 色彩和分布 tab：只显示内容，不显示照片
+                    .tag(AnalysisResultTab.aiEvaluation)
+                    
+                    // 构成 tab：只显示内容，不显示照片
                         ScrollView {
                             VStack(alignment: .leading, spacing: 20) {
-                                Group {
-                                    switch selectedTab {
-                                    case .color:
-                                        colorTabContent
-                                    case .distribution:
                                         distributionTabContent
-                                    case .aiEvaluation:
-                                        EmptyView()  // 不会执行到这里
-                                    }
-                                }
                             }
                             .padding()
                         }
+                    .tag(AnalysisResultTab.distribution)
                     }
-                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .background(Color(.systemBackground))
+                .ignoresSafeArea(edges: .bottom)
             }
+        }
+        // 全屏照片查看 overlay
+        if showFullScreenPhoto {
+            CarouselFullScreenPhotoView(
+                photoInfos: result.photoInfos,
+                currentIndex: $fullScreenPhotoIndex,
+                onDismiss: {
+                    showFullScreenPhoto = false
+                }
+            )
+            .transition(.opacity)
+            .zIndex(1000)
         }
         }  // ZStack 结束
         }  // NavigationStack 结束
         .background(Color(.systemBackground))
         .ignoresSafeArea(edges: .bottom)
-        .navigationTitle("分析结果")
+        .navigationTitle("扫描结果")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
@@ -171,18 +175,15 @@ struct AnalysisResultView: View {
                         Image(systemName: "chevron.down")
                             .font(.system(size: 20, weight: .semibold))
                     } else {
-                        // 普通模式：显示返回按钮
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 17, weight: .semibold))
-                            Text("返回")
-                        }
+                        // 普通模式：只显示左箭头
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 17, weight: .semibold))
                     }
                 }
             }
             
             ToolbarItem(placement: .principal) {
-                Text("分析结果")
+                Text("扫描结果")
                     .font(.headline)
                     .foregroundColor(.primary)
             }
@@ -387,6 +388,9 @@ struct AnalysisResultView: View {
             )
             isFavorite = true
             print("✅ 已收藏分析结果")
+            
+            // 通知相册页刷新数据
+            NotificationCenter.default.post(name: .analysisSessionDidSave, object: nil)
         } catch {
             print("❌ 收藏失败: \(error.localizedDescription)")
         }
@@ -406,6 +410,9 @@ struct AnalysisResultView: View {
             )
             isFavorite = false
             print("✅ 已取消收藏")
+            
+            // 通知相册页刷新数据
+            NotificationCenter.default.post(name: .analysisSessionDidSave, object: nil)
         } catch {
             print("❌ 取消收藏失败: \(error.localizedDescription)")
         }
@@ -425,7 +432,7 @@ struct AnalysisResultView: View {
     private var distributionTabContent: some View {
         VStack(spacing: 20) {
             if isDistributionDataReady {
-                // 色相环（带 card）
+                // 色相环（带 card，正方形）
                 HueRingDistributionView(
                     points: cachedHueRingPoints,
                     dominantHue: dominantHue,
@@ -438,17 +445,18 @@ struct AnalysisResultView: View {
                 .background(Color(.systemBackground))
                 .cornerRadius(15)
                 .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+                .aspectRatio(1, contentMode: .fit)
                 
-                // 色偏分析轮（高光和阴影，带 card）
-                ColorCastWheelView(
-                    points: cachedColorCastPoints,
-                    highlightStatus: cachedHighlightStatus,
-                    shadowStatus: cachedShadowStatus
-                )
-                .padding()
-                .background(Color(.systemBackground))
-                .cornerRadius(15)
-                .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+                // 色偏分析轮（高光和阴影，带 card）- 暂时隐藏
+                // ColorCastWheelView(
+                //     points: cachedColorCastPoints,
+                //     highlightStatus: cachedHighlightStatus,
+                //     shadowStatus: cachedShadowStatus
+                // )
+                // .padding()
+                // .background(Color(.systemBackground))
+                // .cornerRadius(15)
+                // .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
                 
                 // 散点图和 CDF 图表并排显示（带 card，左右对齐）
                 ScatterAndCDFCardView(
@@ -456,25 +464,122 @@ struct AnalysisResultView: View {
                     photoInfos: result.photoInfos
                 )
                 
-                // 温度分布图（带 card，放到最下面）
-                if let warmCoolDist = result.warmCoolDistribution,
-                   !warmCoolDist.scores.isEmpty,
-                   let dominantColor = dominantCluster?.color {
-                    TemperatureDistributionView(
-                        distribution: warmCoolDist,
-                        dominantColor: dominantColor,
-                        photoInfos: result.photoInfos
-                    )
-                    .background(Color(.systemBackground))
-                    .cornerRadius(15)
-                    .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+                // 相机镜头信息 card
+                if !cameraLensCombinations.isEmpty {
+                    cameraLensCard
                 }
+                
+                // 温度分布图（带 card，放到最下面）- 暂时隐藏
+                // if let warmCoolDist = result.warmCoolDistribution,
+                //    !warmCoolDist.scores.isEmpty,
+                //    let dominantColor = dominantCluster?.color {
+                //     TemperatureDistributionView(
+                //         distribution: warmCoolDist,
+                //         dominantColor: dominantColor,
+                //         photoInfos: result.photoInfos
+                //     )
+                //     .background(Color(.systemBackground))
+                //     .cornerRadius(15)
+                //     .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+                // }
             } else {
                 ProgressView("正在计算分布数据...")
                     .padding()
             }
             
         }
+    }
+    
+    // MARK: - 相机镜头组合
+    
+    /// 相机镜头组合结构
+    private struct CameraLensCombination: Hashable {
+        let camera: String?  // 品牌 + 型号
+        let lens: String?    // 镜头型号
+        
+        var displayText: String {
+            var lines: [String] = []
+            if let camera = camera, !camera.isEmpty {
+                lines.append(camera)
+            }
+            if let lens = lens, !lens.isEmpty {
+                lines.append(lens)
+            }
+            return lines.joined(separator: "\n")
+        }
+        
+        var isEmpty: Bool {
+            return (camera == nil || camera!.isEmpty) && (lens == nil || lens!.isEmpty)
+        }
+    }
+    
+    /// 计算相机镜头组合（按出现次数排序）
+    private var cameraLensCombinations: [(combination: CameraLensCombination, count: Int)] {
+        var combinationCounts: [CameraLensCombination: Int] = [:]
+        
+        for photoInfo in result.photoInfos {
+            guard let metadata = photoInfo.metadata else { continue }
+            
+            // 组合相机品牌和型号
+            var cameraString: String? = nil
+            if let make = metadata.cameraMake, !make.isEmpty {
+                if let model = metadata.cameraModel, !model.isEmpty {
+                    // 如果型号已经包含品牌名，则只用型号
+                    if model.lowercased().contains(make.lowercased()) {
+                        cameraString = model
+                    } else {
+                        cameraString = "\(make) \(model)"
+                    }
+                } else {
+                    cameraString = make
+                }
+            } else if let model = metadata.cameraModel, !model.isEmpty {
+                cameraString = model
+            }
+            
+            let combination = CameraLensCombination(
+                camera: cameraString,
+                lens: metadata.lensModel
+            )
+            
+            // 跳过空组合
+            if combination.isEmpty { continue }
+            
+            combinationCounts[combination, default: 0] += 1
+        }
+        
+        // 按出现次数降序排序
+        return combinationCounts
+            .map { (combination: $0.key, count: $0.value) }
+            .sorted { $0.count > $1.count }
+    }
+    
+    /// 相机镜头信息 card
+    private var cameraLensCard: some View {
+        let combinations = cameraLensCombinations
+        let accentColor = dominantCluster?.color ?? .gray
+        
+        return VStack(spacing: 16) {
+            ForEach(Array(combinations.enumerated()), id: \.offset) { index, item in
+                // 组合文本
+                Text(item.combination.displayText)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                
+                // 分隔圆点（最后一个不显示）
+                if index < combinations.count - 1 {
+                    Circle()
+                        .fill(accentColor)
+                        .frame(width: 6, height: 6)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(15)
+        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
     }
     
     private var aiEvaluationTabContent: some View {
@@ -592,7 +697,7 @@ struct AnalysisResultView: View {
             ProgressView()
                 .scaleEffect(1.2)
             
-            Text("洞察进行中...")
+            Text("视角开启中...")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
             
@@ -642,7 +747,10 @@ struct AnalysisResultView: View {
             // 解析并格式化显示评价内容
             formattedEvaluationView(overall.fullText, dominantColor: dominantColor)
         }
-        .padding()
+        .padding(20)
+        .background(Color(.systemBackground))
+        .cornerRadius(15)
+        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
     }
     
     // 获取主代表色（照片数量最多的聚类的颜色）
@@ -685,11 +793,11 @@ struct AnalysisResultView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     ForEach(paragraphs.indices, id: \.self) { index in
                         FormattedTextView(text: paragraphs[index])
-                            .font(.body)
-                            .foregroundColor(.primary)
-                            .lineSpacing(6)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
+                    .font(.body)
+                    .foregroundColor(.primary)
+                    .lineSpacing(6)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
@@ -2026,23 +2134,24 @@ struct FormattedTextView: View {
 // MARK: - 散点图和 CDF 图表组合卡片（两个独立 card）
 private struct ScatterAndCDFCardView: View {
     private enum Layout {
-        static let cardPadding: CGFloat = 8  // Card 内部 padding（布局常量）
-        static let totalHorizontalInset: CGFloat = 60  // 屏幕左右总留白（布局常量）
+        static let cardPadding: CGFloat = 12  // Card 内部 padding（布局常量）
+        static let cardSpacing: CGFloat = 12  // 两个 card 之间的间距
     }
     
     let scatterPoints: [SaturationBrightnessPoint]
     let photoInfos: [PhotoColorInfo]
     
-    @State private var screenWidth: CGFloat = 0
+    @State private var containerWidth: CGFloat = 0
     
     private var labelHeight: CGFloat {
         ChartLabelMetrics.captionLineHeight
     }
     
-    // 每个 card 的宽度 = (屏幕宽度 - 60) / 2
+    // 每个 card 的宽度 = (容器宽度 - 间距) / 2
+    // 容器宽度已经是屏幕宽度减去外层 padding 后的宽度
     private var cardWidth: CGFloat {
-        guard screenWidth > 0 else { return 100 }
-        return max((screenWidth - Layout.totalHorizontalInset) / 2, 50)
+        guard containerWidth > 0 else { return 100 }
+        return max((containerWidth - Layout.cardSpacing) / 2, 50)
     }
     
     // 轴长度 = card 宽度 - 2 * padding - labelHeight
@@ -2062,9 +2171,7 @@ private struct ScatterAndCDFCardView: View {
     
     var body: some View {
         GeometryReader { geometry in
-            HStack(spacing: 0) {
-                Spacer()
-                
+            HStack(spacing: Layout.cardSpacing) {
                 // 左侧 Card：亮度-饱和度散点图
                 VStack(spacing: 0) {
                     SaturationBrightnessScatterView(
@@ -2078,8 +2185,6 @@ private struct ScatterAndCDFCardView: View {
                 .background(Color(.systemBackground))
                 .cornerRadius(15)
                 .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
-                
-                Spacer()
                 
                 // 右侧 Card：累计亮度分布（CDF）
                 VStack(spacing: 0) {
@@ -2095,15 +2200,13 @@ private struct ScatterAndCDFCardView: View {
                 .background(Color(.systemBackground))
                 .cornerRadius(15)
                 .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
-                
-                Spacer()
             }
             .frame(height: cardHeight)
             .onAppear {
-                screenWidth = geometry.size.width
+                containerWidth = geometry.size.width
             }
             .onChange(of: geometry.size.width) { newWidth in
-                screenWidth = newWidth
+                containerWidth = newWidth
             }
         }
         .frame(height: cardHeight)

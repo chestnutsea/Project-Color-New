@@ -342,13 +342,17 @@ final class CoreDataManager {
                 metadataEntity.cameraModel = metadata.cameraModel
                 metadataEntity.lensModel = metadata.lensModel
                 
+                print("💾 保存 metadata: camera=\(metadata.cameraMake ?? "nil")/\(metadata.cameraModel ?? "nil"), lens=\(metadata.lensModel ?? "nil"), date=\(metadata.captureDate?.description ?? "nil")")
+                
                 if photoAnalysis.entity.relationshipsByName["metadata"]?.isToMany == true {
                     // Relationship configured as to-many at runtime (safety for older model versions)
                     let metadataSet = photoAnalysis.mutableSetValue(forKey: "metadata")
                     metadataSet.removeAllObjects()
                     metadataSet.add(metadataEntity)
+                    print("   → 使用 to-many 关系保存")
                 } else {
                     photoAnalysis.metadata = metadataEntity
+                    print("   → 使用 to-one 关系保存")
                 }
                 
                 if metadataEntity.entity.relationshipsByName["photoAnalysis"]?.isToMany == true {
@@ -358,10 +362,22 @@ final class CoreDataManager {
                 } else {
                     metadataEntity.photoAnalysis = photoAnalysis
                 }
+            } else {
+                print("⚠️ 照片 \(photoInfo.assetIdentifier) 没有 metadata 可保存")
             }
-
+            
             photoAnalysis.confidence = 1.0
             photoAnalysis.deltaEToCentroid = 0.0
+            
+            // 设置反向关系：photoAnalysis -> session
+            if let sessionRelationship = photoAnalysis.entity.relationshipsByName["session"], sessionRelationship.isToMany {
+                // 兼容旧版数据模型（session 为 to-many）
+                let sessions = photoAnalysis.mutableSetValue(forKey: "session")
+                sessions.removeAllObjects()
+                sessions.add(session)
+            } else {
+                photoAnalysis.session = session
+            }
 
             photoAnalysisEntities.append(photoAnalysis)
         }
@@ -814,23 +830,39 @@ final class CoreDataManager {
         }
     }
     
-    /// 获取收藏照片集中的照片数量（用于缓存失效检测）
-    /// - Parameter favoriteAlbumIds: 收藏的相册 ID 集合
-    func fetchFavoritePhotoCount(favoriteAlbumIds: Set<String>) async -> Int {
-        guard !favoriteAlbumIds.isEmpty else { return 0 }
-        
+    /// 获取收藏照片的数量（基于 session.isFavorite）
+    func fetchFavoritePhotoCount() async -> Int {
         let context = container.newBackgroundContext()
+        var result = 0
         
-        return await context.perform {
-            let request: NSFetchRequest<PhotoAnalysisEntity> = PhotoAnalysisEntity.fetchRequest()
-            request.predicate = NSPredicate(format: "albumIdentifier IN %@", favoriteAlbumIds)
+        context.performAndWait {
+            // 先查询所有收藏的 session
+            let sessionRequest: NSFetchRequest<AnalysisSessionEntity> = AnalysisSessionEntity.fetchRequest()
+            sessionRequest.predicate = NSPredicate(format: "isFavorite == YES")
+            
             do {
-                return try context.count(for: request)
+                let favoriteSessions = try context.fetch(sessionRequest)
+                guard !favoriteSessions.isEmpty else {
+                    print("📊 收藏照片数量: 0 (无收藏的 session)")
+                    return
+                }
+                
+                // 统计这些 session 下的照片数量
+                var totalCount = 0
+                for session in favoriteSessions {
+                    if let photos = session.photoAnalyses as? Set<PhotoAnalysisEntity> {
+                        totalCount += photos.count
+                    }
+                }
+                
+                print("📊 收藏照片数量: \(totalCount) (来自 \(favoriteSessions.count) 个收藏的 session)")
+                result = totalCount
             } catch {
                 print("❌ 获取收藏照片数量失败: \(error)")
-                return 0
             }
         }
+        
+        return result
     }
     
     /// 删除指定模式的显影缓存
