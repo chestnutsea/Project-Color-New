@@ -52,8 +52,8 @@ struct CustomPhotoPickerView: View {
     @State private var scrubberHideTimer: Timer?
     @State private var scrollViewProxy: ScrollViewProxy?
     @State private var keyAssets: [String: PHAsset] = [:]  // albumId -> key asset 缓存
-    @State private var visibleIndices: Set<Int> = []  // 当前可见的所有索引
     @State private var scrubberUpdateWorkItem: DispatchWorkItem?  // 防抖用
+    @State private var collectionViewCoordinator: PhotoCollectionViewCoordinator?  // UICollectionView 协调器
     @State private var albumLoadToken = UUID()  // 防止异步加载错位
     @State private var cachedAssets: Set<String> = []  // 已预热的 asset ID（限制最大数量）
     @State private var pendingScrollIndex: Int?
@@ -258,105 +258,53 @@ struct CustomPhotoPickerView: View {
         GeometryReader { geometry in
             let gridHeight = geometry.size.height
             let trackHeight = gridHeight - scrubberTopMargin - scrubberBottomMargin
+            let rowHeight = photoSize + photoSpacing
 
             ZStack(alignment: .trailing) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVGrid(
-                            columns: Array(
-                                repeating: GridItem(.fixed(photoSize), spacing: photoSpacing),
-                                count: columns
-                            ),
-                            spacing: photoSpacing
-                        ) {
-                            ForEach(Array(photos.enumerated()), id: \.element.localIdentifier) { index, asset in
-                                PhotoCell(
-                                    asset: asset,
-                                    size: photoSize,
-                                    selectionIndex: selectionIndex(for: asset),
-                                    imageManager: imageManager
-                                ) {
-                                    toggleSelection(asset)
-                                }
-                                .id(asset.localIdentifier)
-                                .onAppear {
-                                    handleCellAppear(index: index)
-                                }
-                                .onDisappear {
-                                    handleCellDisappear(index: index)
-                                }
-                            }
-                        }
-                        .padding(.bottom, 40)
-                    }
-                    .scrollIndicators(.hidden)
-                    .onAppear {
-                        scrollViewProxy = proxy
-                    }
-                }
+                PhotoCollectionView(
+                    photos: photos,
+                    selectedPhotos: $selectedPhotos,
+                    photoSize: photoSize,
+                    photoSpacing: photoSpacing,
+                    columns: columns,
+                    imageManager: imageManager,
+                    onScroll: { topIndex in
+                        handleCollectionViewScroll(topIndex: topIndex)
+                    },
+                    onNeedLoadMore: { index in
+                        loadMorePhotosIfNeeded(currentIndex: index)
+                    },
+                    coordinatorRef: $collectionViewCoordinator
+                )
 
                 if showDateScrubber && !currentDateText.isEmpty {
-                    dateScrubberView(trackHeight: trackHeight)
+                    dateScrubberView(trackHeight: trackHeight, rowHeight: rowHeight)
                 }
             }
         }
     }
     
-    // MARK: - Cell 出现时的处理
-    private func handleCellAppear(index: Int) {
-        // 加载更多照片
-        loadMorePhotosIfNeeded(currentIndex: index)
-        
-        // 记录可见索引
-        visibleIndices.insert(index)
-        
-        // 如果正在拖动日期选择器，不更新
+    // MARK: - UICollectionView 滚动回调
+    private func handleCollectionViewScroll(topIndex: Int) {
         guard !isDraggingScrubber else { return }
-        
-        // 防抖更新日期选择器
-        scheduleScrubberUpdate()
-    }
-    
-    // MARK: - Cell 消失时的处理
-    private func handleCellDisappear(index: Int) {
-        visibleIndices.remove(index)
-    }
-    
-    // MARK: - 防抖更新日期选择器（等待滚动稳定后更新）
-    private func scheduleScrubberUpdate() {
-        // 取消之前的更新任务
-        scrubberUpdateWorkItem?.cancel()
-        
-        // 创建新的延迟更新任务（防抖 100ms）
-        let workItem = DispatchWorkItem { [self] in
-            updateScrubberFromVisibleIndices()
-        }
-        scrubberUpdateWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
-    }
-    
-    // MARK: - 根据可见索引更新日期选择器
-    private func updateScrubberFromVisibleIndices() {
-        guard !isDraggingScrubber else { return }
-        guard !visibleIndices.isEmpty else { return }
-        
-        // 使用可见索引中最小的（即屏幕顶部的照片）
-        let topIndex = visibleIndices.min() ?? 0
-        
         guard topIndex >= 0, topIndex < photos.count else { return }
         
-        let total = max(1, totalPhotoCount > 0 ? totalPhotoCount : photos.count)
-        let newProgress = CGFloat(topIndex) / CGFloat(max(1, total - 1))
-        
-        // 直接更新，不使用动画
-        scrubberProgress = newProgress
-        currentDateText = formatDate(photos[topIndex].creationDate)
-        
-        // 显示日期选择器
-        if !showDateScrubber {
-            showDateScrubber = true
+        // 防抖更新
+        scrubberUpdateWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [self] in
+            let total = max(1, totalPhotoCount > 0 ? totalPhotoCount : photos.count)
+            let newProgress = CGFloat(topIndex) / CGFloat(max(1, total - 1))
+            
+            scrubberProgress = newProgress
+            currentDateText = formatDate(photos[topIndex].creationDate)
+            
+            if !showDateScrubber {
+                showDateScrubber = true
+            }
+            startScrubberHideTimer()
         }
-        startScrubberHideTimer()
+        scrubberUpdateWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: workItem)
     }
 
     
@@ -369,7 +317,7 @@ struct CustomPhotoPickerView: View {
     }
     
     // MARK: - 日期滚动条视图
-    private func dateScrubberView(trackHeight: CGFloat) -> some View {
+    private func dateScrubberView(trackHeight: CGFloat, rowHeight: CGFloat) -> some View {
         // 计算日期标签的垂直位置
         let labelY = scrubberTopMargin + scrubberProgress * trackHeight
         
@@ -395,7 +343,7 @@ struct CustomPhotoPickerView: View {
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    handleScrubberDrag(value: value, trackHeight: trackHeight)
+                    handleScrubberDrag(value: value, trackHeight: trackHeight, rowHeight: rowHeight)
                 }
                 .onEnded { _ in
                     isDraggingScrubber = false
@@ -405,7 +353,7 @@ struct CustomPhotoPickerView: View {
     }
     
     // MARK: - 处理日期选择器拖动
-    private func handleScrubberDrag(value: DragGesture.Value, trackHeight: CGFloat) {
+    private func handleScrubberDrag(value: DragGesture.Value, trackHeight: CGFloat, rowHeight: CGFloat) {
         isDraggingScrubber = true
         cancelScrubberHideTimer()
         
@@ -414,27 +362,28 @@ struct CustomPhotoPickerView: View {
         let relativeY = dragY - scrubberTopMargin
         let newProgress = max(0, min(1, relativeY / trackHeight))
         
-        // 更新进度
+        // 更新进度（立即更新，确保日期选择器位置跟手）
         scrubberProgress = newProgress
         
         // 计算目标索引
         let total = max(1, totalPhotoCount)
         let targetIndex = Int(newProgress * CGFloat(total - 1))
+        let clampedIndex = min(max(0, targetIndex), photos.count - 1)
+        
+        // 更新日期文本（立即更新）
+        if clampedIndex >= 0 && clampedIndex < photos.count {
+            currentDateText = formatDate(photos[clampedIndex].creationDate)
+        }
         
         // 预加载数据
         if let fetchResult = currentFetchResult {
             queueLoadIfNeeded(upTo: targetIndex + scrubberLoadAhead, fetchResult: fetchResult)
         }
         
-        // 滚动到目标位置
-        let clampedIndex = min(max(0, targetIndex), photos.count - 1)
-        if clampedIndex >= 0 && clampedIndex < photos.count {
-            let asset = photos[clampedIndex]
-            currentDateText = formatDate(asset.creationDate)
-            
-            // 使用无动画滚动，确保跟手
-            scrollViewProxy?.scrollTo(asset.localIdentifier, anchor: .top)
-        }
+        // 直接设置 UICollectionView 的 contentOffset（丝滑滚动）
+        let targetRow = CGFloat(clampedIndex / columns)
+        let targetOffset = targetRow * rowHeight
+        collectionViewCoordinator?.setContentOffset(targetOffset, animated: false)
     }
     
     
@@ -922,7 +871,6 @@ struct CustomPhotoPickerView: View {
                 
                 if !initialPhotos.isEmpty {
                     // 初始化日期选择器状态
-                    self.visibleIndices = [0]
                     self.scrubberProgress = 0
                     self.currentDateText = self.formatDate(initialPhotos[0].creationDate)
                     self.showDateScrubber = true
@@ -1272,7 +1220,279 @@ struct AlbumRow: View {
     }
 }
 
+// MARK: - 纯 UIKit 照片网格视图
+struct PhotoCollectionView: UIViewRepresentable {
+    let photos: [PHAsset]
+    @Binding var selectedPhotos: [PHAsset]
+    let photoSize: CGFloat
+    let photoSpacing: CGFloat
+    let columns: Int
+    let imageManager: PHCachingImageManager
+    let onScroll: (Int) -> Void
+    let onNeedLoadMore: (Int) -> Void
+    @Binding var coordinatorRef: PhotoCollectionViewCoordinator?
+    
+    func makeUIView(context: Context) -> UICollectionView {
+        let layout = UICollectionViewFlowLayout()
+        layout.itemSize = CGSize(width: photoSize, height: photoSize)
+        layout.minimumInteritemSpacing = photoSpacing
+        layout.minimumLineSpacing = photoSpacing
+        layout.sectionInset = .zero
+        
+        let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView.backgroundColor = .systemBackground
+        collectionView.showsVerticalScrollIndicator = false
+        collectionView.alwaysBounceVertical = true
+        collectionView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 40, right: 0)
+        
+        collectionView.register(PhotoCollectionCell.self, forCellWithReuseIdentifier: PhotoCollectionCell.reuseId)
+        
+        collectionView.dataSource = context.coordinator
+        collectionView.delegate = context.coordinator
+        
+        context.coordinator.collectionView = collectionView
+        
+        DispatchQueue.main.async {
+            self.coordinatorRef = context.coordinator
+        }
+        
+        return collectionView
+    }
+    
+    func updateUIView(_ collectionView: UICollectionView, context: Context) {
+        // 更新数据
+        context.coordinator.photos = photos
+        context.coordinator.selectedPhotos = selectedPhotos
+        context.coordinator.imageManager = imageManager
+        context.coordinator.onSelectionChanged = { newSelection in
+            self.selectedPhotos = newSelection
+        }
+        
+        // 刷新显示
+        collectionView.reloadData()
+    }
+    
+    func makeCoordinator() -> PhotoCollectionViewCoordinator {
+        PhotoCollectionViewCoordinator(
+            photos: photos,
+            selectedPhotos: selectedPhotos,
+            imageManager: imageManager,
+            photoSize: photoSize,
+            columns: columns,
+            onScroll: onScroll,
+            onNeedLoadMore: onNeedLoadMore
+        )
+    }
+}
 
+// MARK: - UICollectionView 协调器
+class PhotoCollectionViewCoordinator: NSObject, UICollectionViewDataSource, UICollectionViewDelegate {
+    var photos: [PHAsset]
+    var selectedPhotos: [PHAsset]
+    var imageManager: PHCachingImageManager
+    let photoSize: CGFloat
+    let columns: Int
+    let onScroll: (Int) -> Void
+    let onNeedLoadMore: (Int) -> Void
+    var onSelectionChanged: (([PHAsset]) -> Void)?
+    weak var collectionView: UICollectionView?
+    
+    private var lastReportedIndex: Int = -1
+    
+    init(photos: [PHAsset], selectedPhotos: [PHAsset], imageManager: PHCachingImageManager,
+         photoSize: CGFloat, columns: Int, onScroll: @escaping (Int) -> Void, onNeedLoadMore: @escaping (Int) -> Void) {
+        self.photos = photos
+        self.selectedPhotos = selectedPhotos
+        self.imageManager = imageManager
+        self.photoSize = photoSize
+        self.columns = columns
+        self.onScroll = onScroll
+        self.onNeedLoadMore = onNeedLoadMore
+    }
+    
+    // MARK: - 设置滚动偏移（丝滑滚动的关键）
+    func setContentOffset(_ offset: CGFloat, animated: Bool) {
+        guard let collectionView = collectionView else { return }
+        let maxOffset = max(0, collectionView.contentSize.height - collectionView.bounds.height)
+        let clampedOffset = min(max(0, offset), maxOffset)
+        collectionView.setContentOffset(CGPoint(x: 0, y: clampedOffset), animated: animated)
+    }
+    
+    // MARK: - UICollectionViewDataSource
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        return photos.count
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PhotoCollectionCell.reuseId, for: indexPath) as! PhotoCollectionCell
+        
+        let asset = photos[indexPath.item]
+        let selectionIndex = selectedPhotos.firstIndex { $0.localIdentifier == asset.localIdentifier }.map { $0 + 1 }
+        
+        cell.configure(asset: asset, selectionIndex: selectionIndex, imageManager: imageManager, size: photoSize)
+        
+        return cell
+    }
+    
+    // MARK: - UICollectionViewDelegate
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        let asset = photos[indexPath.item]
+        
+        if let index = selectedPhotos.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }) {
+            selectedPhotos.remove(at: index)
+        } else if selectedPhotos.count < 9 {
+            selectedPhotos.append(asset)
+        }
+        
+        onSelectionChanged?(selectedPhotos)
+        collectionView.reloadData()
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        // 触发加载更多
+        onNeedLoadMore(indexPath.item)
+    }
+    
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard let collectionView = collectionView else { return }
+        
+        // 计算当前可见的第一行索引
+        let flowLayout = collectionView.collectionViewLayout as? UICollectionViewFlowLayout
+        let spacing = flowLayout?.minimumLineSpacing ?? 1
+        let rowHeight = photoSize + spacing
+        let visibleRow = Int(max(0, scrollView.contentOffset.y) / rowHeight)
+        let visibleIndex = visibleRow * columns
+        
+        // 只在索引变化时回调
+        if visibleIndex != lastReportedIndex && visibleIndex >= 0 && visibleIndex < photos.count {
+            lastReportedIndex = visibleIndex
+            onScroll(visibleIndex)
+        }
+    }
+}
+
+// MARK: - UICollectionView Cell
+class PhotoCollectionCell: UICollectionViewCell {
+    static let reuseId = "PhotoCollectionCell"
+    
+    private let imageView = UIImageView()
+    private let overlayView = UIView()
+    private let selectionBadge = UIView()
+    private let selectionLabel = UILabel()
+    
+    private var currentAssetId: String?
+    private var imageRequestID: PHImageRequestID?
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupViews()
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    private func setupViews() {
+        // 图片视图
+        imageView.contentMode = .scaleAspectFill
+        imageView.clipsToBounds = true
+        imageView.backgroundColor = UIColor.systemGray5
+        contentView.addSubview(imageView)
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            imageView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
+        
+        // 选中遮罩
+        overlayView.backgroundColor = UIColor.white.withAlphaComponent(0.3)
+        overlayView.isHidden = true
+        contentView.addSubview(overlayView)
+        overlayView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            overlayView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            overlayView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            overlayView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            overlayView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
+        
+        // 选中标记
+        selectionBadge.backgroundColor = .black
+        selectionBadge.layer.cornerRadius = 12
+        selectionBadge.layer.borderWidth = 2
+        selectionBadge.layer.borderColor = UIColor.white.cgColor
+        selectionBadge.isHidden = true
+        contentView.addSubview(selectionBadge)
+        selectionBadge.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            selectionBadge.widthAnchor.constraint(equalToConstant: 24),
+            selectionBadge.heightAnchor.constraint(equalToConstant: 24),
+            selectionBadge.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -6),
+            selectionBadge.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6)
+        ])
+        
+        // 选中数字
+        selectionLabel.textColor = .white
+        selectionLabel.font = .systemFont(ofSize: 14, weight: .medium)
+        selectionLabel.textAlignment = .center
+        selectionBadge.addSubview(selectionLabel)
+        selectionLabel.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            selectionLabel.centerXAnchor.constraint(equalTo: selectionBadge.centerXAnchor),
+            selectionLabel.centerYAnchor.constraint(equalTo: selectionBadge.centerYAnchor)
+        ])
+    }
+    
+    func configure(asset: PHAsset, selectionIndex: Int?, imageManager: PHCachingImageManager, size: CGFloat) {
+        // 取消之前的请求
+        if let requestID = imageRequestID {
+            imageManager.cancelImageRequest(requestID)
+        }
+        
+        // 如果是新的 asset，清除旧图片
+        if currentAssetId != asset.localIdentifier {
+            imageView.image = nil
+            currentAssetId = asset.localIdentifier
+        }
+        
+        // 更新选中状态
+        if let index = selectionIndex {
+            overlayView.isHidden = false
+            selectionBadge.isHidden = false
+            selectionLabel.text = "\(index)"
+        } else {
+            overlayView.isHidden = true
+            selectionBadge.isHidden = true
+        }
+        
+        // 加载图片
+        let targetSize = CGSize(width: size * 2, height: size * 2)
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .opportunistic
+        options.resizeMode = .fast
+        options.isNetworkAccessAllowed = true
+        
+        imageRequestID = imageManager.requestImage(
+            for: asset,
+            targetSize: targetSize,
+            contentMode: .aspectFill,
+            options: options
+        ) { [weak self] image, _ in
+            guard let self = self, self.currentAssetId == asset.localIdentifier else { return }
+            self.imageView.image = image
+        }
+    }
+    
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        imageView.image = nil
+        overlayView.isHidden = true
+        selectionBadge.isHidden = true
+        currentAssetId = nil
+    }
+}
 
 #Preview {
     CustomPhotoPickerView { assets, _ in

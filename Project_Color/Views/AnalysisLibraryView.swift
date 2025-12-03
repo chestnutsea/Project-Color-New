@@ -86,6 +86,7 @@ struct AnalysisLibraryView: View {
         }
         .sheet(item: $selectedSession) { sessionInfo in
             // 显示分析结果详情
+            // ✅ 使用 .id() 强制在 sessionInfo 变化时重新创建视图，避免状态复用
             AnalysisResultSheetView(
                 sessionInfo: sessionInfo,
                 viewModel: viewModel,
@@ -93,6 +94,7 @@ struct AnalysisLibraryView: View {
                     selectedSession = nil
                 }
             )
+            .id(sessionInfo.id)
         }
         .alert("确认删除", isPresented: $showDeleteAlert) {
             Button("取消", role: .cancel) {
