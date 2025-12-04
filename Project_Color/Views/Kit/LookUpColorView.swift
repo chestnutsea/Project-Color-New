@@ -47,10 +47,13 @@ struct LookUpColorView: View {
                 }
             }
         }
-        // 使用系统导航栏和返回按钮（与上一级一致）
-        .navigationTitle("查色")
+        // 隐藏导航栏标题，只保留返回按钮
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // 使用空的 principal 来隐藏标题
+            ToolbarItem(placement: .principal) {
+                EmptyView()
+            }
             // 键盘收起按钮
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -187,7 +190,7 @@ struct LookUpColorView: View {
         withAnimation(.easeInOut(duration: 0.25)) {
             isValidHex = true
             colorName = result.name
-            colorHex = result.hex
+            colorHex = result.hex.uppercased()  // 确保 HEX 值大写显示
             topRgbText = formatRgbText(r: inputR, g: inputG, b: inputB)
             bottomRgbText = formatRgbText(r: nearestR, g: nearestG, b: nearestB)
             

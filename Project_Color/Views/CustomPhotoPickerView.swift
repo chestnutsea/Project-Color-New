@@ -256,8 +256,6 @@ struct CustomPhotoPickerView: View {
     // MARK: - 照片网格
     private func photoGrid(photoSize: CGFloat) -> some View {
         GeometryReader { geometry in
-            let gridHeight = geometry.size.height
-            let trackHeight = gridHeight - scrubberTopMargin - scrubberBottomMargin
             let rowHeight = photoSize + photoSpacing
 
             ZStack(alignment: .trailing) {
@@ -271,15 +269,35 @@ struct CustomPhotoPickerView: View {
                     onScroll: { topIndex in
                         handleCollectionViewScroll(topIndex: topIndex)
                     },
+                    onScrollEnd: {
+                        handleScrollDidEnd()
+                    },
                     onNeedLoadMore: { index in
                         loadMorePhotosIfNeeded(currentIndex: index)
                     },
                     coordinatorRef: $collectionViewCoordinator
                 )
 
-                if showDateScrubber && !currentDateText.isEmpty {
-                    dateScrubberView(trackHeight: trackHeight, rowHeight: rowHeight)
-                }
+                // UIKit 日期滚动条（完全跟手）
+                DateScrubberRepresentable(
+                    progress: scrubberProgress,
+                    dateText: currentDateText,
+                    isVisible: showDateScrubber,
+                    onDragStart: {
+                        isDraggingScrubber = true
+                        cancelScrubberHideTimer()
+                    },
+                    onDragChanged: { newProgress in
+                        handleScrubberDragUIKit(progress: newProgress, rowHeight: rowHeight)
+                    },
+                    onDragEnd: {
+                        // 延迟重置拖动状态，避免滚动回调立即触发
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            isDraggingScrubber = false
+                        }
+                        startScrubberHideTimer()
+                    }
+                )
             }
         }
     }
@@ -289,9 +307,15 @@ struct CustomPhotoPickerView: View {
         guard !isDraggingScrubber else { return }
         guard topIndex >= 0, topIndex < photos.count else { return }
         
-        // 防抖更新
+        // 滚动时取消隐藏定时器（保持显示）
+        cancelScrubberHideTimer()
+        
+        // 防抖更新位置和日期
         scrubberUpdateWorkItem?.cancel()
         let workItem = DispatchWorkItem { [self] in
+            // 再次检查拖动状态
+            guard !isDraggingScrubber else { return }
+            
             let total = max(1, totalPhotoCount > 0 ? totalPhotoCount : photos.count)
             let newProgress = CGFloat(topIndex) / CGFloat(max(1, total - 1))
             
@@ -301,10 +325,18 @@ struct CustomPhotoPickerView: View {
             if !showDateScrubber {
                 showDateScrubber = true
             }
-            startScrubberHideTimer()
+            
+            // 不在这里启动隐藏定时器，而是在滚动停止后启动
         }
         scrubberUpdateWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: workItem)
+    }
+    
+    // MARK: - 滚动停止回调
+    private func handleScrollDidEnd() {
+        guard !isDraggingScrubber else { return }
+        // 滚动停止后启动隐藏定时器
+        startScrubberHideTimer()
     }
 
     
@@ -316,53 +348,9 @@ struct CustomPhotoPickerView: View {
         startScrubberHideTimer()
     }
     
-    // MARK: - 日期滚动条视图
-    private func dateScrubberView(trackHeight: CGFloat, rowHeight: CGFloat) -> some View {
-        // 计算日期标签的垂直位置
-        let labelY = scrubberTopMargin + scrubberProgress * trackHeight
-        
-        return VStack(spacing: 0) {
-            Spacer()
-                .frame(height: labelY)
-            
-            // 日期标签
-            Text(currentDateText)
-                .font(.system(size: scrubberFontSize, weight: .medium))
-                .foregroundColor(.primary)
-                .padding(.horizontal, scrubberHorizontalPadding)
-                .padding(.vertical, scrubberVerticalPadding)
-                .background(Color(.systemBackground))
-                .cornerRadius(scrubberCornerRadius)
-                .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
-            
-            Spacer()
-        }
-        .frame(maxHeight: .infinity)
-        .padding(.trailing, scrubberRightPadding)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    handleScrubberDrag(value: value, trackHeight: trackHeight, rowHeight: rowHeight)
-                }
-                .onEnded { _ in
-                    isDraggingScrubber = false
-                    startScrubberHideTimer()
-                }
-        )
-    }
-    
-    // MARK: - 处理日期选择器拖动
-    private func handleScrubberDrag(value: DragGesture.Value, trackHeight: CGFloat, rowHeight: CGFloat) {
-        isDraggingScrubber = true
-        cancelScrubberHideTimer()
-        
-        // 计算新的进度
-        let dragY = value.location.y
-        let relativeY = dragY - scrubberTopMargin
-        let newProgress = max(0, min(1, relativeY / trackHeight))
-        
-        // 更新进度（立即更新，确保日期选择器位置跟手）
+    // MARK: - 处理日期选择器拖动（UIKit 版本）
+    private func handleScrubberDragUIKit(progress newProgress: CGFloat, rowHeight: CGFloat) {
+        // 更新 SwiftUI 状态（用于同步）
         scrubberProgress = newProgress
         
         // 计算目标索引
@@ -370,7 +358,7 @@ struct CustomPhotoPickerView: View {
         let targetIndex = Int(newProgress * CGFloat(total - 1))
         let clampedIndex = min(max(0, targetIndex), photos.count - 1)
         
-        // 更新日期文本（立即更新）
+        // 更新日期文本
         if clampedIndex >= 0 && clampedIndex < photos.count {
             currentDateText = formatDate(photos[clampedIndex].creationDate)
         }
@@ -837,6 +825,7 @@ struct CustomPhotoPickerView: View {
             self.photos = []
             // self.selectedPhotos = []  // ✅ 移除：保留跨相册选择
             self.currentDateText = ""
+            self.showDateScrubber = false  // 切换相册时先隐藏日期选择器，避免闪烁
             self.pendingScrollIndex = nil
             self.desiredLoadedCount = 0
         }
@@ -1229,6 +1218,7 @@ struct PhotoCollectionView: UIViewRepresentable {
     let columns: Int
     let imageManager: PHCachingImageManager
     let onScroll: (Int) -> Void
+    let onScrollEnd: () -> Void  // 新增：滚动停止回调
     let onNeedLoadMore: (Int) -> Void
     @Binding var coordinatorRef: PhotoCollectionViewCoordinator?
     
@@ -1260,16 +1250,34 @@ struct PhotoCollectionView: UIViewRepresentable {
     }
     
     func updateUIView(_ collectionView: UICollectionView, context: Context) {
-        // 更新数据
-        context.coordinator.photos = photos
-        context.coordinator.selectedPhotos = selectedPhotos
+        let oldPhotosCount = context.coordinator.photos.count
+        let oldPhotosIds = Set(context.coordinator.photos.map { $0.localIdentifier })
+        let newPhotosIds = Set(photos.map { $0.localIdentifier })
+        
+        // 更新回调
         context.coordinator.imageManager = imageManager
         context.coordinator.onSelectionChanged = { newSelection in
             self.selectedPhotos = newSelection
         }
         
-        // 刷新显示
-        collectionView.reloadData()
+        // 只在 photos 数组变化且新数组非空时刷新（避免切换相册时的空状态闪烁）
+        let photosChanged = oldPhotosCount != photos.count || oldPhotosIds != newPhotosIds
+        if photosChanged && !photos.isEmpty {
+            // 更新数据
+            context.coordinator.photos = photos
+            context.coordinator.selectedPhotos = selectedPhotos
+            
+            UIView.performWithoutAnimation {
+                collectionView.reloadData()
+                // 切换相册时滚动到顶部
+                if oldPhotosIds != newPhotosIds && oldPhotosCount > 0 {
+                    collectionView.setContentOffset(.zero, animated: false)
+                }
+            }
+        } else if !photosChanged {
+            // 只更新选中状态（不刷新整个列表）
+            context.coordinator.selectedPhotos = selectedPhotos
+        }
     }
     
     func makeCoordinator() -> PhotoCollectionViewCoordinator {
@@ -1280,6 +1288,7 @@ struct PhotoCollectionView: UIViewRepresentable {
             photoSize: photoSize,
             columns: columns,
             onScroll: onScroll,
+            onScrollEnd: onScrollEnd,
             onNeedLoadMore: onNeedLoadMore
         )
     }
@@ -1293,6 +1302,7 @@ class PhotoCollectionViewCoordinator: NSObject, UICollectionViewDataSource, UICo
     let photoSize: CGFloat
     let columns: Int
     let onScroll: (Int) -> Void
+    let onScrollEnd: () -> Void
     let onNeedLoadMore: (Int) -> Void
     var onSelectionChanged: (([PHAsset]) -> Void)?
     weak var collectionView: UICollectionView?
@@ -1300,13 +1310,14 @@ class PhotoCollectionViewCoordinator: NSObject, UICollectionViewDataSource, UICo
     private var lastReportedIndex: Int = -1
     
     init(photos: [PHAsset], selectedPhotos: [PHAsset], imageManager: PHCachingImageManager,
-         photoSize: CGFloat, columns: Int, onScroll: @escaping (Int) -> Void, onNeedLoadMore: @escaping (Int) -> Void) {
+         photoSize: CGFloat, columns: Int, onScroll: @escaping (Int) -> Void, onScrollEnd: @escaping () -> Void, onNeedLoadMore: @escaping (Int) -> Void) {
         self.photos = photos
         self.selectedPhotos = selectedPhotos
         self.imageManager = imageManager
         self.photoSize = photoSize
         self.columns = columns
         self.onScroll = onScroll
+        self.onScrollEnd = onScrollEnd
         self.onNeedLoadMore = onNeedLoadMore
     }
     
@@ -1338,14 +1349,27 @@ class PhotoCollectionViewCoordinator: NSObject, UICollectionViewDataSource, UICo
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         let asset = photos[indexPath.item]
         
+        // 收集需要更新的 indexPaths
+        var indexPathsToReload: [IndexPath] = [indexPath]
+        
         if let index = selectedPhotos.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }) {
+            // 取消选择：需要更新该 cell 之后的所有已选 cell（序号会变）
+            for i in (index + 1)..<selectedPhotos.count {
+                if let photoIndex = photos.firstIndex(where: { $0.localIdentifier == selectedPhotos[i].localIdentifier }) {
+                    indexPathsToReload.append(IndexPath(item: photoIndex, section: 0))
+                }
+            }
             selectedPhotos.remove(at: index)
         } else if selectedPhotos.count < 9 {
             selectedPhotos.append(asset)
         }
         
         onSelectionChanged?(selectedPhotos)
-        collectionView.reloadData()
+        
+        // 只更新受影响的 cell，避免整体抖动
+        UIView.performWithoutAnimation {
+            collectionView.reloadItems(at: indexPathsToReload)
+        }
     }
     
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
@@ -1367,6 +1391,18 @@ class PhotoCollectionViewCoordinator: NSObject, UICollectionViewDataSource, UICo
         if visibleIndex != lastReportedIndex && visibleIndex >= 0 && visibleIndex < photos.count {
             lastReportedIndex = visibleIndex
             onScroll(visibleIndex)
+        }
+    }
+    
+    // 手指离开后减速滚动停止
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        onScrollEnd()
+    }
+    
+    // 手指离开且没有减速（直接停止）
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate {
+            onScrollEnd()
         }
     }
 }
@@ -1491,6 +1527,203 @@ class PhotoCollectionCell: UICollectionViewCell {
         overlayView.isHidden = true
         selectionBadge.isHidden = true
         currentAssetId = nil
+    }
+}
+
+// MARK: - UIKit 日期滚动条（完全跟手）
+class DateScrubberUIView: UIView {
+    
+    // MARK: - 回调
+    var onDragStart: (() -> Void)?
+    var onDragChanged: ((CGFloat) -> Void)?  // 传递新的 progress (0-1)
+    var onDragEnd: (() -> Void)?
+    
+    // MARK: - 配置
+    private let topMargin: CGFloat = 20
+    private let bottomMargin: CGFloat = 40
+    private let rightPadding: CGFloat = 5
+    private let labelHPadding: CGFloat = 12
+    private let labelVPadding: CGFloat = 6
+    private let cornerRadius: CGFloat = 8
+    private let fontSize: CGFloat = 13
+    
+    // MARK: - 状态
+    private var progress: CGFloat = 0
+    private var dragStartProgress: CGFloat = 0
+    private var isDragging = false
+    
+    // MARK: - 子视图
+    private let label = UILabel()
+    private let containerView = UIView()
+    
+    // MARK: - 计算属性
+    private var trackHeight: CGFloat {
+        return bounds.height - topMargin - bottomMargin
+    }
+    
+    // MARK: - 初始化
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupViews()
+        setupGestures()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupViews()
+        setupGestures()
+    }
+    
+    private func setupViews() {
+        // 让父视图不拦截触摸事件，只有日期标签响应
+        backgroundColor = .clear
+        isUserInteractionEnabled = true
+        
+        // 容器视图（圆角背景 + 阴影）
+        containerView.backgroundColor = .systemBackground
+        containerView.layer.cornerRadius = cornerRadius
+        containerView.layer.shadowColor = UIColor.black.cgColor
+        containerView.layer.shadowOpacity = 0.15
+        containerView.layer.shadowOffset = CGSize(width: 0, height: 2)
+        containerView.layer.shadowRadius = 4
+        addSubview(containerView)
+        
+        // 日期标签
+        label.font = .systemFont(ofSize: fontSize, weight: .medium)
+        label.textColor = .label
+        label.textAlignment = .center
+        containerView.addSubview(label)
+    }
+    
+    // 只有触摸到 containerView 时才响应，其他区域穿透
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hitView = super.hitTest(point, with: event)
+        // 如果触摸点不在 containerView 内，返回 nil 让触摸穿透
+        if hitView == self {
+            return nil
+        }
+        return hitView
+    }
+    
+    private func setupGestures() {
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        containerView.addGestureRecognizer(pan)
+        containerView.isUserInteractionEnabled = true
+    }
+    
+    // MARK: - 布局
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateLabelPosition(animated: false)
+    }
+    
+    private func updateLabelPosition(animated: Bool) {
+        let labelY = topMargin + progress * trackHeight
+        
+        // 计算标签尺寸
+        let textSize = label.intrinsicContentSize
+        let containerWidth = textSize.width + labelHPadding * 2
+        let containerHeight = textSize.height + labelVPadding * 2
+        
+        let newFrame = CGRect(
+            x: bounds.width - containerWidth - rightPadding,
+            y: labelY - containerHeight / 2,
+            width: containerWidth,
+            height: containerHeight
+        )
+        
+        if animated {
+            UIView.animate(withDuration: 0.1, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+                self.containerView.frame = newFrame
+            }
+        } else {
+            containerView.frame = newFrame
+        }
+        
+        label.frame = containerView.bounds
+    }
+    
+    // MARK: - 手势处理
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            isDragging = true
+            dragStartProgress = progress
+            onDragStart?()
+            
+        case .changed:
+            let translation = gesture.translation(in: self)
+            let progressDelta = translation.y / trackHeight
+            let newProgress = max(0, min(1, dragStartProgress + progressDelta))
+            
+            // 直接更新位置（跟手）
+            progress = newProgress
+            updateLabelPosition(animated: false)
+            
+            // 回调通知外部
+            onDragChanged?(newProgress)
+            
+        case .ended, .cancelled:
+            isDragging = false
+            onDragEnd?()
+            
+        default:
+            break
+        }
+    }
+    
+    // MARK: - 公开方法
+    func updateProgress(_ newProgress: CGFloat, animated: Bool = false) {
+        // 拖动中不响应外部更新，避免冲突
+        guard !isDragging else { return }
+        
+        progress = max(0, min(1, newProgress))
+        updateLabelPosition(animated: animated)
+    }
+    
+    func updateText(_ text: String) {
+        label.text = text
+        // 文本变化后需要重新布局
+        if !isDragging {
+            updateLabelPosition(animated: false)
+        }
+    }
+    
+    func setVisible(_ visible: Bool, animated: Bool = true) {
+        if animated {
+            UIView.animate(withDuration: 0.2) {
+                self.alpha = visible ? 1 : 0
+            }
+        } else {
+            alpha = visible ? 1 : 0
+        }
+    }
+}
+
+// MARK: - SwiftUI 桥接
+struct DateScrubberRepresentable: UIViewRepresentable {
+    let progress: CGFloat
+    let dateText: String
+    let isVisible: Bool
+    let onDragStart: () -> Void
+    let onDragChanged: (CGFloat) -> Void
+    let onDragEnd: () -> Void
+    
+    func makeUIView(context: Context) -> DateScrubberUIView {
+        let view = DateScrubberUIView()
+        view.alpha = 0  // 初始不可见，避免闪烁
+        view.onDragStart = onDragStart
+        view.onDragChanged = onDragChanged
+        view.onDragEnd = onDragEnd
+        return view
+    }
+    
+    func updateUIView(_ uiView: DateScrubberUIView, context: Context) {
+        uiView.updateProgress(progress)
+        uiView.updateText(dateText)
+        // 只有当有日期文本且应该可见时才显示
+        let shouldShow = isVisible && !dateText.isEmpty
+        uiView.setVisible(shouldShow, animated: true)
     }
 }
 

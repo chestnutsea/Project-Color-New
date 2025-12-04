@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct FavoriteAlertView: View {
     let sessionId: UUID
@@ -15,8 +16,15 @@ struct FavoriteAlertView: View {
     let onConfirm: (String, Date) -> Void
     let onDismiss: () -> Void
     
-    @State private var customName: String
     @State private var customDate: Date
+    
+    /// 日期格式化器（年月日格式）
+    private var dateFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_Hans_CN")
+        formatter.dateFormat = "yyyy 年 M 月 d 日"
+        return formatter
+    }
     
     init(sessionId: UUID, defaultName: String, defaultDate: Date, onConfirm: @escaping (String, Date) -> Void, onDismiss: @escaping () -> Void = {}) {
         self.sessionId = sessionId
@@ -25,7 +33,6 @@ struct FavoriteAlertView: View {
         self.onConfirm = onConfirm
         self.onDismiss = onDismiss
         
-        _customName = State(initialValue: defaultName)
         _customDate = State(initialValue: defaultDate)
     }
     
@@ -34,30 +41,20 @@ struct FavoriteAlertView: View {
             // 标题
             Text("收藏")
                 .font(.headline)
-                .padding(.top, 20)
-                .padding(.bottom, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
             
-            // 内容区域
-            VStack(alignment: .leading, spacing: 16) {
-                // 名称输入框
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("名称")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    
-                    TextField("请输入名称", text: $customName)
-                        .textFieldStyle(.roundedBorder)
-                }
-                
-                // 日期选择器（苹果原生 compact 样式）
-                // 注意：compact 样式的显示格式由系统控制，无法自定义为 "xxxx 年 x 月 x 日"
-                DatePicker("", selection: $customDate, displayedComponents: .date)
-                    .datePickerStyle(.compact)
-                    .labelsHidden()
-                    .environment(\.locale, Locale(identifier: "zh_Hans_CN"))
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+            // 日期选择器（使用 SwiftUI 原生 DatePicker，直接显示年月日格式）
+            DatePicker(
+                "",
+                selection: $customDate,
+                displayedComponents: .date
+            )
+            .datePickerStyle(.compact)
+            .labelsHidden()
+            .environment(\.locale, Locale(identifier: "zh_Hans_CN"))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
             
             Divider()
             
@@ -67,22 +64,38 @@ struct FavoriteAlertView: View {
                     onDismiss()
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                .padding(.vertical, 11)
                 .foregroundColor(.primary)
                 
                 Divider()
                     .frame(height: 44)
                 
                 Button("确认") {
-                    onConfirm(customName.trimmingCharacters(in: .whitespacesAndNewlines), customDate)
+                    // 使用日期格式化后的字符串作为名称
+                    let name = dateFormatter.string(from: customDate)
+                    onConfirm(name, customDate)
                     onDismiss()
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                .padding(.vertical, 11)
                 .foregroundColor(.blue)
                 .fontWeight(.semibold)
-                .disabled(customName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+        }
+        .background(adaptiveMaterial)
+    }
+    
+    /// iOS 系统版本自适应的材质背景
+    @ViewBuilder
+    private var adaptiveMaterial: some View {
+        if #available(iOS 15.0, *) {
+            // iOS 15+ 使用 Material
+            Rectangle()
+                .fill(.regularMaterial)
+        } else {
+            // iOS 14 及以下使用半透明背景
+            Rectangle()
+                .fill(Color(.systemBackground).opacity(0.95))
         }
     }
 }
@@ -97,3 +110,46 @@ struct FavoriteAlertView: View {
     }
 }
 
+/// SwiftUI 封装的 UIDatePicker，确保 compact 样式一开始就使用指定的 Locale 展示文本
+private struct LocaleAwareCompactDatePicker: UIViewRepresentable {
+    @Binding var date: Date
+    var locale: Locale
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    func makeUIView(context: Context) -> UIDatePicker {
+        let picker = UIDatePicker()
+        picker.datePickerMode = .date
+        picker.preferredDatePickerStyle = .compact
+        picker.locale = locale
+        picker.calendar = locale.calendar
+        picker.date = date
+        picker.addTarget(context.coordinator, action: #selector(Coordinator.dateChanged(_:)), for: .valueChanged)
+        return picker
+    }
+    
+    func updateUIView(_ uiView: UIDatePicker, context: Context) {
+        if uiView.date != date {
+            uiView.setDate(date, animated: false)
+        }
+        if uiView.locale != locale {
+            uiView.locale = locale
+            uiView.calendar = locale.calendar
+        }
+    }
+    
+    final class Coordinator: NSObject {
+        private let parent: LocaleAwareCompactDatePicker
+        
+        init(_ parent: LocaleAwareCompactDatePicker) {
+            self.parent = parent
+        }
+        
+        @objc
+        func dateChanged(_ sender: UIDatePicker) {
+            parent.date = sender.date
+        }
+    }
+}

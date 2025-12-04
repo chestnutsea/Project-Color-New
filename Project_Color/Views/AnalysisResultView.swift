@@ -159,6 +159,7 @@ struct AnalysisResultView: View {
         .ignoresSafeArea(edges: .bottom)
         .navigationTitle("扫描结果")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(showFullScreenPhoto ? .hidden : .visible, for: .navigationBar)
         .toolbar {
             // Sheet 模式：显示自定义关闭按钮
             if isSheetMode {
@@ -230,10 +231,9 @@ struct AnalysisResultView: View {
                         showFavoriteAlert = false
                     }
                 )
-                .frame(width: 320)
-                .background(Color(.systemBackground))
-                .cornerRadius(16)
-                .shadow(radius: 20)
+                .frame(width: 280)  // 略宽于系统 Alert，确保日期选择器能显示
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .shadow(color: .black.opacity(0.2), radius: 16, x: 0, y: 4)
                 .transition(.scale.combined(with: .opacity))
             } else {
                 // 调试：显示为什么没有显示
@@ -665,6 +665,7 @@ struct AnalysisResultView: View {
                 .padding(.horizontal, 4)
                 .padding(.top, 4)
                 .frame(maxWidth: .infinity)
+                .textSelection(.enabled)
             
             HStack {
                 Spacer()
@@ -989,6 +990,7 @@ struct AnalysisResultView: View {
                 HStack {
                     Text(clusterEval.colorName)
                         .font(.headline)
+                        .textSelection(.enabled)
                     
                     Spacer()
                     
@@ -996,6 +998,7 @@ struct AnalysisResultView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .monospaced()
+                        .textSelection(.enabled)
                 }
                 
                 Text(clusterEval.evaluation)
@@ -1003,6 +1006,7 @@ struct AnalysisResultView: View {
                     .foregroundColor(.primary)
                     .lineSpacing(4)
                     .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
             }
         }
         .padding()

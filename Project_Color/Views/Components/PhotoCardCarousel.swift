@@ -18,9 +18,9 @@ private enum PhotoCarouselLayout {
     static let cardCornerRadius: CGFloat = 10   // 照片圆角
     static let cardShadowRadius: CGFloat = 15
     static let maxWidthRatio: CGFloat = 0.9     // 照片最大宽度占屏幕宽度的比例
-    static let tiltThreshold: CGFloat = 60   // Tilt/Swipe 切换阈值（降低以更容易触发）
-    static let tiltDivisor: CGFloat = 15     // Tilt 旋转灵敏度
-    static let swipeDistance: CGFloat = 0.5  // 照片切换滑动距离倍数（缩短距离）
+    static let swipeThreshold: CGFloat = 30     // 轮播图切换滑动阈值（滑动超过此距离触发切换）
+    static let tiltDivisor: CGFloat = 15        // Tilt 旋转灵敏度
+    static let swipeDistance: CGFloat = 0.5     // 照片切换滑动距离倍数（缩短距离）
 }
 
 struct PhotoCardCarousel: View {
@@ -44,7 +44,7 @@ struct PhotoCardCarousel: View {
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
-            let threshold = PhotoCarouselLayout.tiltThreshold
+            let threshold = PhotoCarouselLayout.swipeThreshold
             
             let drag = DragGesture()
                 .onChanged { value in
@@ -291,42 +291,33 @@ private struct PhotoCardView: View {
     }
 }
 
-// MARK: - 全屏照片查看（模仿 iOS 原生照片 App 交互）
+// MARK: - 全屏照片查看（支持左右滑动切换、双击缩放、右上角关闭）
 
 struct CarouselFullScreenPhotoView: View {
     let photoInfos: [PhotoColorInfo]
     @Binding var currentIndex: Int
     let onDismiss: () -> Void
     
-    @State private var backgroundOpacity: Double = 1.0
-    
     var body: some View {
-        GeometryReader { geometry in
             ZStack {
-                // 背景：随拖动渐变透明，露出下层内容
+            // 黑色背景
                 Color.black
-                    .opacity(backgroundOpacity)
                     .ignoresSafeArea()
                 
-                // 照片容器
+            // 照片容器（支持左右滑动切换）
                 TabView(selection: $currentIndex) {
                     ForEach(Array(photoInfos.enumerated()), id: \.element.assetIdentifier) { index, photoInfo in
-                        CarouselZoomablePhotoView(
-                            assetIdentifier: photoInfo.assetIdentifier,
-                            screenSize: geometry.size,
-                            backgroundOpacity: $backgroundOpacity,
-                            onDismiss: onDismiss
-                        )
+                    FullScreenPhotoItemView(assetIdentifier: photoInfo.assetIdentifier)
                         .tag(index)
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 
-                // 关闭按钮
+            // 右上角关闭按钮
                 VStack {
                     HStack {
                         Spacer()
-                        Button(action: { dismissWithAnimation() }) {
+                    Button(action: { onDismiss() }) {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 32))
                                 .foregroundStyle(.white.opacity(0.9), .black.opacity(0.3))
@@ -335,46 +326,24 @@ struct CarouselFullScreenPhotoView: View {
                     }
                     Spacer()
                 }
-                .opacity(backgroundOpacity)
-            }
-            .ignoresSafeArea()
         }
+        .ignoresSafeArea()
         .statusBarHidden(true)
-    }
-    
-    private func dismissWithAnimation() {
-        withAnimation(.easeOut(duration: 0.25)) {
-            backgroundOpacity = 0
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            onDismiss()
-        }
     }
 }
 
-// MARK: - 可缩放的单张照片视图（支持缩放、拖拽、下滑退出）
+// MARK: - 全屏单张照片视图（支持双击缩放、放大后拖拽查看）
 
-struct CarouselZoomablePhotoView: View {
+private struct FullScreenPhotoItemView: View {
     let assetIdentifier: String
-    let screenSize: CGSize
-    @Binding var backgroundOpacity: Double
-    let onDismiss: () -> Void
     
     @State private var image: UIImage?
     @State private var scale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
-    @State private var isDismissing: Bool = false
     
-    private let minScale: CGFloat = 0.5  // 允许缩小到 0.5
     private let maxScale: CGFloat = 4.0
-    
-    // 计算拖动进度 (0~1)，用于下滑退出
-    private var dragProgress: CGFloat {
-        guard scale <= 1.0 else { return 0 }
-        return min(max(offset.height, 0) / 300, 1.0)
-    }
     
     var body: some View {
         GeometryReader { geometry in
@@ -386,7 +355,8 @@ struct CarouselZoomablePhotoView: View {
                         .scaleEffect(scale)
                         .offset(offset)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .gesture(combinedGesture)
+                        .gesture(scale > 1.0 ? dragGesture : nil)
+                        .simultaneousGesture(magnificationGesture)
                         .simultaneousGesture(doubleTapGesture)
                 } else {
                     ProgressView()
@@ -397,105 +367,6 @@ struct CarouselZoomablePhotoView: View {
         }
         .onAppear {
             loadImage()
-        }
-    }
-    
-    // 组合手势：缩放 + 拖拽
-    private var combinedGesture: some Gesture {
-        SimultaneousGesture(magnificationGesture, dragGesture)
-    }
-    
-    // 缩放手势
-    private var magnificationGesture: some Gesture {
-        MagnificationGesture()
-            .onChanged { value in
-                let delta = value / lastScale
-                lastScale = value
-                scale = min(max(scale * delta, minScale), maxScale)
-                
-                // 缩放时更新背景透明度（缩小时变透明）
-                if scale < 1.0 {
-                    backgroundOpacity = Double(scale)
-                } else {
-                    backgroundOpacity = 1.0
-                }
-            }
-            .onEnded { _ in
-                lastScale = 1.0
-                
-                // 如果缩放小于 1，弹回正常大小
-                if scale < 1.0 {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        scale = 1.0
-                        offset = .zero
-                        backgroundOpacity = 1.0
-                    }
-                }
-                // 如果缩放接近 1，也回到 1
-                else if scale < 1.1 {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        scale = 1.0
-                    }
-                }
-            }
-    }
-    
-    // 拖拽手势
-    private var dragGesture: some Gesture {
-        DragGesture()
-            .onChanged { value in
-                if scale > 1.0 {
-                    // 放大状态：自由拖拽查看图片不同区域
-                    offset = CGSize(
-                        width: lastOffset.width + value.translation.width,
-                        height: lastOffset.height + value.translation.height
-                    )
-                } else {
-                    // 正常/缩小状态：只允许垂直拖拽（用于下滑退出）
-                    let translation = value.translation
-                    offset = CGSize(width: translation.width * 0.3, height: translation.height)
-                    
-                    // 更新背景透明度
-                    let progress = dragProgress
-                    backgroundOpacity = 1.0 - progress
-                }
-            }
-            .onEnded { value in
-                if scale > 1.0 {
-                    // 放大状态：记录当前偏移
-                    lastOffset = offset
-                    
-                    // 限制偏移范围，不能超出图片边界太多
-                    let maxOffset = (scale - 1) * screenSize.width / 2
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        offset.width = min(max(offset.width, -maxOffset), maxOffset)
-                        offset.height = min(max(offset.height, -maxOffset), maxOffset)
-                    }
-                    lastOffset = offset
-                } else {
-                    // 正常/缩小状态：检查是否触发退出
-                    let translation = value.translation
-                    let velocity = value.predictedEndTranslation.height - translation.height
-                    
-                    if translation.height > 120 || velocity > 300 {
-                        // 触发退出
-                        isDismissing = true
-                        withAnimation(.easeOut(duration: 0.25)) {
-                            offset = CGSize(width: offset.width, height: screenSize.height)
-                            backgroundOpacity = 0
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                            onDismiss()
-                        }
-                    } else {
-                        // 回弹
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            offset = .zero
-                            backgroundOpacity = 1.0
-                        }
-                    }
-                    lastOffset = .zero
-                }
             }
     }
     
@@ -515,6 +386,48 @@ struct CarouselZoomablePhotoView: View {
             }
     }
     
+    // 缩放手势
+    private var magnificationGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                let delta = value / lastScale
+                lastScale = value
+                scale = min(max(scale * delta, 1.0), maxScale)
+            }
+            .onEnded { _ in
+                lastScale = 1.0
+                // 如果缩放接近 1，回到 1
+                if scale < 1.1 {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        scale = 1.0
+                        offset = .zero
+                        lastOffset = .zero
+                    }
+                }
+            }
+    }
+    
+    // 拖拽手势（仅放大状态可用，用于查看图片不同区域）
+    private var dragGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                offset = CGSize(
+                    width: lastOffset.width + value.translation.width,
+                    height: lastOffset.height + value.translation.height
+                )
+            }
+            .onEnded { _ in
+                lastOffset = offset
+                // 限制偏移范围
+                let maxOffset = (scale - 1) * 200
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    offset.width = min(max(offset.width, -maxOffset), maxOffset)
+                    offset.height = min(max(offset.height, -maxOffset), maxOffset)
+                }
+                lastOffset = offset
+            }
+    }
+    
     private func loadImage() {
         DispatchQueue.global(qos: .userInitiated).async {
             let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil)
@@ -527,8 +440,8 @@ struct CarouselZoomablePhotoView: View {
             
             let screenScale = UIScreen.main.scale
             let targetSize = CGSize(
-                width: screenSize.width * screenScale,
-                height: screenSize.height * screenScale
+                width: UIScreen.main.bounds.width * screenScale,
+                height: UIScreen.main.bounds.height * screenScale
             )
             
             PHImageManager.default().requestImage(
@@ -571,7 +484,7 @@ struct FullscreenPhotoViewer: View {
         NavigationView {
             GeometryReader { geometry in
                 let width = geometry.size.width
-                let threshold = PhotoCarouselLayout.tiltThreshold
+                let threshold = PhotoCarouselLayout.swipeThreshold
                 
                 let drag = DragGesture()
                     .onChanged { value in

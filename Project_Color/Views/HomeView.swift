@@ -45,7 +45,9 @@ struct HomeView: View {
     private let arrowOpacity: Double = 0.5 // 箭头透明度
     private let arrowBelowScannerOffset: CGFloat = 100 // 箭头距离 scanner 底部的距离
     private let fadeOutDuration: Double = 0.3 // 照片堆渐变消失速度
-    private let progressBarTopOffset: CGFloat = 50 // 进度条距离 scanner 顶部的距离
+    private let progressBarBelowScannerOffset: CGFloat = 100 // 进度条距离 scanner 底部的距离
+    private let progressBarWidth: CGFloat = 200 // 进度条宽度
+    private let progressBarHeight: CGFloat = 4 // 进度条高度
     private let photoStackBottomOffset: CGFloat = 80 // 照片堆距离屏幕底部的距离
     
     // MARK: - State
@@ -253,50 +255,17 @@ struct HomeView: View {
                         }
                     }
                     
-                    // 进度条
+                    // 进度条（位于 scanner 下方）
                     if isProcessing {
-                        VStack(spacing: 12) {
-                            Text(analysisProgress.currentStage)
-                                .font(.headline)
-                                .foregroundColor(.primary)
+                        VStack {
+                            Spacer()
+                                .frame(height: scannerTopOffset + imageSize + progressBarBelowScannerOffset)
                             
-                            Text(analysisProgress.progressText)
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
+                            AnalysisProgressBar(progress: processingProgress, fillColor: .black)
+                                .frame(width: progressBarWidth, height: progressBarHeight)
                             
-                            AnalysisProgressBar(progress: processingProgress)
-                                .frame(width: 250, height: 8)
-                            
-                            HStack(spacing: 16) {
-                                Text(analysisProgress.percentageText)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                
-                                if !analysisProgress.timeRemainingText.isEmpty {
-                                    Text("•")
-                                        .foregroundColor(.secondary)
-                                    Text(analysisProgress.timeRemainingText)
-                                        .font(.caption)
-                                        .foregroundColor(.blue)
-                                }
-                            }
-                            
-                            // Phase 5: 详细进度信息
-                            if !analysisProgress.detailText.isEmpty {
-                                Text(analysisProgress.detailText)
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                    .multilineTextAlignment(.center)
-                                    .padding(.top, 4)
-                            }
+                            Spacer()
                         }
-                        .padding(20)
-                        .background(Color.white.opacity(0.95))
-                        .cornerRadius(15)
-                        .shadow(radius: 10)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .padding(.top, scannerTopOffset - progressBarTopOffset)
                     }
                 }
                 .onPreferenceChange(ScannerPositionKey.self) { rect in
@@ -319,6 +288,14 @@ struct HomeView: View {
                         })
                         .navigationBarBackButtonHidden(false)  // 保留原生返回按钮以支持边缘左滑
                         .toolbar(.hidden, for: .tabBar)
+                    }
+                }
+                .onChange(of: showAnalysisResult) { newValue in
+                    // 当从分析结果页返回时（包括系统返回按钮和边缘左滑），清空照片选择
+                    if !newValue {
+                        selectionManager.clearSelection()
+                        selectionAlbumContext = nil
+                        AlbumPreheater.shared.markNeedsRefresh()
                     }
                 }
                 .toolbar(showAnalysisResult ? .hidden : .visible, for: .tabBar)  // 根据状态控制 TabBar 显示
@@ -559,7 +536,9 @@ struct HomeView: View {
                     currentStage: "开始分析...",
                     overallProgress: 0.01
                 )
+                withAnimation(.easeInOut(duration: 0.3)) {
                 self.processingProgress = 0.01
+                }
             }
             
             let throttledHandler: (AnalysisProgress) -> Void = { progress in
@@ -567,7 +546,10 @@ struct HomeView: View {
                 if self.progressThrottler.shouldEmit(force: force) {
                     Task { @MainActor in
                         self.analysisProgress = progress
+                        // 使用动画让进度条平滑过渡
+                        withAnimation(.easeInOut(duration: 0.3)) {
                         self.processingProgress = progress.overallProgress
+                        }
                     }
                 }
             }
@@ -594,24 +576,61 @@ struct HomeView: View {
                 progressHandler: throttledHandler
             )
             
-            // 更新进度：准备结果页
-            await MainActor.run {
-                throttledHandler(AnalysisProgress(
-                    currentPhoto: assets.count,
-                    totalPhotos: assets.count,
-                    currentStage: "准备结果页面",
-                    overallProgress: 0.98,
-                    failedCount: result.failedCount,
-                    cachedCount: 0
-                ))
-            }
-            
-            // 短暂延迟，让进度显示出来
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            
-            // 分析完成
+            // 先设置 result，但不跳转
             await MainActor.run {
                 self.analysisResult = result
+            }
+            
+            // 等待 AI 开始输出内容后再跳转（最多等待 30 秒）
+            // 同时逐步更新进度条（从当前进度平滑过渡到 100%）
+            let maxWaitTime: TimeInterval = 30.0
+            let startWaitTime = Date()
+            var hasAIContent = false
+            let startProgress = 0.85  // AI 等待阶段起始进度
+            let endProgress = 0.99    // AI 等待阶段结束进度
+            
+            while !hasAIContent && Date().timeIntervalSince(startWaitTime) < maxWaitTime {
+                // 检查 AI 是否已开始输出内容
+                let aiEvaluation = await MainActor.run { result.aiEvaluation }
+                if let evaluation = aiEvaluation {
+                    // AI 已开始输出（有内容、有错误、或不再加载中）
+                    let hasContent = evaluation.overallEvaluation?.fullText.isEmpty == false
+                    let hasError = evaluation.error != nil
+                    let notLoading = !evaluation.isLoading
+                    
+                    if hasContent || hasError || notLoading {
+                        hasAIContent = true
+                        break
+                    }
+            }
+            
+                // 根据等待时间逐步更新进度（平滑过渡）
+                let elapsed = Date().timeIntervalSince(startWaitTime)
+                let waitProgress = min(elapsed / maxWaitTime, 1.0)
+                let currentProgress = startProgress + (endProgress - startProgress) * waitProgress
+                
+            await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        self.processingProgress = currentProgress
+                    }
+                }
+                
+                // 等待 200ms 后再检查
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            
+            // 完成进度
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    self.processingProgress = 1.0
+                }
+            }
+            
+            // 短暂延迟，让进度条显示完成状态
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            
+            // 跳转到结果页
+            await MainActor.run {
                 self.isProcessing = false
                 self.photoStackOpacity = 1.0
                 self.dragOffset = .zero

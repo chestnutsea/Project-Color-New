@@ -335,28 +335,33 @@ struct AnalysisResultSheetView: View {
     @State private var analysisResult: AnalysisResult?
     
     var body: some View {
-        Group {
-            if let result = analysisResult {
-                // 使用 AnalysisResultView，设置为 Sheet 模式（只改变返回按钮样式）
-                AnalysisResultView(
-                    result: result,
-                    onDismiss: onDismiss,
-                    isSheetMode: true
-                )
-            } else {
-                VStack(spacing: 20) {
-                    ProgressView()
-                    Text("加载中...")
-                        .foregroundColor(.secondary)
+        NavigationView {
+            Group {
+                if let result = analysisResult {
+                    // 使用 AnalysisResultView，设置为 Sheet 模式（只改变返回按钮样式）
+                    AnalysisResultView(
+                        result: result,
+                        onDismiss: onDismiss,
+                        isSheetMode: true
+                    )
+                } else {
+                    VStack(spacing: 20) {
+                        ProgressView()
+                        Text("加载中...")
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .interactiveDismissDisabled(false)  // ✅ 确保可以下滑关闭
         .onAppear {
             // ✅ 优化：先同步检查缓存，如果有缓存就直接显示（瞬间打开）
             if let cachedResult = AnalysisResultCache.shared.result(for: sessionInfo.id) {
                 analysisResult = cachedResult
+                #if DEBUG
                 print("📦 分析结果缓存命中（同步）: \(sessionInfo.id)")
+                #endif
             }
         }
         .task {
@@ -426,22 +431,16 @@ struct LibrarySessionCard: View {
                 }
             }
             
-            // 名称
-            Text(session.name)
-                .font(.headline)
-                .lineLimit(1)
-                .frame(width: cardSize, alignment: .leading)
-            
             // 日期和照片数量
             HStack {
                 Text(formatDate(session.date))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
                 
                 Spacer()
                 
                 Text("\(session.photoCount) 张")
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundColor(.secondary)
             }
             .frame(width: cardSize)
@@ -681,9 +680,9 @@ class AnalysisLibraryViewModel: ObservableObject {
                 // 加载用户输入的感受
                 if let userMessage = entity.userMessage, !userMessage.isEmpty {
                     analysisResult.userMessage = userMessage
+                    #if DEBUG
                     print("✅ 加载用户感受: \(userMessage)")
-                } else {
-                    print("ℹ️ 该分析结果没有用户感受")
+                    #endif
                 }
             
             // 加载聚类信息
@@ -704,6 +703,9 @@ class AnalysisLibraryViewModel: ObservableObject {
             }
             
             // 加载照片信息（按 sortOrder 排序，保持用户选择时的顺序）
+            // ✅ 同时收集 warmCoolScore 用于构建温度分布（避免后续重复计算）
+            var warmCoolScores: [String: Float] = [:]
+            
             if let photoEntities = entity.photoAnalyses?.allObjects as? [PhotoAnalysisEntity] {
                     analysisResult.photoInfos = photoEntities.sorted { $0.sortOrder < $1.sortOrder }.map { photoEntity in
                     var photoInfo = PhotoColorInfo(assetIdentifier: photoEntity.assetLocalIdentifier ?? "")
@@ -742,6 +744,13 @@ class AnalysisLibraryViewModel: ObservableObject {
                         photoInfo.advancedColorAnalysis = advancedAnalysis
                     }
                     
+                    // ✅ 直接读取已保存的 warmCoolScore（避免后续从 JSON 重新提取）
+                    let savedScore = photoEntity.warmCoolScore
+                    if savedScore != 0 || photoInfo.advancedColorAnalysis != nil {
+                        let score = savedScore != 0 ? savedScore : (photoInfo.advancedColorAnalysis?.overallScore ?? 0)
+                        warmCoolScores[photoInfo.assetIdentifier] = score
+                    }
+                    
                     // 加载照片元数据（用于收藏时获取照片时间和相机镜头信息）
                     // 处理 metadata 可能是 to-many 关系的情况
                     let metadataRelation = photoEntity.value(forKey: "metadata")
@@ -766,9 +775,6 @@ class AnalysisLibraryViewModel: ObservableObject {
                         metadata.cameraModel = entity.cameraModel
                         metadata.lensModel = entity.lensModel
                         photoInfo.metadata = metadata
-                        print("📷 加载 metadata: camera=\(entity.cameraMake ?? "nil")/\(entity.cameraModel ?? "nil"), lens=\(entity.lensModel ?? "nil"), date=\(entity.captureDate?.description ?? "nil")")
-                    } else {
-                        print("⚠️ 照片 \(photoEntity.assetLocalIdentifier ?? "unknown") 没有 metadata")
                     }
                     
                     return photoInfo
@@ -783,45 +789,45 @@ class AnalysisLibraryViewModel: ObservableObject {
                     }
             }
             
-                // 重新计算温度分布
-                if !analysisResult.photoInfos.isEmpty {
-                var scores: [String: AdvancedColorAnalysis] = [:]
-                    for photoInfo in analysisResult.photoInfos {
+            // ✅ 使用已收集的 warmCoolScores 构建温度分布（避免重复遍历）
+            if !warmCoolScores.isEmpty {
+                let allScores = Array(warmCoolScores.values)
+                let minScore = allScores.min() ?? -1.0
+                let maxScore = allScores.max() ?? 1.0
+                let bins = 20
+                var histogram = [Float](repeating: 0, count: bins)
+                
+                let scoreRange = maxScore - minScore
+                if scoreRange > 0.001 {
+                    for score in allScores {
+                        let normalizedScore = (score - minScore) / scoreRange
+                        if normalizedScore.isFinite {
+                            let binIndex = min(max(Int(normalizedScore * Float(bins)), 0), bins - 1)
+                            histogram[binIndex] += 1
+                        }
+                    }
+                } else {
+                    histogram[bins / 2] = Float(allScores.count)
+                }
+                
+                // 构建 scores 字典（用于温度分布视图）
+                var advancedScores: [String: AdvancedColorAnalysis] = [:]
+                for photoInfo in analysisResult.photoInfos {
                     if let advanced = photoInfo.advancedColorAnalysis {
-                        scores[photoInfo.assetIdentifier] = advanced
+                        advancedScores[photoInfo.assetIdentifier] = advanced
                     }
                 }
                 
-                if !scores.isEmpty {
-                    let allScores = scores.values.map { $0.overallScore }
-                    let minScore = allScores.min() ?? -1.0
-                    let maxScore = allScores.max() ?? 1.0
-                    let bins = 20
-                    var histogram = [Float](repeating: 0, count: bins)
-                    
-                    let scoreRange = maxScore - minScore
-                        if scoreRange > 0.001 {
-                        for score in allScores {
-                            let normalizedScore = (score - minScore) / scoreRange
-                            if normalizedScore.isFinite {
-                                let binIndex = min(max(Int(normalizedScore * Float(bins)), 0), bins - 1)
-                                histogram[binIndex] += 1
-                            }
-                        }
-                    } else {
-                        histogram[bins / 2] = Float(allScores.count)
-                    }
-                    
-                        analysisResult.warmCoolDistribution = WarmCoolDistribution(
-                        scores: scores,
-                        histogram: histogram,
-                        histogramBins: bins,
-                        minScore: minScore,
-                        maxScore: maxScore
-                    )
-                }
+                analysisResult.warmCoolDistribution = WarmCoolDistribution(
+                    scores: advancedScores,
+                    histogram: histogram,
+                    histogramBins: bins,
+                    minScore: minScore,
+                    maxScore: maxScore
+                )
             }
             
+            #if DEBUG
             // 统计加载的数据
                 let photosWithCDF = analysisResult.photoInfos.filter { $0.brightnessCDF != nil }.count
                 let photosWithAdvanced = analysisResult.photoInfos.filter { $0.advancedColorAnalysis != nil }.count
@@ -833,6 +839,7 @@ class AnalysisLibraryViewModel: ObservableObject {
             print("   - 有高级分析的照片: \(photosWithAdvanced)")
                 print("   - 有 AI 评价: \(analysisResult.aiEvaluation != nil)")
                 print("   - 有温度分布: \(analysisResult.warmCoolDistribution != nil)")
+            #endif
             
                 result = analysisResult
             
@@ -851,40 +858,36 @@ struct SessionEditAlertView: View {
     let onConfirm: (String, Date) -> Void
     let onCancel: () -> Void
     
-    @State private var sessionName: String
     @State private var sessionDate: Date
+    
+    /// 日期格式化器（年月日格式）
+    private var dateFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_Hans_CN")
+        formatter.dateFormat = "yyyy 年 M 月 d 日"
+        return formatter
+    }
     
     init(session: AnalysisSessionInfo, onConfirm: @escaping (String, Date) -> Void, onCancel: @escaping () -> Void) {
         self.session = session
         self.onConfirm = onConfirm
         self.onCancel = onCancel
-        _sessionName = State(initialValue: session.name)
         _sessionDate = State(initialValue: session.date)
     }
     
     var body: some View {
         VStack(spacing: 0) {
-            Text("编辑信息")
+            Text("编辑日期")
                 .font(.headline)
-                .padding(.top, 20)
-                .padding(.bottom, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
             
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("名称")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    TextField("请输入名称", text: $sessionName)
-                        .textFieldStyle(.roundedBorder)
-                }
-                
-                        DatePicker("", selection: $sessionDate, displayedComponents: .date)
-                            .datePickerStyle(.compact)
-                            .labelsHidden()
-                            .environment(\.locale, Locale(identifier: "zh_Hans_CN"))
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+            DatePicker("", selection: $sessionDate, displayedComponents: .date)
+                .datePickerStyle(.compact)
+                .labelsHidden()
+                .environment(\.locale, Locale(identifier: "zh_Hans_CN"))
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
             
             Divider()
             
@@ -893,20 +896,21 @@ struct SessionEditAlertView: View {
                     onCancel()
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                .padding(.vertical, 11)
                 .foregroundColor(.primary)
                 
                 Divider()
                     .frame(height: 44)
                 
                 Button("确认") {
-                    onConfirm(sessionName.trimmingCharacters(in: .whitespacesAndNewlines), sessionDate)
+                    // 使用日期格式化后的字符串作为名称
+                    let name = dateFormatter.string(from: sessionDate)
+                    onConfirm(name, sessionDate)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                .padding(.vertical, 11)
                 .foregroundColor(.blue)
                 .fontWeight(.semibold)
-                .disabled(sessionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
     }
