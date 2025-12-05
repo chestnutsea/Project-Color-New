@@ -6,13 +6,22 @@
 //
 
 import SwiftUI
+import Combine
 #if canImport(UIKit)
 import UIKit
 #endif
 
+// MARK: - Tab Bar 可见性控制
+
+/// 用于控制 Tab Bar 显示/隐藏的环境变量
+class TabBarVisibility: ObservableObject {
+    @Published var isHidden: Bool = false
+}
+
 struct MainTabView: View {
     // MARK: - State
     @State private var selectedTab: TabItem = .scanner
+    @StateObject private var tabBarVisibility = TabBarVisibility()
     
     private enum TabItem: Int, CaseIterable {
         case scanner = 0
@@ -66,6 +75,8 @@ struct MainTabView: View {
                 .tag(TabItem.mine)
         }
         .tint(.black)  // 设置选中颜色为黑色
+        .toolbar(tabBarVisibility.isHidden ? .hidden : .visible, for: .tabBar)
+        .environmentObject(tabBarVisibility)
         .onAppear {
             // 设置 TabBar 的外观：透明背景
             let appearance = UITabBarAppearance()

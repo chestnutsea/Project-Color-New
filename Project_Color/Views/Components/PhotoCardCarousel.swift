@@ -41,30 +41,40 @@ struct PhotoCardCarousel: View {
         displayAreaHeight * PhotoCarouselLayout.photoHeightRatio
     }
     
+    // 跟踪当前照片的缩放状态
+    @State private var currentPhotoScale: CGFloat = 1.0
+    
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
             let threshold = PhotoCarouselLayout.swipeThreshold
             
+            // 当照片未放大时，或者放大后水平滑动明显时，处理切换
             let drag = DragGesture()
                 .onChanged { value in
-                    let dx = value.translation.width
-                    // 只处理水平滑动
-                    cardOffset = dx
+                    // 如果未放大，或者水平滑动距离大于垂直滑动距离，处理切换
+                    if currentPhotoScale <= 1.0 || abs(value.translation.width) > abs(value.translation.height) * 1.5 {
+                        let dx = value.translation.width
+                        cardOffset = dx
+                    }
                 }
                 .onEnded { value in
                     let dx = value.translation.width
+                    let dy = value.translation.height
                     
-                    if dx > threshold {
-                        // 向右滑 → 上一张
-                        swipeToPrevious(width: width)
-                    } else if dx < -threshold {
-                        // 向左滑 → 下一张
-                        swipeToNext(width: width)
-                    } else {
-                        // 回弹
-                        withAnimation(.spring()) {
-                            cardOffset = 0
+                    // 如果未放大，或者水平滑动明显，处理切换
+                    if currentPhotoScale <= 1.0 || abs(dx) > abs(dy) * 1.5 {
+                        if dx > threshold {
+                            // 向右滑 → 上一张
+                            swipeToPrevious(width: width)
+                        } else if dx < -threshold {
+                            // 向左滑 → 下一张
+                            swipeToNext(width: width)
+                        } else {
+                            // 回弹
+                            withAnimation(.spring()) {
+                                cardOffset = 0
+                            }
                         }
                     }
                 }
@@ -80,7 +90,20 @@ struct PhotoCardCarousel: View {
                         asset: loadedAssets[photoInfo.assetIdentifier],
                         maxPhotoHeight: maxPhotoHeight,
                         maxPhotoWidth: width * PhotoCarouselLayout.maxWidthRatio,
-                        loadedImage: loadedImages[photoInfo.assetIdentifier]
+                        loadedImage: loadedImages[photoInfo.assetIdentifier],
+                        onScaleChange: { scale in
+                            currentPhotoScale = scale
+                        },
+                        onEdgeSwipe: { direction in
+                            // 放大状态下到达边缘后继续滑动，触发切换
+                            if direction > 0 {
+                                // 向右滑，切换到上一张
+                                swipeToPrevious(width: width)
+                            } else {
+                                // 向左滑，切换到下一张
+                                swipeToNext(width: width)
+                            }
+                        }
                     )
                     .id(photoInfo.assetIdentifier)  // 强制重新渲染
                     .offset(x: cardOffset)
@@ -92,6 +115,8 @@ struct PhotoCardCarousel: View {
                         loadAssetAndImageIfNeeded(identifier: photoInfo.assetIdentifier)
                         // 预加载相邻照片
                         preloadAdjacentPhotos()
+                        // 重置缩放状态
+                        currentPhotoScale = 1.0
                     }
                 }
             }
@@ -224,6 +249,21 @@ private struct PhotoCardView: View {
     let maxPhotoHeight: CGFloat
     let maxPhotoWidth: CGFloat
     let loadedImage: UIImage?
+    var onScaleChange: ((CGFloat) -> Void)? = nil
+    // 边缘滑动回调：direction 为正表示向右滑（切换到上一张），为负表示向左滑（切换到下一张）
+    var onEdgeSwipe: ((CGFloat) -> Void)? = nil
+    
+    // 缩放状态
+    @State private var scale: CGFloat = 1.0
+    @State private var lastScale: CGFloat = 1.0
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+    @State private var edgeOverflow: CGFloat = 0  // 边缘溢出量（用于触发切换）
+    
+    private let minScale: CGFloat = 0.3   // 允许缩小到30%
+    private let maxScale: CGFloat = 4.0   // 允许放大到400%
+    private let defaultScale: CGFloat = 1.0
+    private let edgeSwipeThreshold: CGFloat = 50  // 边缘滑动触发切换的阈值
     
     // 计算照片实际显示尺寸（保持原始宽高比）
     private var displaySize: CGSize {
@@ -272,8 +312,17 @@ private struct PhotoCardView: View {
                     .resizable()
                     .scaledToFit()  // 改为 fit 以保持原始宽高比
                     .frame(width: displaySize.width, height: displaySize.height)
+                    .scaleEffect(scale)
+                    .offset(offset)
                     .clipShape(RoundedRectangle(cornerRadius: PhotoCarouselLayout.cardCornerRadius))
                     .shadow(radius: PhotoCarouselLayout.cardShadowRadius)
+                    .gesture(
+                        // 手势组合：缩放和拖拽
+                        SimultaneousGesture(
+                            magnificationGesture,
+                            dragGesture
+                        )
+                    )
             } else {
                 // 加载中占位符
                 RoundedRectangle(cornerRadius: PhotoCarouselLayout.cardCornerRadius)
@@ -288,6 +337,98 @@ private struct PhotoCardView: View {
         }
         .frame(width: displaySize.width, height: displaySize.height)
         .contentShape(Rectangle())  // 限制点击区域为实际内容
+    }
+    
+    // 缩放手势（支持缩小弹回和放大后的拖拽）
+    private var magnificationGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                let delta = value / lastScale
+                lastScale = value
+                let newScale = scale * delta
+                // 限制缩放范围（允许临时缩小到minScale，但松手后会弹回）
+                scale = min(max(newScale, minScale), maxScale)
+                // 通知父视图缩放状态变化
+                onScaleChange?(scale)
+            }
+            .onEnded { _ in
+                lastScale = 1.0
+                // 如果缩放小于默认值，弹回默认值（原生效果）
+                if scale < defaultScale {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                        scale = defaultScale
+                        offset = .zero
+                        lastOffset = .zero
+                    }
+                    // 延迟通知，确保动画完成后状态正确
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        onScaleChange?(defaultScale)
+                    }
+                } else {
+                    // 限制偏移范围（只在放大时允许偏移）
+                    let maxOffset = (scale - 1) * displaySize.width * 0.5
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        offset.width = min(max(offset.width, -maxOffset), maxOffset)
+                        offset.height = min(max(offset.height, -maxOffset), maxOffset)
+                    }
+                    lastOffset = offset
+                    onScaleChange?(scale)
+                }
+            }
+    }
+    
+    // 拖拽手势（放大时查看图片不同区域，到达边缘后继续滑动可切换）
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onChanged { value in
+                // 只在放大时允许拖拽查看图片不同区域
+                if scale > 1.0 {
+                    let maxOffset = (scale - 1) * displaySize.width * 0.5
+                    let newOffsetX = lastOffset.width + value.translation.width
+                    
+                    // 检查是否到达边缘
+                    if newOffsetX > maxOffset {
+                        // 到达右边缘，继续向右滑
+                        offset.width = maxOffset
+                        edgeOverflow = newOffsetX - maxOffset
+                    } else if newOffsetX < -maxOffset {
+                        // 到达左边缘，继续向左滑
+                        offset.width = -maxOffset
+                        edgeOverflow = newOffsetX + maxOffset  // 负值
+                    } else {
+                        offset.width = newOffsetX
+                        edgeOverflow = 0
+                    }
+                    
+                    // 垂直方向正常处理
+                    offset.height = lastOffset.height + value.translation.height
+                }
+            }
+            .onEnded { _ in
+                if scale > 1.0 {
+                    // 检查是否触发边缘切换
+                    if abs(edgeOverflow) > edgeSwipeThreshold {
+                        // 触发切换：正值向右滑（上一张），负值向左滑（下一张）
+                        onEdgeSwipe?(edgeOverflow)
+                        // 重置状态
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            scale = defaultScale
+                            offset = .zero
+                            lastOffset = .zero
+                        }
+                        onScaleChange?(defaultScale)
+                    } else {
+                        // 限制偏移范围
+                        let maxOffset = (scale - 1) * displaySize.width * 0.5
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            offset.width = min(max(offset.width, -maxOffset), maxOffset)
+                            offset.height = min(max(offset.height, -maxOffset), maxOffset)
+                        }
+                        lastOffset = offset
+                    }
+                    edgeOverflow = 0
+                }
+            }
     }
 }
 

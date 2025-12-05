@@ -9,6 +9,11 @@
 import SwiftUI
 import UIKit
 
+// MARK: - 布局常量
+private enum FavoriteAlertLayout {
+    static let datePickerHeight: CGFloat = 180  // 日期选择器展开时的高度
+}
+
 struct FavoriteAlertView: View {
     let sessionId: UUID
     let defaultName: String
@@ -17,13 +22,19 @@ struct FavoriteAlertView: View {
     let onDismiss: () -> Void
     
     @State private var customDate: Date
+    @State private var showDatePicker: Bool = false
     
-    /// 日期格式化器（年月日格式）
+    /// 日期格式化器（年月日格式，有空格，单位数月日不补零）
     private var dateFormatter: DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_Hans_CN")
         formatter.dateFormat = "yyyy 年 M 月 d 日"
         return formatter
+    }
+    
+    /// 格式化后的日期字符串
+    private var formattedDate: String {
+        dateFormatter.string(from: customDate)
     }
     
     init(sessionId: UUID, defaultName: String, defaultDate: Date, onConfirm: @escaping (String, Date) -> Void, onDismiss: @escaping () -> Void = {}) {
@@ -44,17 +55,40 @@ struct FavoriteAlertView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 12)
             
-            // 日期选择器（使用 SwiftUI 原生 DatePicker，直接显示年月日格式）
-            DatePicker(
-                "",
-                selection: $customDate,
-                displayedComponents: .date
-            )
-            .datePickerStyle(.compact)
-            .labelsHidden()
-            .environment(\.locale, Locale(identifier: "zh_Hans_CN"))
-            .padding(.horizontal, 16)
-            .padding(.bottom, 16)
+            // 日期选择行：左侧"照片日期"，右侧日期按钮，整体居中
+            HStack {
+                Text("照片日期")
+                    .font(.body)
+                    .foregroundColor(.primary)
+                
+                Spacer()
+                
+                // 日期按钮，点击弹出日期选择器
+                Button {
+                    showDatePicker.toggle()
+                } label: {
+                    Text(formattedDate)
+                        .font(.body)
+                        .foregroundColor(.blue)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 12)
+            
+            // 日期选择器（展开时显示）
+            if showDatePicker {
+                DatePicker(
+                    "",
+                    selection: $customDate,
+                    displayedComponents: .date
+                )
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+                .environment(\.locale, Locale(identifier: "zh_Hans_CN"))
+                .frame(height: FavoriteAlertLayout.datePickerHeight)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+            }
             
             Divider()
             
@@ -72,7 +106,7 @@ struct FavoriteAlertView: View {
                 
                 Button("确认") {
                     // 使用日期格式化后的字符串作为名称
-                    let name = dateFormatter.string(from: customDate)
+                    let name = formattedDate
                     onConfirm(name, customDate)
                     onDismiss()
                 }

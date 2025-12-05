@@ -40,6 +40,9 @@ private enum LayoutConstants {
     static let tonalMaxSize: CGFloat = 80       // 最大边长
     static let tonalMaxCornerRatio: CGFloat = 0.5  // 最大圆角比例（对比度=0时）
     // 对比度 0-100 线性对应 radius 0.5-0
+    
+    // 色调模式 - 彩色圆明度参数
+    static let toneModeFixedBrightness: Double = 0.8  // 色调模式下彩色圆的固定明度（HSB的B值）
 }
 
 // MARK: - Perlin Noise 运动参数
@@ -145,6 +148,7 @@ private struct SeededRandomNumberGenerator: RandomNumberGenerator {
 struct EmergeView: View {
     
     @StateObject private var viewModel = ViewModel()
+    @EnvironmentObject private var tabBarVisibility: TabBarVisibility  // 控制 Tab Bar 显示/隐藏
     @State private var screenSize: CGSize = .zero
     @State private var isAnimating = false
     @State private var selectedCircleID: UUID? = nil  // 选中的圆形 ID
@@ -263,11 +267,17 @@ struct EmergeView: View {
                         currentIndex: photoIndex,
                         onDismiss: {
                             fullScreenPhotoIndex = nil
+                            // 退出全屏时显示 Tab Bar
+                            tabBarVisibility.isHidden = false
                         }
                     )
                     .transition(.opacity)
                     .zIndex(1000)  // 确保在最上层
                 }
+            }
+            // 监听全屏状态变化，控制 Tab Bar 显示/隐藏
+            .onChange(of: fullScreenPhotoIndex) { newValue in
+                tabBarVisibility.isHidden = (newValue != nil)
             }
             .onAppear {
                 screenSize = geometry.size
@@ -610,6 +620,9 @@ final class ViewModel: ObservableObject {
             print("📊 从缓存恢复影调模式：\(squares.count) 个簇")
         } else {
             // 色调/综合模式：恢复为 ColorCircle
+            // 检查是否是色调模式（需要调整明度）
+            let isToneMode = cache.mode.hasPrefix("tone")
+            
             var circles: [ColorCircle] = []
             for cluster in cache.clusters {
                 guard let r = cluster.centroidR,
@@ -621,7 +634,15 @@ final class ViewModel: ObservableObject {
                 
                 let rgb = SIMD3<Float>(r, g, b)
                 let lab = SIMD3<Float>(L, a, B)
-                let color = Color(red: Double(r), green: Double(g), blue: Double(b))
+                
+                // 色调模式：调整明度为固定值
+                let color: Color
+                if isToneMode {
+                    let adjusted = ViewModel.adjustColorForToneMode(r: Double(r), g: Double(g), b: Double(b))
+                    color = Color(red: adjusted.r, green: adjusted.g, blue: adjusted.b)
+                } else {
+                    color = Color(red: Double(r), green: Double(g), blue: Double(b))
+                }
                 
                 let normalizedCount = CGFloat(cluster.photoCount) / CGFloat(maxPhotoCount)
                 let radius = 10 + (40 - 10) * sqrt(normalizedCount)
@@ -1066,6 +1087,49 @@ final class ViewModel: ObservableObject {
         return sqrt(diffA * diffA + diffB * diffB)
     }
     
+    /// 色调模式：将颜色的明度设为固定值（HSB的B=1.0）
+    nonisolated private static func adjustColorForToneMode(r: Double, g: Double, b: Double) -> (r: Double, g: Double, b: Double) {
+        let maxVal = max(r, g, b)
+        let minVal = min(r, g, b)
+        let delta = maxVal - minVal
+        
+        // 计算色相
+        var h: Double = 0
+        if delta > 0 {
+            if maxVal == r {
+                h = 60 * (((g - b) / delta).truncatingRemainder(dividingBy: 6))
+            } else if maxVal == g {
+                h = 60 * ((b - r) / delta + 2)
+            } else {
+                h = 60 * ((r - g) / delta + 4)
+            }
+        }
+        if h < 0 { h += 360 }
+        
+        // 计算饱和度
+        let s = maxVal > 0 ? delta / maxVal : 0
+        
+        // 设置亮度为固定值
+        let brightness = LayoutConstants.toneModeFixedBrightness
+        
+        // HSB转回RGB
+        let c = brightness * s
+        let x = c * (1 - abs((h / 60).truncatingRemainder(dividingBy: 2) - 1))
+        let m = brightness - c
+        
+        var rgb: (r: Double, g: Double, b: Double) = (0, 0, 0)
+        switch Int(h / 60) % 6 {
+        case 0: rgb = (c, x, 0)
+        case 1: rgb = (x, c, 0)
+        case 2: rgb = (0, c, x)
+        case 3: rgb = (0, x, c)
+        case 4: rgb = (x, 0, c)
+        default: rgb = (c, 0, x)
+        }
+        
+        return (rgb.r + m, rgb.g + m, rgb.b + m)
+    }
+    
     // ✅ 后台线程执行聚类计算（内存优化版）
     nonisolated private static func performClusteringBackground(
         coreDataManager: CoreDataManager,
@@ -1234,11 +1298,18 @@ final class ViewModel: ObservableObject {
             }
             
             let centroidRGB = converter.labToRgb(centroidLAB)
-            let color = Color(
-                red: Double(centroidRGB.x),
-                green: Double(centroidRGB.y),
-                blue: Double(centroidRGB.z)
-            )
+            // 色调模式：将明度统一设为固定值（使用布局常量）
+            let color: Color
+            if analysisMode == .tone {
+                let adjusted = adjustColorForToneMode(r: Double(centroidRGB.x), g: Double(centroidRGB.y), b: Double(centroidRGB.z))
+                color = Color(red: adjusted.r, green: adjusted.g, blue: adjusted.b)
+            } else {
+                color = Color(
+                    red: Double(centroidRGB.x),
+                    green: Double(centroidRGB.y),
+                    blue: Double(centroidRGB.z)
+                )
+            }
             
             let normalizedCount = CGFloat(photos.count) / CGFloat(maxPhotoCount)
             let radius = 10 + (40 - 10) * sqrt(normalizedCount)

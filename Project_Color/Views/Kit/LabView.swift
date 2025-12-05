@@ -30,7 +30,7 @@ struct LabView: View {
                         LabMenuRow(
                             icon: "eyedropper",
                             title: "查色",
-                            subtitle: "为颜色找到最贴近的名字"
+                            subtitle: "在人们共建的色彩词典里，找到最接近的那一个"
                         )
                     }
                     .buttonStyle(.plain)

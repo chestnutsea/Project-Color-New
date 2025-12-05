@@ -26,7 +26,7 @@ struct BatchProcessView: View {
             VStack(spacing: Layout.verticalSpacing) {
                 // 设置卡片
                 VStack(spacing: 0) {
-                    // 使用照片时间作为默认名称与日期
+                    // 使用照片时间作为默认日期
                     HStack(spacing: 12) {
                         Image(systemName: "clock")
                             .font(.system(size: 20))
@@ -34,7 +34,7 @@ struct BatchProcessView: View {
                             .frame(width: 28)
                         
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("使用照片时间作为默认名称与日期")
+                            Text("使用照片时间作为默认日期")
                                 .font(.system(size: 17, weight: .regular))
                                 .foregroundColor(.primary)
                         }

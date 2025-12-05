@@ -1044,7 +1044,7 @@ struct FeelingInputSheet: View {
                     // 输入框
                     ZStack(alignment: .topLeading) {
                         if feeling.isEmpty {
-                            Text("按下快门的那一刻...")
+                            Text("那一刻...")
                                 .foregroundColor(.gray.opacity(0.5))
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 8)

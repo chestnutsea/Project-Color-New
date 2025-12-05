@@ -23,7 +23,7 @@ struct BatchProcessSettings {
         static let developmentFavoriteOnly = "developmentFavoriteOnly"
     }
     
-    /// 是否使用照片时间作为默认名称与日期
+    /// 是否使用照片时间作为默认日期
     static var usePhotoTimeAsDefault: Bool {
         get {
             // 如果从未设置过，默认为 true

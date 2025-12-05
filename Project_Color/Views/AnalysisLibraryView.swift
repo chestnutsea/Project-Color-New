@@ -16,6 +16,12 @@ extension Notification.Name {
     static let analysisSessionDidSave = Notification.Name("analysisSessionDidSave")
 }
 
+// MARK: - 布局常量
+private enum LibraryLayoutConstants {
+    // 照片集卡片：日期和张数字体大小
+    static let sessionInfoFontSize: CGFloat = 12  // 使用 caption 大小
+}
+
 /// 分析结果信息
 struct AnalysisSessionInfo: Identifiable {
     let id: UUID
@@ -121,8 +127,8 @@ struct AnalysisLibraryView: View {
                     
                     SessionEditAlertView(
                         session: session,
-                        onConfirm: { name, date in
-                            updateSessionInfo(session, name: name, date: date)
+                        onConfirm: { date in
+                            updateSessionDate(session, date: date)
                             sessionToEdit = nil
                             showEditOverlay = false
                         },
@@ -264,10 +270,10 @@ struct AnalysisLibraryView: View {
         }
     }
     
-    /// 更新分析会话信息（名称和日期）
-    private func updateSessionInfo(_ session: AnalysisSessionInfo, name: String, date: Date) {
-        print("✏️ updateSessionInfo 被调用")
-        print("   - Session: \(session.name) → \(name)")
+    /// 更新分析会话日期
+    private func updateSessionDate(_ session: AnalysisSessionInfo, date: Date) {
+        print("✏️ updateSessionDate 被调用")
+        print("   - Session ID: \(session.id)")
         print("   - Date: \(date)")
         
         let context = CoreDataManager.shared.container.viewContext
@@ -276,7 +282,6 @@ struct AnalysisLibraryView: View {
         
         do {
             if let entity = try context.fetch(fetchRequest).first {
-                entity.customName = name
                 entity.customDate = date
                 try context.save()
                 print("✅ 更新成功")
@@ -285,7 +290,7 @@ struct AnalysisLibraryView: View {
                 viewModel.forceRefresh()
             }
         } catch {
-            print("❌ 更新会话信息失败: \(error)")
+            print("❌ 更新会话日期失败: \(error)")
         }
     }
     
@@ -434,13 +439,13 @@ struct LibrarySessionCard: View {
             // 日期和照片数量
             HStack {
                 Text(formatDate(session.date))
-                    .font(.subheadline)
-                    .foregroundColor(.primary)
+                    .font(.system(size: LibraryLayoutConstants.sessionInfoFontSize))
+                    .foregroundColor(.secondary)
                 
                 Spacer()
                 
                 Text("\(session.photoCount) 张")
-                    .font(.subheadline)
+                    .font(.system(size: LibraryLayoutConstants.sessionInfoFontSize))
                     .foregroundColor(.secondary)
             }
             .frame(width: cardSize)
@@ -852,23 +857,15 @@ class AnalysisLibraryViewModel: ObservableObject {
     }
 }
 
-// MARK: - 编辑照片集信息弹窗（与收藏弹窗一致）
+// MARK: - 编辑日期弹窗
 struct SessionEditAlertView: View {
     let session: AnalysisSessionInfo
-    let onConfirm: (String, Date) -> Void
+    let onConfirm: (Date) -> Void
     let onCancel: () -> Void
     
     @State private var sessionDate: Date
     
-    /// 日期格式化器（年月日格式）
-    private var dateFormatter: DateFormatter {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_Hans_CN")
-        formatter.dateFormat = "yyyy 年 M 月 d 日"
-        return formatter
-    }
-    
-    init(session: AnalysisSessionInfo, onConfirm: @escaping (String, Date) -> Void, onCancel: @escaping () -> Void) {
+    init(session: AnalysisSessionInfo, onConfirm: @escaping (Date) -> Void, onCancel: @escaping () -> Void) {
         self.session = session
         self.onConfirm = onConfirm
         self.onCancel = onCancel
@@ -903,9 +900,7 @@ struct SessionEditAlertView: View {
                     .frame(height: 44)
                 
                 Button("确认") {
-                    // 使用日期格式化后的字符串作为名称
-                    let name = dateFormatter.string(from: sessionDate)
-                    onConfirm(name, sessionDate)
+                    onConfirm(sessionDate)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 11)

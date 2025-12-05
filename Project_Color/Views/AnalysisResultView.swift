@@ -39,6 +39,10 @@ private enum PhotoDisplayLayout {
     static let displayAreaHeightRatio: CGFloat = 1.0 / 3.0  // 展示区域占屏幕高度的 1/3
 }
 
+private enum DistributionTabLayout {
+    static let topOffset: CGFloat = -5  // 构成页card整体往上移的距离（负值往上）
+}
+
 struct AnalysisResultView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var result: AnalysisResult
@@ -134,6 +138,7 @@ struct AnalysisResultView: View {
                                         distributionTabContent
                             }
                             .padding()
+                            .offset(y: DistributionTabLayout.topOffset)  // 整体往上移
                         }
                     .tag(AnalysisResultTab.distribution)
                     }
@@ -733,11 +738,31 @@ struct AnalysisResultView: View {
         // 获取主代表色（照片数量最多的聚类）
         let dominantColor = getDominantClusterColor()
         
-        return VStack(alignment: .leading, spacing: 20) {
-            // 解析并格式化显示评价内容
-            formattedEvaluationView(overall.fullText, dominantColor: dominantColor)
+        return ZStack(alignment: .topLeading) {
+            VStack(alignment: .leading, spacing: 20) {
+                // 解析并格式化显示评价内容
+                formattedEvaluationView(overall.fullText, dominantColor: dominantColor)
+            }
+            .padding(20)
+            
+            // Sparkle SVG 在左上角
+            if let sparklesImage = loadSparklesImage() {
+                Image(uiImage: sparklesImage)
+                    .resizable()
+                    .renderingMode(.template)
+                    .foregroundColor(dominantColor)
+                    .frame(width: 16, height: 16)
+                    .padding(.leading, 8)
+                    .padding(.top, 8)
+            } else {
+                // 回退到系统图标
+                Image(systemName: "sparkles")
+                    .font(.system(size: 16))
+                    .foregroundColor(dominantColor)
+                    .padding(.leading, 8)
+                    .padding(.top, 8)
+            }
         }
-        .padding(20)
         .background(Color(.systemBackground))
         .cornerRadius(15)
         .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
@@ -758,6 +783,21 @@ struct AnalysisResultView: View {
         // 将 RGB 转换为 Color
         let rgb = dominantCluster.centroid
         return Color(red: Double(rgb.x), green: Double(rgb.y), blue: Double(rgb.z))
+    }
+    
+    // 加载 sparkles.svg 文件
+    private func loadSparklesImage() -> UIImage? {
+        #if canImport(UIKit)
+        // 尝试从 AppStyle 文件夹加载
+        if let imagePath = Bundle.main.path(forResource: "sparkles", ofType: "svg", inDirectory: "AppStyle") {
+            // SVG文件需要特殊处理，暂时回退到系统图标
+            return nil
+        }
+        // 尝试从 Assets 加载
+        return UIImage(named: "sparkles")
+        #else
+        return nil
+        #endif
     }
     
     // 解析并格式化显示评价内容

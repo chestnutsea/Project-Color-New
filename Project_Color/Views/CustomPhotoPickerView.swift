@@ -71,8 +71,8 @@ struct CustomPhotoPickerView: View {
     private let columns = 3
     private let thumbnailSize = CGSize(width: 200, height: 200)  // 缩略图尺寸
     private let preheatBatchSize = 50  // 每批预热数量
-    private let loadBatchSize = 80  // 每批加载数量（用于快速滚动时补齐数据）
-    private let scrubberLoadAhead = 90  // 拖动滚动条时，额外预加载的照片数量
+    private let loadBatchSize = 300  // 每批加载数量（大幅增加以支持快速滚动）
+    private let scrubberLoadAhead = 200  // 拖动滚动条时，额外预加载的照片数量（增加缓冲）
     
     // 日期滚动条布局常量
     private let scrubberRightPadding: CGFloat = 5
@@ -275,7 +275,11 @@ struct CustomPhotoPickerView: View {
                     onNeedLoadMore: { index in
                         loadMorePhotosIfNeeded(currentIndex: index)
                     },
-                    coordinatorRef: $collectionViewCoordinator
+                    onGetFetchResult: {
+                        return currentFetchResult
+                    },
+                    coordinatorRef: $collectionViewCoordinator,
+                    totalPhotoCount: totalPhotoCount
                 )
 
                 // UIKit 日期滚动条（完全跟手）
@@ -302,33 +306,40 @@ struct CustomPhotoPickerView: View {
         }
     }
     
-    // MARK: - UICollectionView 滚动回调
+    // MARK: - UICollectionView 滚动回调（优化：减少状态更新频率）
     private func handleCollectionViewScroll(topIndex: Int) {
         guard !isDraggingScrubber else { return }
-        guard topIndex >= 0, topIndex < photos.count else { return }
+        guard topIndex >= 0, topIndex < totalPhotoCount else { return }  // 使用 totalPhotoCount 而不是 photos.count
         
         // 滚动时取消隐藏定时器（保持显示）
         cancelScrubberHideTimer()
         
         // 防抖更新位置和日期
         scrubberUpdateWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [self] in
+        let workItem = DispatchWorkItem {
             // 再次检查拖动状态
-            guard !isDraggingScrubber else { return }
+            guard !self.isDraggingScrubber else { return }
+            guard topIndex < self.totalPhotoCount else { return }
             
-            let total = max(1, totalPhotoCount > 0 ? totalPhotoCount : photos.count)
+            let total = max(1, self.totalPhotoCount)
             let newProgress = CGFloat(topIndex) / CGFloat(max(1, total - 1))
             
-            scrubberProgress = newProgress
-            currentDateText = formatDate(photos[topIndex].creationDate)
+            self.scrubberProgress = newProgress
             
-            if !showDateScrubber {
-                showDateScrubber = true
+            // 从 fetchResult 直接获取日期，不需要等待加载到 photos 数组
+            if let fetchResult = self.currentFetchResult, topIndex < fetchResult.count {
+                let asset = fetchResult.object(at: topIndex)
+                self.currentDateText = self.formatDate(asset.creationDate)
+            }
+            
+            if !self.showDateScrubber {
+                self.showDateScrubber = true
             }
             
             // 不在这里启动隐藏定时器，而是在滚动停止后启动
         }
         scrubberUpdateWorkItem = workItem
+        // 减少延迟，让日期选择器更跟手
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: workItem)
     }
     
@@ -356,11 +367,12 @@ struct CustomPhotoPickerView: View {
         // 计算目标索引
         let total = max(1, totalPhotoCount)
         let targetIndex = Int(newProgress * CGFloat(total - 1))
-        let clampedIndex = min(max(0, targetIndex), photos.count - 1)
+        let clampedIndex = min(max(0, targetIndex), totalPhotoCount - 1)  // 使用 totalPhotoCount 而不是 photos.count
         
-        // 更新日期文本
-        if clampedIndex >= 0 && clampedIndex < photos.count {
-            currentDateText = formatDate(photos[clampedIndex].creationDate)
+        // 更新日期文本 - 从 fetchResult 直接获取
+        if let fetchResult = currentFetchResult, clampedIndex >= 0 && clampedIndex < fetchResult.count {
+            let asset = fetchResult.object(at: clampedIndex)
+            currentDateText = formatDate(asset.creationDate)
         }
         
         // 预加载数据
@@ -819,11 +831,9 @@ struct CustomPhotoPickerView: View {
         
         let loadToken = token ?? albumLoadToken
         
-        // 先清空当前照片，避免新旧相册混在一起
-        // 注意：不清空 selectedPhotos，保留跨相册的选择
+        // ✅ 不再清空 photos，改为在新照片加载完成后一次性替换，避免闪烁
+        // 只重置内部状态
         Task { @MainActor in
-            self.photos = []
-            // self.selectedPhotos = []  // ✅ 移除：保留跨相册选择
             self.currentDateText = ""
             self.showDateScrubber = false  // 切换相册时先隐藏日期选择器，避免闪烁
             self.pendingScrollIndex = nil
@@ -834,19 +844,16 @@ struct CustomPhotoPickerView: View {
             let fetchResult = PHAsset.fetchAssets(in: album.collection, options: options)
             let totalCount = fetchResult.count
             
-            // ✅ 内存优化：只加载前 50 张到内存，其余按需加载
+            // ✅ 内存优化：初次加载更多照片，减少空白出现
             // PHFetchResult 本身是懒加载的，不会占用大量内存
-            let initialLoadCount = min(50, totalCount)
+            let initialLoadCount = min(500, totalCount)  // 大幅增加初始加载数量
             
             let initialPhotos = await withCheckedContinuation { continuation in
                 var photos: [PHAsset] = []
                 photos.reserveCapacity(initialLoadCount)
-                fetchResult.enumerateObjects { asset, index, stop in
-                    if index < initialLoadCount {
-                        photos.append(asset)
-                    } else {
-                        stop.pointee = true
-                    }
+                // 🚀 使用直接索引访问，比 enumerateObjects 更快
+                for i in 0..<initialLoadCount {
+                    photos.append(fetchResult.object(at: i))
                 }
                 continuation.resume(returning: photos)
             }
@@ -854,6 +861,8 @@ struct CustomPhotoPickerView: View {
             await MainActor.run {
                 guard loadToken == albumLoadToken else { return }
                 print("📷 加载相册 \(album.title) 的照片: \(initialPhotos.count)/\(totalCount) 张（初始加载）")
+                
+                // ✅ 一次性替换照片数组，避免先清空再填充导致的闪烁
                 self.photos = initialPhotos
                 self.totalPhotoCount = totalCount  // ✅ 保存总数用于滚动条
                 self.desiredLoadedCount = initialPhotos.count
@@ -876,16 +885,45 @@ struct CustomPhotoPickerView: View {
         }
     }
     
-    /// 按需加载更多照片（当用户滚动到底部时调用）
+    /// 按需加载更多照片（使用与日期选择器相同的激进预加载策略）
     private func loadMorePhotosIfNeeded(currentIndex: Int) {
         guard let fetchResult = currentFetchResult else { return }
         
-        let threshold = max(0, loadedPhotoCount - 20)  // 提前 20 张开始加载
-        guard currentIndex >= threshold else { return }
+        // 🚀 关键优化：如果当前索引超出已加载范围，立即同步加载一小批
+        if currentIndex >= loadedPhotoCount {
+            // 同步快速加载当前可见范围的照片（避免异步延迟）
+            syncLoadPhotosIfNeeded(from: fetchResult, startIndex: loadedPhotoCount, targetIndex: currentIndex)
+        }
         
-        // 让加载目标稍微超前，避免滚动到终点才加载
-        let targetCount = currentIndex + loadBatchSize
+        // 计算需要加载到的目标位置（当前索引 + 预加载缓冲）
+        let targetCount = currentIndex + scrubberLoadAhead
+        
+        // 触发异步加载更多照片
         queueLoadIfNeeded(upTo: targetCount, fetchResult: fetchResult)
+    }
+    
+    /// 同步快速加载照片（仅加载 PHAsset 对象，不加载图片）
+    private func syncLoadPhotosIfNeeded(from fetchResult: PHFetchResult<PHAsset>, startIndex: Int, targetIndex: Int) {
+        guard startIndex < fetchResult.count else { return }
+        
+        // 只加载到目标索引后一点点（比如 1 行），避免阻塞太久
+        let endIndex = min(targetIndex + columns * 3, fetchResult.count)
+        let loadCount = endIndex - startIndex
+        
+        guard loadCount > 0 else { return }
+        
+        // 同步提取 PHAsset 对象（这个很快，不会卡顿）
+        var newPhotos: [PHAsset] = []
+        newPhotos.reserveCapacity(loadCount)
+        for i in startIndex..<endIndex {
+            newPhotos.append(fetchResult.object(at: i))
+        }
+        
+        // 立即更新数组
+        photos.append(contentsOf: newPhotos)
+        loadedPhotoCount = photos.count
+        
+        print("⚡️ 同步加载 \(newPhotos.count) 张照片，当前总数: \(loadedPhotoCount)")
     }
     
     private func queueLoadIfNeeded(upTo requiredCount: Int, fetchResult: PHFetchResult<PHAsset>) {
@@ -902,7 +940,12 @@ struct CustomPhotoPickerView: View {
     }
     
     private func startLoadingIfNeeded(fetchResult: PHFetchResult<PHAsset>) {
-        guard !isLoadingMorePhotos else { return }
+        // 🚀 关键优化：允许多个加载任务同时进行
+        // 检查是否已经在加载足够的数据
+        if isLoadingMorePhotos {
+            // 如果目标远超当前正在加载的范围，更新目标并在当前任务完成后继续
+            return
+        }
         
         let startIndex = loadedPhotoCount
         let endIndex = min(desiredLoadedCount, fetchResult.count)
@@ -913,8 +956,9 @@ struct CustomPhotoPickerView: View {
         let rangeEnd = min(endIndex, startIndex + loadBatchSize)
         let loadRange = startIndex..<rangeEnd
         
-        Task.detached(priority: .userInitiated) {
-            let loadedPhotos = await fetchAssets(from: fetchResult, range: loadRange)
+        // 使用更高优先级，加快加载速度
+        Task.detached(priority: .high) {
+            let loadedPhotos = await self.fetchAssets(from: fetchResult, range: loadRange)
             
             await MainActor.run {
                 guard currentToken == self.albumLoadToken else {
@@ -926,12 +970,18 @@ struct CustomPhotoPickerView: View {
                 self.loadedPhotoCount = self.photos.count
                 self.isLoadingMorePhotos = false
                 
-                print("📷 按需加载更多照片: \(self.loadedPhotoCount)/\(fetchResult.count) 张")
+                print("📷 加载 \(loadedPhotos.count) 张照片，当前总数: \(self.loadedPhotoCount)/\(fetchResult.count)")
                 
-                self.startPreheatThumbnails(for: loadedPhotos)
+                // 后台预热缩略图，不阻塞主线程
+                Task.detached(priority: .background) {
+                    await MainActor.run {
+                        self.startPreheatThumbnails(for: loadedPhotos)
+                    }
+                }
+                
                 self.attemptScrollToPendingIndex()
                 
-                // 如果还有目标未满足，继续加载下一批
+                // 立即检查是否需要继续加载（不等待预热完成）
                 if self.loadedPhotoCount < self.desiredLoadedCount {
                     self.startLoadingIfNeeded(fetchResult: fetchResult)
                 }
@@ -940,11 +990,14 @@ struct CustomPhotoPickerView: View {
     }
     
     private func fetchAssets(from fetchResult: PHFetchResult<PHAsset>, range: Range<Int>) async -> [PHAsset] {
+        // 🚀 优化：使用直接索引访问，比 enumerateObjects 更快
         await withCheckedContinuation { continuation in
             var assets: [PHAsset] = []
             assets.reserveCapacity(range.count)
-            fetchResult.enumerateObjects(at: IndexSet(integersIn: range), options: []) { asset, _, _ in
-                assets.append(asset)
+            for index in range {
+                if index < fetchResult.count {
+                    assets.append(fetchResult.object(at: index))
+                }
             }
             continuation.resume(returning: assets)
         }
@@ -1220,7 +1273,21 @@ struct PhotoCollectionView: UIViewRepresentable {
     let onScroll: (Int) -> Void
     let onScrollEnd: () -> Void  // 新增：滚动停止回调
     let onNeedLoadMore: (Int) -> Void
+    let onGetFetchResult: () -> PHFetchResult<PHAsset>?  // 新增：获取 fetchResult
     @Binding var coordinatorRef: PhotoCollectionViewCoordinator?
+    let totalPhotoCount: Int  // 总照片数（用于显示占位符）
+    
+    // 实现 Equatable 以避免不必要的更新
+    static func == (lhs: PhotoCollectionView, rhs: PhotoCollectionView) -> Bool {
+        // 只比较会影响渲染的属性
+        return lhs.photos.count == rhs.photos.count &&
+               lhs.photos.first?.localIdentifier == rhs.photos.first?.localIdentifier &&
+               lhs.photos.last?.localIdentifier == rhs.photos.last?.localIdentifier &&
+               lhs.selectedPhotos.count == rhs.selectedPhotos.count &&
+               lhs.photoSize == rhs.photoSize &&
+               lhs.photoSpacing == rhs.photoSpacing &&
+               lhs.columns == rhs.columns
+    }
     
     func makeUIView(context: Context) -> UICollectionView {
         let layout = UICollectionViewFlowLayout()
@@ -1250,12 +1317,17 @@ struct PhotoCollectionView: UIViewRepresentable {
     }
     
     func updateUIView(_ collectionView: UICollectionView, context: Context) {
+        // 检查是否正在滚动，如果正在滚动则跳过大部分更新以避免中断滚动
+        let isScrolling = collectionView.isDragging || collectionView.isDecelerating
+        
         let oldPhotosCount = context.coordinator.photos.count
         let oldPhotosIds = Set(context.coordinator.photos.map { $0.localIdentifier })
         let newPhotosIds = Set(photos.map { $0.localIdentifier })
         
-        // 更新回调
+        // 更新回调和总数（这个总是需要的）
         context.coordinator.imageManager = imageManager
+        context.coordinator.totalPhotoCount = totalPhotoCount
+        context.coordinator.onGetFetchResult = onGetFetchResult
         context.coordinator.onSelectionChanged = { newSelection in
             self.selectedPhotos = newSelection
         }
@@ -1263,25 +1335,74 @@ struct PhotoCollectionView: UIViewRepresentable {
         // 只在 photos 数组变化且新数组非空时刷新（避免切换相册时的空状态闪烁）
         let photosChanged = oldPhotosCount != photos.count || oldPhotosIds != newPhotosIds
         if photosChanged && !photos.isEmpty {
-            // 更新数据
-            context.coordinator.photos = photos
-            context.coordinator.selectedPhotos = selectedPhotos
-            
-            UIView.performWithoutAnimation {
-                collectionView.reloadData()
-                // 切换相册时滚动到顶部
-                if oldPhotosIds != newPhotosIds && oldPhotosCount > 0 {
-                    collectionView.setContentOffset(.zero, animated: false)
+            // 如果正在滚动，延迟更新直到滚动结束
+            if isScrolling {
+                // 延迟到滚动结束后再更新
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    // 再次检查是否还在滚动
+                    if !collectionView.isDragging && !collectionView.isDecelerating {
+                        self.performCollectionViewUpdate(collectionView: collectionView, 
+                                                         context: context,
+                                                         oldPhotosIds: oldPhotosIds,
+                                                         newPhotosIds: newPhotosIds)
+                    }
                 }
+                return
             }
-        } else if !photosChanged {
-            // 只更新选中状态（不刷新整个列表）
+            
+            performCollectionViewUpdate(collectionView: collectionView,
+                                       context: context,
+                                       oldPhotosIds: oldPhotosIds,
+                                       newPhotosIds: newPhotosIds)
+        } else if !photosChanged && !isScrolling {
+            // 只更新选中状态（不刷新整个列表），且仅在非滚动状态下更新
             context.coordinator.selectedPhotos = selectedPhotos
         }
     }
     
+    // 抽取出实际执行更新的方法
+    private func performCollectionViewUpdate(collectionView: UICollectionView,
+                                            context: Context,
+                                            oldPhotosIds: Set<String>,
+                                            newPhotosIds: Set<String>) {
+        // 判断是否是"追加照片"（新照片 ID 包含所有旧照片 ID）还是"切换相册"（照片 ID 完全不同）
+        let isAppending = oldPhotosIds.isSubset(of: newPhotosIds)
+        
+        // 保存当前滚动位置（追加照片时需要保持位置）
+        let currentOffset = collectionView.contentOffset
+        
+        // 更新数据
+        context.coordinator.photos = photos
+        context.coordinator.selectedPhotos = selectedPhotos
+        
+        if isAppending {
+            // 追加照片：无动画更新，保持滚动位置
+            UIView.performWithoutAnimation {
+                collectionView.reloadData()
+                collectionView.setContentOffset(currentOffset, animated: false)
+            }
+        } else {
+            // 切换相册：使用淡入淡出过渡，避免闪烁
+            // 1. 先设置 alpha 为 0（快速隐藏旧内容）
+            collectionView.alpha = 0
+            
+            // 2. 更新数据并滚动到顶部
+            UIView.performWithoutAnimation {
+                collectionView.reloadData()
+                collectionView.setContentOffset(.zero, animated: false)
+            }
+            
+            // 3. 给一点时间让 cell 准备好，然后淡入显示
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                UIView.animate(withDuration: 0.15) {
+                    collectionView.alpha = 1
+                }
+            }
+        }
+    }
+    
     func makeCoordinator() -> PhotoCollectionViewCoordinator {
-        PhotoCollectionViewCoordinator(
+        let coordinator = PhotoCollectionViewCoordinator(
             photos: photos,
             selectedPhotos: selectedPhotos,
             imageManager: imageManager,
@@ -1291,6 +1412,9 @@ struct PhotoCollectionView: UIViewRepresentable {
             onScrollEnd: onScrollEnd,
             onNeedLoadMore: onNeedLoadMore
         )
+        coordinator.totalPhotoCount = totalPhotoCount
+        coordinator.onGetFetchResult = onGetFetchResult
+        return coordinator
     }
 }
 
@@ -1306,8 +1430,11 @@ class PhotoCollectionViewCoordinator: NSObject, UICollectionViewDataSource, UICo
     let onNeedLoadMore: (Int) -> Void
     var onSelectionChanged: (([PHAsset]) -> Void)?
     weak var collectionView: UICollectionView?
+    var totalPhotoCount: Int = 0  // 总照片数量
+    var onGetFetchResult: (() -> PHFetchResult<PHAsset>?)?  // 获取 fetchResult 的回调
     
     private var lastReportedIndex: Int = -1
+    private var scrollWorkItem: DispatchWorkItem?  // 用于防抖
     
     init(photos: [PHAsset], selectedPhotos: [PHAsset], imageManager: PHCachingImageManager,
          photoSize: CGFloat, columns: Int, onScroll: @escaping (Int) -> Void, onScrollEnd: @escaping () -> Void, onNeedLoadMore: @escaping (Int) -> Void) {
@@ -1331,16 +1458,28 @@ class PhotoCollectionViewCoordinator: NSObject, UICollectionViewDataSource, UICo
     
     // MARK: - UICollectionViewDataSource
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return photos.count
+        // 返回总数量，而不是已加载数量，这样可以显示占位符
+        return totalPhotoCount > 0 ? totalPhotoCount : photos.count
     }
     
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PhotoCollectionCell.reuseId, for: indexPath) as! PhotoCollectionCell
         
-        let asset = photos[indexPath.item]
-        let selectionIndex = selectedPhotos.firstIndex { $0.localIdentifier == asset.localIdentifier }.map { $0 + 1 }
-        
-        cell.configure(asset: asset, selectionIndex: selectionIndex, imageManager: imageManager, size: photoSize)
+        // 🚀 关键优化：直接从 fetchResult 获取 PHAsset，不等待异步加载到 photos 数组
+        if indexPath.item < totalPhotoCount, let fetchResult = onGetFetchResult?() {
+            let asset = fetchResult.object(at: indexPath.item)
+            let selectionIndex = selectedPhotos.firstIndex { $0.localIdentifier == asset.localIdentifier }.map { $0 + 1 }
+            
+            cell.configure(asset: asset, selectionIndex: selectionIndex, imageManager: imageManager, size: photoSize)
+            
+            // 触发后台预加载（优化体验）
+            if indexPath.item >= photos.count {
+                onNeedLoadMore(indexPath.item)
+            }
+        } else {
+            // 如果 fetchResult 不可用，显示占位符
+            cell.configurePlaceholder(size: photoSize)
+        }
         
         return cell
     }
@@ -1373,7 +1512,7 @@ class PhotoCollectionViewCoordinator: NSObject, UICollectionViewDataSource, UICo
     }
     
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        // 触发加载更多
+        // 每次显示 cell 时都触发预加载，就像日期选择器那样
         onNeedLoadMore(indexPath.item)
     }
     
@@ -1387,10 +1526,26 @@ class PhotoCollectionViewCoordinator: NSObject, UICollectionViewDataSource, UICo
         let visibleRow = Int(max(0, scrollView.contentOffset.y) / rowHeight)
         let visibleIndex = visibleRow * columns
         
-        // 只在索引变化时回调
-        if visibleIndex != lastReportedIndex && visibleIndex >= 0 && visibleIndex < photos.count {
+        // 🚀 关键修改：不管是否已加载，都触发预加载和 UI 更新
+        if visibleIndex != lastReportedIndex && visibleIndex >= 0 && visibleIndex < totalPhotoCount {
             lastReportedIndex = visibleIndex
-            onScroll(visibleIndex)
+            
+            // 立即触发加载（不等待防抖）
+            onNeedLoadMore(visibleIndex)
+            
+            // 总是更新 UI 状态（日期选择器），不限制在 photos.count 范围内
+            // 取消之前的工作项
+            scrollWorkItem?.cancel()
+            
+            // 创建新的工作项（防抖延迟更短，确保响应及时）
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self = self else { return }
+                self.onScroll(visibleIndex)
+            }
+            scrollWorkItem = workItem
+            
+            // 减少延迟，让日期选择器更跟手
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: workItem)
         }
     }
     
@@ -1521,12 +1676,31 @@ class PhotoCollectionCell: UICollectionViewCell {
         }
     }
     
+    /// 配置占位符（照片未加载时显示灰色）
+    func configurePlaceholder(size: CGFloat) {
+        // 显示灰色占位符
+        imageView.image = nil
+        imageView.backgroundColor = UIColor.systemGray5
+        currentAssetId = nil
+        
+        // 隐藏选中状态
+        overlayView.isHidden = true
+        selectionBadge.isHidden = true
+        selectionLabel.text = ""
+        
+        // 取消之前的请求
+        imageRequestID = nil
+    }
+    
     override func prepareForReuse() {
         super.prepareForReuse()
         imageView.image = nil
+        imageView.backgroundColor = UIColor.systemGray5
         overlayView.isHidden = true
         selectionBadge.isHidden = true
+        selectionLabel.text = ""
         currentAssetId = nil
+        imageRequestID = nil
     }
 }
 
