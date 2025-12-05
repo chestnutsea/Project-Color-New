@@ -1,0 +1,72 @@
+{
+  "fill" : {
+    "automatic-gradient" : "srgb:1.00000,1.00000,1.00000,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "blend-mode" : "normal",
+          "fill" : "automatic",
+          "glass" : true,
+          "image-name" : "Ellipse 8.svg",
+          "name" : "Ellipse 8",
+          "position" : {
+            "scale" : 5,
+            "translation-in-points" : [
+              251.4140625,
+              -23.078125
+            ]
+          }
+        },
+        {
+          "fill" : "automatic",
+          "image-name" : "Ellipse 7.svg",
+          "name" : "Ellipse 7",
+          "position" : {
+            "scale" : 5,
+            "translation-in-points" : [
+              -91.3828125,
+              -263.0625
+            ]
+          }
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : "automatic"
+            },
+            {
+              "appearance" : "dark",
+              "value" : "none"
+            }
+          ],
+          "image-name" : "Ellipse 6.svg",
+          "name" : "Ellipse 6",
+          "opacity" : 1,
+          "position" : {
+            "scale" : 5,
+            "translation-in-points" : [
+              -191.5,
+              221.2265625
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}
