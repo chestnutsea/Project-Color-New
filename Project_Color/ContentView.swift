@@ -26,7 +26,7 @@ struct ContentView: View {
 
     var body: some View {
         NavigationView {
-            List {
+            List { 
                 ForEach(photos) { photo in
                     NavigationLink {
                         if let timestamp = photo.timestamp {

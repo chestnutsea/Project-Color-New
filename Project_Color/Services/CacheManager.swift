@@ -10,44 +10,127 @@ import UIKit
 import Photos
 import CoreData
 
-// MARK: - 封面图缓存
+// MARK: - 封面图缓存（内存 + 磁盘双层缓存）
 
-/// 封面图缓存管理器（使用 NSCache 自动管理内存）
+/// 封面图缓存管理器
+/// - 内存缓存：NSCache，快速访问，自动内存管理
+/// - 磁盘缓存：Caches 目录，持久化存储，App 重启后仍可用
 final class ThumbnailCache {
     static let shared = ThumbnailCache()
     
-    private let cache = NSCache<NSString, UIImage>()
+    // MARK: - 内存缓存
+    private let memoryCache = NSCache<NSString, UIImage>()
+    
+    // MARK: - 磁盘缓存
+    private let diskCacheDirectory: URL
+    private let ioQueue = DispatchQueue(label: "com.projectcolor.thumbnailcache.io", qos: .utility)
+    private let fileManager = FileManager.default
+    
+    // MARK: - 配置
     private let targetSize = CGSize(width: 300, height: 300)
+    private let jpegCompressionQuality: CGFloat = 0.8
+    private let maxDiskCacheSize: Int = 100_000_000  // 100MB
     
     private init() {
-        // 设置缓存限制（可选）
-        cache.countLimit = 100  // 最多缓存 100 张封面图
+        // 设置内存缓存限制
+        memoryCache.countLimit = 200  // 最多缓存 200 张封面图
+        
+        // 初始化磁盘缓存目录
+        let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        diskCacheDirectory = caches.appendingPathComponent("ThumbnailCache", isDirectory: true)
+        
+        // 创建目录（如果不存在）
+        try? fileManager.createDirectory(at: diskCacheDirectory, withIntermediateDirectories: true)
+        
+        print("📦 ThumbnailCache 初始化完成，磁盘缓存目录: \(diskCacheDirectory.path)")
+        
+        // 启动时异步清理过期缓存
+        ioQueue.async { [weak self] in
+            self?.cleanupDiskCacheIfNeeded()
+        }
     }
     
     // MARK: - 公开接口
     
-    /// 获取缓存的封面图
+    /// 获取缓存的封面图（先查内存，再查磁盘）
     func image(for assetId: String) -> UIImage? {
-        return cache.object(forKey: assetId as NSString)
-    }
-    
-    /// 缓存封面图
-    func setImage(_ image: UIImage, for assetId: String) {
-        cache.setObject(image, forKey: assetId as NSString)
-    }
-    
-    /// 预加载封面图（后台执行）
-    func preloadCovers(assetIds: [String]) async {
-        let idsToLoad = assetIds.filter { cache.object(forKey: $0 as NSString) == nil }
+        // 1. 先查内存缓存
+        if let cachedImage = memoryCache.object(forKey: assetId as NSString) {
+            return cachedImage
+        }
         
-        guard !idsToLoad.isEmpty else {
-            print("📦 封面图缓存：全部已缓存，无需加载")
+        // 2. 再查磁盘缓存
+        let fileURL = diskCacheURL(for: assetId)
+        guard fileManager.fileExists(atPath: fileURL.path),
+              let data = try? Data(contentsOf: fileURL),
+              let image = UIImage(data: data) else {
+            return nil
+        }
+        
+        // 写回内存缓存
+        memoryCache.setObject(image, forKey: assetId as NSString)
+        
+        return image
+    }
+    
+    /// 缓存封面图（同时写入内存和磁盘）
+    func setImage(_ image: UIImage, for assetId: String) {
+        // 写入内存缓存
+        memoryCache.setObject(image, forKey: assetId as NSString)
+        
+        // 异步写入磁盘缓存
+        ioQueue.async { [weak self] in
+            guard let self = self else { return }
+            let fileURL = self.diskCacheURL(for: assetId)
+            
+            // 使用 JPEG 压缩存储，节省空间
+            if let data = image.jpegData(compressionQuality: self.jpegCompressionQuality) {
+                do {
+                    try data.write(to: fileURL)
+                } catch {
+                    print("⚠️ 写入磁盘缓存失败: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+    
+    /// 检查磁盘缓存是否存在（不加载图片）
+    func hasDiskCache(for assetId: String) -> Bool {
+        let fileURL = diskCacheURL(for: assetId)
+        return fileManager.fileExists(atPath: fileURL.path)
+    }
+    
+    /// 预加载封面图（后台执行，优先从磁盘加载）
+    func preloadCovers(assetIds: [String]) async {
+        // 分离：已有磁盘缓存的 vs 需要从相册加载的
+        var idsToLoadFromDisk: [String] = []
+        var idsToLoadFromPhotos: [String] = []
+        
+        for assetId in assetIds {
+            if memoryCache.object(forKey: assetId as NSString) != nil {
+                // 已在内存中，跳过
+                continue
+            } else if hasDiskCache(for: assetId) {
+                idsToLoadFromDisk.append(assetId)
+            } else {
+                idsToLoadFromPhotos.append(assetId)
+            }
+        }
+        
+        print("📦 封面图缓存：内存命中 \(assetIds.count - idsToLoadFromDisk.count - idsToLoadFromPhotos.count) 张，磁盘加载 \(idsToLoadFromDisk.count) 张，相册加载 \(idsToLoadFromPhotos.count) 张")
+        
+        // 1. 从磁盘加载到内存
+        for assetId in idsToLoadFromDisk {
+            _ = image(for: assetId)  // 这会自动写入内存缓存
+        }
+        
+        // 2. 从相册加载（并写入磁盘）
+        guard !idsToLoadFromPhotos.isEmpty else {
+            print("✅ 封面图缓存：预加载完成（全部来自缓存）")
             return
         }
         
-        print("📦 封面图缓存：开始预加载 \(idsToLoad.count) 张封面图...")
-        
-        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: idsToLoad, options: nil)
+        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: idsToLoadFromPhotos, options: nil)
         
         let options = PHImageRequestOptions()
         options.deliveryMode = .opportunistic
@@ -63,7 +146,7 @@ final class ThumbnailCache {
                 options: options
             ) { image, _ in
                 if let image = image {
-                    self.cache.setObject(image, forKey: asset.localIdentifier as NSString)
+                    self.setImage(image, for: asset.localIdentifier)  // 同时写入内存和磁盘
                 }
             }
         }
@@ -71,10 +154,107 @@ final class ThumbnailCache {
         print("✅ 封面图缓存：预加载完成")
     }
     
-    /// 清空缓存
+    /// 清空所有缓存（内存 + 磁盘）
     func clearCache() {
-        cache.removeAllObjects()
-        print("🗑️ 封面图缓存已清空")
+        // 清空内存缓存
+        memoryCache.removeAllObjects()
+        
+        // 清空磁盘缓存
+        ioQueue.async { [weak self] in
+            guard let self = self else { return }
+            do {
+                let files = try self.fileManager.contentsOfDirectory(at: self.diskCacheDirectory, includingPropertiesForKeys: nil)
+                for file in files {
+                    try self.fileManager.removeItem(at: file)
+                }
+                print("🗑️ 封面图缓存已清空（内存 + 磁盘）")
+            } catch {
+                print("⚠️ 清空磁盘缓存失败: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    /// 清空内存缓存（保留磁盘缓存）
+    func clearMemoryCache() {
+        memoryCache.removeAllObjects()
+        print("🗑️ 封面图内存缓存已清空")
+    }
+    
+    /// 获取磁盘缓存大小（字节）
+    func getDiskCacheSize() -> Int {
+        var totalSize: Int = 0
+        ioQueue.sync {
+            guard let files = try? fileManager.contentsOfDirectory(at: diskCacheDirectory, includingPropertiesForKeys: [.fileSizeKey]) else {
+                return
+            }
+            for file in files {
+                if let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                    totalSize += size
+                }
+            }
+        }
+        return totalSize
+    }
+    
+    // MARK: - 私有方法
+    
+    /// 生成磁盘缓存文件 URL
+    private func diskCacheURL(for assetId: String) -> URL {
+        // 使用 assetId 的 SHA256 哈希作为文件名，避免特殊字符问题
+        let safeFileName = assetId.data(using: .utf8)!
+            .base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+        return diskCacheDirectory.appendingPathComponent("\(safeFileName).jpg")
+    }
+    
+    /// 清理磁盘缓存（如果超过限制）
+    private func cleanupDiskCacheIfNeeded() {
+        guard let files = try? fileManager.contentsOfDirectory(
+            at: diskCacheDirectory,
+            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]
+        ) else { return }
+        
+        // 计算总大小
+        var totalSize: Int = 0
+        var fileInfos: [(url: URL, size: Int, date: Date)] = []
+        
+        for file in files {
+            guard let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+                  let size = values.fileSize,
+                  let date = values.contentModificationDate else { continue }
+            totalSize += size
+            fileInfos.append((file, size, date))
+        }
+        
+        // 如果未超过限制，不清理
+        guard totalSize > maxDiskCacheSize else {
+            print("📦 磁盘缓存大小: \(totalSize / 1_000_000)MB，未超过限制 \(maxDiskCacheSize / 1_000_000)MB")
+            return
+        }
+        
+        print("⚠️ 磁盘缓存超过限制，开始清理...")
+        
+        // 按修改日期排序（最旧的在前）
+        fileInfos.sort { $0.date < $1.date }
+        
+        // 删除最旧的文件，直到低于限制的 80%
+        let targetSize = maxDiskCacheSize * 8 / 10
+        var currentSize = totalSize
+        var deletedCount = 0
+        
+        for fileInfo in fileInfos {
+            guard currentSize > targetSize else { break }
+            do {
+                try fileManager.removeItem(at: fileInfo.url)
+                currentSize -= fileInfo.size
+                deletedCount += 1
+            } catch {
+                print("⚠️ 删除缓存文件失败: \(error.localizedDescription)")
+            }
+        }
+        
+        print("✅ 磁盘缓存清理完成，删除 \(deletedCount) 个文件，当前大小: \(currentSize / 1_000_000)MB")
     }
 }
 
@@ -194,7 +374,7 @@ final class AlbumPreheater {
     static let shared = AlbumPreheater()
     
     private let cachingManager = PHCachingImageManager()
-    private let thumbnailSize = CGSize(width: 200, height: 200)
+    private let thumbnailSize = CGSize(width: 300, height: 300)  // 统一为 300，与 ThumbnailCache 一致
     private let preheatBatchSize = 50
     
     /// 预热后的相册列表（供 CustomPhotoPickerView 直接使用）

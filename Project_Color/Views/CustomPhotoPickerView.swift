@@ -69,7 +69,7 @@ struct CustomPhotoPickerView: View {
     private let maxSelection = 9
     private let photoSpacing: CGFloat = 1
     private let columns = 3
-    private let thumbnailSize = CGSize(width: 200, height: 200)  // 缩略图尺寸
+    private let thumbnailSize = CGSize(width: 300, height: 300)  // 缩略图尺寸（统一为 300，确保预热缓存命中）
     private let preheatBatchSize = 50  // 每批预热数量
     private let loadBatchSize = 300  // 每批加载数量（大幅增加以支持快速滚动）
     private let scrubberLoadAhead = 200  // 拖动滚动条时，额外预加载的照片数量（增加缓冲）
@@ -734,7 +734,7 @@ struct CustomPhotoPickerView: View {
             var hasResumed = false
             imageManager.requestImage(
                 for: asset,
-                targetSize: CGSize(width: 200, height: 200),
+                targetSize: CGSize(width: 300, height: 300),  // 统一为 300，与预热尺寸一致
                 contentMode: .aspectFill,
                 options: options
             ) { image, _ in
@@ -765,7 +765,7 @@ struct CustomPhotoPickerView: View {
         var result: UIImage?
         imageManager.requestImage(
             for: asset,
-            targetSize: CGSize(width: 200, height: 200),
+            targetSize: CGSize(width: 300, height: 300),  // 统一为 300，与预热尺寸一致
             contentMode: .aspectFill,
             options: options
         ) { image, _ in
@@ -1068,6 +1068,8 @@ struct CustomPhotoPickerView: View {
         currentFetchResult = nil
         loadedPhotoCount = 0
         totalPhotoCount = 0
+        // ✅ 重置 Coordinator 的预取状态
+        collectionViewCoordinator?.resetPreheatState()
         print("🛑 停止缩略图预热，清理状态")
     }
     
@@ -1182,17 +1184,13 @@ struct PhotoCell: View {
     
     private func loadImage() {
         let assetId = asset.localIdentifier
-        let targetSize = CGSize(width: size * 2, height: size * 2)
+        // ✅ 统一使用 300×300，与预热尺寸一致，确保缓存命中
+        let targetSize = CGSize(width: 300, height: 300)
         
-        // ✅ 优化：先检查缓存（即使尺寸不同，也可以先显示缓存图片，然后异步加载精确尺寸）
+        // ✅ 优化：先检查缓存
         if let cachedImage = ThumbnailCache.shared.image(for: assetId) {
-            // 如果缓存图片尺寸足够大，直接使用
-            if cachedImage.size.width >= targetSize.width && cachedImage.size.height >= targetSize.height {
-                self.image = cachedImage
-                return
-            }
-            // 否则先显示缓存图片，然后加载精确尺寸
             self.image = cachedImage
+            return
         }
         
         let options = PHImageRequestOptions()
@@ -1436,6 +1434,11 @@ class PhotoCollectionViewCoordinator: NSObject, UICollectionViewDataSource, UICo
     private var lastReportedIndex: Int = -1
     private var scrollWorkItem: DispatchWorkItem?  // 用于防抖
     
+    // MARK: - 动态预取管理
+    private var previousPreheatRect: CGRect = .zero
+    private var cachedAssetIdentifiers: Set<String> = []  // 当前已缓存的 asset IDs
+    private let thumbnailSize = CGSize(width: 300, height: 300)  // 与预热尺寸一致
+    
     init(photos: [PHAsset], selectedPhotos: [PHAsset], imageManager: PHCachingImageManager,
          photoSize: CGFloat, columns: Int, onScroll: @escaping (Int) -> Void, onScrollEnd: @escaping () -> Void, onNeedLoadMore: @escaping (Int) -> Void) {
         self.photos = photos
@@ -1526,6 +1529,9 @@ class PhotoCollectionViewCoordinator: NSObject, UICollectionViewDataSource, UICo
         let visibleRow = Int(max(0, scrollView.contentOffset.y) / rowHeight)
         let visibleIndex = visibleRow * columns
         
+        // ✅ 动态更新预取缓存
+        updateCachedAssets()
+        
         // 🚀 关键修改：不管是否已加载，都触发预加载和 UI 更新
         if visibleIndex != lastReportedIndex && visibleIndex >= 0 && visibleIndex < totalPhotoCount {
             lastReportedIndex = visibleIndex
@@ -1547,6 +1553,132 @@ class PhotoCollectionViewCoordinator: NSObject, UICollectionViewDataSource, UICo
             // 减少延迟，让日期选择器更跟手
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: workItem)
         }
+    }
+    
+    // MARK: - 动态预取管理
+    
+    /// 根据滚动位置动态更新预取缓存（添加新的、移除离开视野的）
+    private func updateCachedAssets() {
+        guard let collectionView = collectionView,
+              let fetchResult = onGetFetchResult?() else { return }
+        
+        let visibleRect = CGRect(origin: collectionView.contentOffset, size: collectionView.bounds.size)
+        // 预取区域：可见区域上下各扩展一屏
+        let preheatRect = visibleRect.insetBy(dx: 0, dy: -visibleRect.height)
+        
+        // 只有滚动足够远时才更新缓存（避免频繁操作）
+        let delta = abs(preheatRect.midY - previousPreheatRect.midY)
+        guard delta > visibleRect.height / 3 else { return }
+        
+        // 计算需要开始/停止缓存的 index paths
+        let (addedIndexPaths, removedIndexPaths) = differencesBetweenRects(previousPreheatRect, and: preheatRect, in: collectionView)
+        
+        // 获取对应的 assets
+        let addedAssets = addedIndexPaths.compactMap { indexPath -> PHAsset? in
+            guard indexPath.item < fetchResult.count else { return nil }
+            return fetchResult.object(at: indexPath.item)
+        }
+        let removedAssets = removedIndexPaths.compactMap { indexPath -> PHAsset? in
+            guard indexPath.item < fetchResult.count else { return nil }
+            return fetchResult.object(at: indexPath.item)
+        }
+        
+        // 开始缓存新进入预取区域的 assets
+        if !addedAssets.isEmpty {
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .opportunistic
+            options.resizeMode = .fast
+            options.isNetworkAccessAllowed = false
+            
+            imageManager.startCachingImages(
+                for: addedAssets,
+                targetSize: thumbnailSize,
+                contentMode: .aspectFill,
+                options: options
+            )
+            
+            // 记录已缓存的 IDs
+            for asset in addedAssets {
+                cachedAssetIdentifiers.insert(asset.localIdentifier)
+            }
+        }
+        
+        // ✅ 停止缓存离开预取区域的 assets（关键修复！）
+        if !removedAssets.isEmpty {
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .opportunistic
+            options.resizeMode = .fast
+            options.isNetworkAccessAllowed = false
+            
+            imageManager.stopCachingImages(
+                for: removedAssets,
+                targetSize: thumbnailSize,
+                contentMode: .aspectFill,
+                options: options
+            )
+            
+            // 移除已缓存的 IDs
+            for asset in removedAssets {
+                cachedAssetIdentifiers.remove(asset.localIdentifier)
+            }
+        }
+        
+        previousPreheatRect = preheatRect
+    }
+    
+    /// 计算两个矩形区域的差异，返回新增和移除的 index paths
+    private func differencesBetweenRects(_ oldRect: CGRect, and newRect: CGRect, in collectionView: UICollectionView) -> (added: [IndexPath], removed: [IndexPath]) {
+        // 如果旧矩形为空，所有新矩形内的都是新增
+        if oldRect.isEmpty {
+            let indexPaths = indexPathsForElements(in: newRect, collectionView: collectionView)
+            return (indexPaths, [])
+        }
+        
+        var addedIndexPaths: [IndexPath] = []
+        var removedIndexPaths: [IndexPath] = []
+        
+        // 新矩形比旧矩形向下滚动
+        if newRect.maxY > oldRect.maxY {
+            let addedRect = CGRect(x: newRect.origin.x, y: oldRect.maxY,
+                                   width: newRect.width, height: newRect.maxY - oldRect.maxY)
+            addedIndexPaths.append(contentsOf: indexPathsForElements(in: addedRect, collectionView: collectionView))
+        }
+        // 新矩形比旧矩形向上滚动
+        if newRect.minY < oldRect.minY {
+            let addedRect = CGRect(x: newRect.origin.x, y: newRect.minY,
+                                   width: newRect.width, height: oldRect.minY - newRect.minY)
+            addedIndexPaths.append(contentsOf: indexPathsForElements(in: addedRect, collectionView: collectionView))
+        }
+        
+        // 旧矩形底部离开新矩形
+        if oldRect.maxY > newRect.maxY {
+            let removedRect = CGRect(x: oldRect.origin.x, y: newRect.maxY,
+                                     width: oldRect.width, height: oldRect.maxY - newRect.maxY)
+            removedIndexPaths.append(contentsOf: indexPathsForElements(in: removedRect, collectionView: collectionView))
+        }
+        // 旧矩形顶部离开新矩形
+        if oldRect.minY < newRect.minY {
+            let removedRect = CGRect(x: oldRect.origin.x, y: oldRect.minY,
+                                     width: oldRect.width, height: newRect.minY - oldRect.minY)
+            removedIndexPaths.append(contentsOf: indexPathsForElements(in: removedRect, collectionView: collectionView))
+        }
+        
+        return (addedIndexPaths, removedIndexPaths)
+    }
+    
+    /// 获取指定矩形区域内的所有 index paths
+    private func indexPathsForElements(in rect: CGRect, collectionView: UICollectionView) -> [IndexPath] {
+        guard let layoutAttributes = collectionView.collectionViewLayout.layoutAttributesForElements(in: rect) else {
+            return []
+        }
+        return layoutAttributes.map { $0.indexPath }
+    }
+    
+    /// 重置预取状态（切换相册时调用）
+    func resetPreheatState() {
+        previousPreheatRect = .zero
+        cachedAssetIdentifiers.removeAll()
+        imageManager.stopCachingImagesForAllAssets()
     }
     
     // 手指离开后减速滚动停止
@@ -1658,8 +1790,8 @@ class PhotoCollectionCell: UICollectionViewCell {
             selectionBadge.isHidden = true
         }
         
-        // 加载图片
-        let targetSize = CGSize(width: size * 2, height: size * 2)
+        // 加载图片 - 统一使用 300×300，与预热尺寸一致
+        let targetSize = CGSize(width: 300, height: 300)
         let options = PHImageRequestOptions()
         options.deliveryMode = .opportunistic
         options.resizeMode = .fast

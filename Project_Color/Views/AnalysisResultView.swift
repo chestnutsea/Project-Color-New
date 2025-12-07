@@ -2012,7 +2012,7 @@ struct AnalysisPhotoThumbnail: View {
         
         manager.requestImage(
             for: asset,
-            targetSize: CGSize(width: 200, height: 200),
+            targetSize: CGSize(width: 300, height: 300),  // 统一为 300
             contentMode: .aspectFill,
             options: options
         ) { img, _ in
