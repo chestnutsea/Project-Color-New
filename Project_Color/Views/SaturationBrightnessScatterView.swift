@@ -97,14 +97,14 @@ struct SaturationBrightnessScatterView: View {
             }
             
             // Y 轴标签：饱和度，旋转 -90 度
-            Text("饱和度")
+            Text(L10n.AnalysisResult.saturation.localized)
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .rotationEffect(.degrees(-90))
                 .position(x: resolvedLabelSpace / 2, y: chartRect.midY)
             
             // X 轴标签：亮度
-            Text("亮度")
+            Text(L10n.AnalysisResult.brightness.localized)
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .position(x: chartRect.midX, y: chartSize - resolvedLabelSpace / 2 + 5)

@@ -22,10 +22,10 @@ class ColorAnalysisEvaluator {
     private let statisticsCalculator = ColorStatisticsCalculator()
     private let settings = AnalysisSettings.shared
     
-    // MARK: - Prompt Templates
+    // MARK: - Prompt Template
     
-    /// 默认视角的 System Prompt
-    private let defaultPrompt = """
+    /// System Prompt（中文版）
+    private let systemPromptChinese = """
    
    我们现在就像一起坐下来，从摄影记录或创作的角度看着我上传的照片。
    
@@ -41,83 +41,53 @@ class ColorAnalysisEvaluator {
    
    不要定义我，不要下结论。不要反驳和否定我。
    
-   禁止使用“存在”这个词。不允许提及“存在”这个词！
+   禁止使用"存在"这个词。不允许提及"存在"这个词！
    
    禁止使用否定句，当你有这种倾向时，使用正向陈述代替。
    
    不要想象画面中不存在的人事物。
    
-   不要做总结。
+   结尾不需要刻意升华，可以留白，或者一个淡淡的总结。
    
    """
     
-    /// 艺术视角的 System Prompt
-    private let artisticPrompt = """
-   请以一位敏感、节制，同时具有艺术家直觉的摄影评论者视角，观看我上传的照片。
-
-   你的阅读旨在感受图像内部的呼吸。你的观察是轻盈且开放的。你可以指出画面中那些似乎“自我生成”的能量：色彩的气息、光线如何在画面中行走、形状之间微妙的秩序与偏移，空间与构图呈现出的状态，图像整体流露出的触感与节奏。这些都是你与图像之间的体验。
-
-   解释作者意图或推测摄影者的立场不是你的任务。你不关心情绪、表达、故事和意义。请不要把画面引向社会议题、价值判断、隐喻性命题。
-
-      请从“整组照片”作为一个整体来观察，不逐张分析，也不列举画面物件。你可以随口开启几个话头，但不要像正式段落那样整齐。
-
-   语言风格柔软、清澈、明朗、有灵气，有创作者的敏锐，又保持足够的留白。你的文字不是解释，而是与作品保持一段轻轻的、尊重的距离。
+    /// System Prompt（英文版）
+    private let systemPromptEnglish = """
    
-      用画面具体的事物收束，而不是空泛的总结。
-   """
-    
-    /// 人文视角的 System Prompt
-    private let humanisticPrompt = """
-   请以一位具有人类学背景的观察者视角，观看我上传的照片。
-
-   你关注的不是摄影者的创作意图，也不是对社会结构的宏观分析，而是画面中被轻轻捕捉到的日常存在本身：人在空间中的停留方式，城市呈现出的时间感，微小却真实的身体姿态，人与物之间不言自明的亲密或疏离，公共生活中那些若有若无的互动痕迹，以及其间呈现的情绪、互动、关系与故事。
-
-   请只基于画面中可直接感知的现象进行描述与温和的推想，避免宏大叙事、避免意识形态判断，也避免对人物命运和社会结构作出超出画面之外的过度推测。
-
-   写作风格保持温和、含蓄、具有人文质地的描述性文字，像是一段略带感受的观察笔记，而不是分析报告。
-
-   请从“整组照片”作为一个整体来观察，不逐张分析，也不列举画面物件。你可以随口开启几个花头，但不要像正式段落那样整齐。
-   """
-    
-    /// 哲学视角的 System Prompt
-    private let philosophicalPrompt = """
-请将我上传的照片理解为一个充斥着意义的场景，进行自然融合式解读（不要逐条罗列）。
-
-解读角度可以是画面的隐喻、象征、表达的情绪、讲述的故事，以及：
-存在、时间、空间、空无、孤独、关系、命运、选择、痛苦、欲望、恐惧、身体、权力、他者、意义、虚无、希望、荒诞
-观看、遮蔽、显现、误认、不确定、偏见、视角、真伪、幻觉、证据、不可知
-责任、牺牲、冷漠、关怀、伤害、羞愧、悔意、承受、辜负、宽恕
-等待、犹豫、逃避、靠近、离开、抵抗、顺从、重复、习惯、倦怠
-但不局限于此，也可以互相交融
-你的意义生成是 从图像自身缓慢发酵出来的。你不推测摄影者的动机、不描绘创作者的内心，也不把画面引向政治、制度、象征、批判等外部体系。
-你的语言风格是低声的、含蓄的。可以随口开启几个话头，但不要像正式段落那样整齐。不要提及“哲学”这个词。
-"""
-    
-    /// 技术视角的 System Prompt
-    private let technicalPrompt = """
-   请以一位敏锐且节制的摄影技术评论者视角，观看我上传的这组照片。
-
-   你将摄影视为一门技术与工艺，因此你的关注点集中在画面的制作方式：光线被怎样处理、曝光如何取得平衡、色彩是如何被倾向性地调和、焦点与景深如何塑造画面的节奏、构图的习惯如何显现，以及整组照片在技术逻辑上的延续性等等。
+   We're sitting down together now, looking at the photos I've uploaded from a perspective of photographic documentation or creation.
    
-   可以随口开启几个话头，但不要像正式段落那样整齐。
-   不要逐张分析，也不要列举具体物件，而是从整体技术倾向中提炼关键观察。
-
-   语言保持清晰、克制、专业而不武断。不要提及“技术”这个词。不批评，不指导，不提改进意见。
+   You don't need to write an essay, just gently share what you sense from the images. Like friends slowly exchanging observations—no summaries, no explanations.
+   
+   You may focus on, but don't need to cover all or limit yourself to: what the colors tend toward, what temperature the light feels like, how the rhythm of the frame moves, the space, subjects, shooting angles, relationships between people, what kind of story seems to be told, what metaphors emerge, what qualities, emotions, atmospheres appear, or anything else that catches your attention or touches you.
+   
+   You can casually start a thread of thought, but don't make it neat like formal paragraphs. Sentences can be long or short—it's fine to pause, rephrase, or gently move on.
+   
+   Don't use words like "a certain photo" or "this photo"—treat all images as a whole, finding their shared characteristics.
+   
+   Language can be soft, clear, and spirited. Try to avoid similes—don't use phrases like "like..." or "as if...".
+   
+   Don't define me, don't draw conclusions. Don't refute or negate me.
+   
+   Never use the word "exist" or "existence". This word is forbidden!
+   
+   Avoid negative sentences. When you have this tendency, use positive statements instead.
+   
+   Don't imagine people or things that don't appear in the images.
+   
+   The ending doesn't need deliberate elevation—you can leave space, or offer a gentle summary.
+   
    """
     
-    /// 根据当前设置获取 System Prompt
+    /// 根据当前语言选择 System Prompt
     private var systemPrompt: String {
-        switch settings.insightPerspective {
-        case .default:
-            return defaultPrompt
-        case .artistic:
-            return artisticPrompt
-        case .humanistic:
-            return humanisticPrompt
-        case .philosophical:
-            return philosophicalPrompt
-        case .technical:
-            return technicalPrompt
+        let currentLanguage = Locale.current.language.languageCode?.identifier ?? "en"
+        
+        // 如果是中文（简体或繁体），使用中文 prompt
+        if currentLanguage.hasPrefix("zh") {
+            return systemPromptChinese
+        } else {
+            // 其他语言使用英文 prompt
+            return systemPromptEnglish
         }
     }
     
@@ -169,7 +139,9 @@ class ColorAnalysisEvaluator {
             if let msg = userMessage, !msg.isEmpty {
                 userPrompt = msg
             } else {
-                userPrompt = "请观看并评论。"
+                // 根据当前语言选择默认提示词
+                let currentLanguage = Locale.current.language.languageCode?.identifier ?? "en"
+                userPrompt = currentLanguage.hasPrefix("zh") ? "请观看并评论。" : "Please view and comment."
             }
             
             print("📤 发送图片到 Qwen API（流式模式）...")

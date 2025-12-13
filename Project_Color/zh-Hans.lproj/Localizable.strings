@@ -1,0 +1,156 @@
+/* 
+  Localizable.strings
+  Project_Color (简体中文)
+  
+  App 内所有文本的中文翻译
+*/
+
+// MARK: - Tab Bar
+"tab.scanner" = "扫描";
+"tab.album" = "相册";
+"tab.emerge" = "显影";
+"tab.mine" = "我的";
+
+// MARK: - Common
+"common.confirm" = "确认";
+"common.cancel" = "取消";
+"common.done" = "完成";
+"common.delete" = "删除";
+"common.save" = "保存";
+"common.loading" = "加载中...";
+"common.error" = "错误";
+"common.success" = "成功";
+
+// MARK: - Toast Messages
+"toast.feature_in_development" = "功能开发中，敬请期待";
+
+// MARK: - Mine/Kit View
+"mine.title" = "我的";
+"mine.unlock_ai" = "解锁 AI 视角";
+"mine.cloud_album" = "云相册";
+"mine.photo_darkroom" = "照片暗房";
+"mine.development_mode" = "显影模式";
+"mine.scan_result_style" = "扫描结果页样式";
+"mine.color_lab" = "色彩实验室";
+"mine.iteration_log" = "迭代记录";
+"mine.privacy_policy" = "隐私与数据说明";
+"mine.feedback" = "反馈与联系";
+"mine.encourage" = "鼓励一下";
+"mine.encourage_subtitle" = "如果感到快乐你就拍拍手";
+"mine.share" = "分享给朋友";
+"mine.about_feelm" = "关于 Feelm";
+
+// MARK: - About View
+"about.navigation_title" = "说明";
+"about.description" = "说明";
+"about.iteration_log" = "迭代记录";
+"about.privacy_policy" = "隐私与数据说明";
+
+// MARK: - Photo Darkroom
+"darkroom.title" = "照片暗房";
+"darkroom.use_photo_time" = "使用照片时间作为默认日期";
+"darkroom.favorite_only" = "只对收藏照片进行显影";
+"darkroom.scan_result_style" = "扫描结果页样式";
+
+// MARK: - Development Mode
+"development_mode.tone" = "色调模式";
+"development_mode.shadow" = "影调模式";
+"development_mode.comprehensive" = "融合模式";
+
+// MARK: - Scan Result Style
+"scan_result_style.perspective_first" = "视角在前";
+"scan_result_style.composition_first" = "构成在前";
+
+// MARK: - Analysis Result View
+"analysis_result.title" = "结果";
+"analysis_result.perspective" = "视角";
+"analysis_result.composition" = "构成";
+"analysis_result.share" = "分享";
+"analysis_result.favorite" = "收藏";
+
+// MARK: - Home View
+"home.title" = "扫描";
+"home.select_photos" = "选择照片";
+"home.start_analysis" = "开始分析";
+"home.add_feeling" = "添加感受";
+"home.scan_prepare_title" = "扫描预备";
+"home.scan_prepare_message" = "准备扫描照片...";
+"home.processing" = "处理中...";
+"home.scan_preparing" = "扫描预备中...";
+"home.confirm_selection" = "确认选片";
+"home.feeling_placeholder" = "那一刻...";
+
+// MARK: - Favorite
+"favorite.title" = "收藏";
+"favorite.photo_date" = "照片日期";
+"favorite.cancel" = "取消";
+"favorite.confirm" = "确认";
+"favorite.remove" = "移除收藏";
+"favorite.add" = "收藏";
+
+// MARK: - Album
+"album.title" = "相册";
+"album.empty_title" = "暂无相册";
+"album.empty_message" = "分析照片后\n相册会显示在这里";
+"album.photos_count" = "%d 张照片";
+"album.edit_info" = "编辑信息";
+"album.delete" = "删除";
+"album.delete_confirm_title" = "确认删除";
+"album.delete_confirm_message" = "确定要删除相册「%@」吗？此操作将删除该相册的所有照片分析记录，且无法撤销。";
+"album.edit_title" = "编辑信息";
+"album.name" = "名称";
+"album.name_placeholder" = "请输入名称";
+
+// MARK: - Analysis Library
+"analysis_library.title" = "相册";
+"analysis_library.favorites" = "收藏";
+"analysis_library.materials" = "素材";
+"analysis_library.empty_favorites" = "暂无收藏";
+"analysis_library.empty_materials" = "暂无素材";
+"analysis_library.delete_confirm_title" = "确认删除";
+"analysis_library.delete_confirm_message" = "确定要删除这个分析结果吗？此操作无法撤销。";
+"analysis_library.delete" = "删除";
+"analysis_library.cancel" = "取消";
+
+// MARK: - Emerge View
+"emerge.loading" = "色彩显影中...";
+"emerge.insufficient_photos" = "扫描 10 张照片开启色彩显影";
+"emerge.insufficient_favorites" = "收藏 10 张照片后开启色彩显影";
+"emerge.current_scanned" = "当前已扫描 %d 张";
+"emerge.current_favorited" = "当前已收藏 %d 张";
+"emerge.error_title" = "错误";
+
+// MARK: - Analysis Result
+"analysis_result.perspective" = "视角";
+"analysis_result.composition" = "构成";
+"analysis_result.share" = "分享";
+"analysis_result.favorite" = "收藏";
+"analysis_result.ai_evaluation" = "视角";
+"analysis_result.distribution" = "构成";
+"analysis_result.picker_title" = "结果视图";
+"analysis_result.ai_loading" = "视角开启中...";
+"analysis_result.ai_loading_refresh" = "视角更新中...";
+"analysis_result.ai_loading_subtitle" = "这可能需要几秒钟";
+"analysis_result.ai_error" = "AI 评价失败";
+"analysis_result.retry" = "重新尝试";
+"analysis_result.network_error" = "开启视角需连接网络。";
+"analysis_result.no_perspective" = "暂无合适的视角。";
+"analysis_result.color_evaluations" = "各色系评价";
+"analysis_result.color_systems_count" = "%d 个色系";
+"analysis_result.category_detail" = "类别详情";
+"analysis_result.saturation" = "饱和度";
+"analysis_result.brightness" = "亮度";
+"analysis_result.cumulative_percentage" = "累计百分比";
+"analysis_result.brightness_cdf_title" = "累计亮度分布（CDF）";
+"analysis_result.brightness_cdf_description" = "每条曲线代表一张照片的亮度累计分布，曲线颜色为照片的主代表色";
+"analysis_result.brightness_calculating" = "照片亮度数据正在计算中...";
+
+// MARK: - Lab View
+"lab.title" = "色彩实验室";
+"lab.search_color" = "寻色";
+"lab.calculate_color" = "算色";
+"lab.lookup_color" = "查色";
+
+// MARK: - 3D Color Space
+"3d_view.lch_explanation" = "L：明度；C：色度；H：色相";
+

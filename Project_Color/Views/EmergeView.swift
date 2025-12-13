@@ -2038,7 +2038,7 @@ extension EmergeView {
     private var loadingView: some View {
         VStack(spacing: 16) {
             ProgressView().scaleEffect(1.5)
-            Text("色彩显影中...")
+            Text(L10n.Emerge.loading.localized)
                 .font(.system(size: 14))
                 .foregroundColor(.secondary)
         }
@@ -2051,22 +2051,22 @@ extension EmergeView {
                 .foregroundColor(.secondary.opacity(0.4))
             
             if viewModel.isFavoriteOnly {
-                Text("收藏 10 张照片后开启色彩显影")
+                Text(L10n.Emerge.insufficientFavorites.localized)
                     .font(.system(size: 18, weight: .medium))
                     .foregroundColor(.secondary)
                 
                 if viewModel.analyzedPhotoCount > 0 {
-                    Text("当前已收藏 \(viewModel.analyzedPhotoCount) 张")
+                    Text(L10n.Emerge.currentFavorited.localized(with: viewModel.analyzedPhotoCount))
                         .font(.system(size: 14))
                         .foregroundColor(.secondary.opacity(0.6))
                 }
             } else {
-                Text("扫描 10 张照片开启色彩显影")
+                Text(L10n.Emerge.insufficientPhotos.localized)
                     .font(.system(size: 18, weight: .medium))
                     .foregroundColor(.secondary)
                 
                 if viewModel.analyzedPhotoCount > 0 {
-                    Text("当前已扫描 \(viewModel.analyzedPhotoCount) 张")
+                    Text(L10n.Emerge.currentScanned.localized(with: viewModel.analyzedPhotoCount))
                         .font(.system(size: 14))
                         .foregroundColor(.secondary.opacity(0.6))
                 }

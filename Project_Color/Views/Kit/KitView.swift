@@ -19,13 +19,20 @@ struct KitView: View {
     
     // MARK: - State
     @State private var developmentMode: BatchProcessSettings.DevelopmentMode = BatchProcessSettings.developmentMode
+    @Environment(\.openURL) private var openURL
+    
+    // Toast 状态
+    @State private var showCloudAlbumToast = false
+    
+    // 分享状态
+    @State private var showShareSheet = false
     
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: Layout.cardSpacing) {
                     // 自定义标题
-                    Text("我的")
+                    Text(L10n.Mine.title.localized)
                         .font(.system(size: AppStyle.tabTitleFontSize, weight: AppStyle.tabTitleFontWeight))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal)
@@ -41,17 +48,18 @@ struct KitView: View {
                     // 第三个卡片：色彩实验室（单独）
                     labCard
                     
-                    // 第四个卡片：迭代记录和隐私说明
-                    infoCard
-                    
-                    // 第五个卡片：更多选项（反馈、鼓励、分享）
+                    // 第四个卡片：更多选项（反馈、鼓励、分享、关于）
                     moreOptionsCard
                 }
                 .padding(.horizontal, Layout.horizontalPadding)
             }
-            .background(Color(.systemGroupedBackground))
-            .navigationBarHidden(true)
-            .onAppear {
+        .background(Color(.systemGroupedBackground))
+        .navigationBarHidden(true)
+        .toast(isPresented: $showCloudAlbumToast, message: L10n.Toast.featureInDevelopment.localized)
+        .sheet(isPresented: $showShareSheet) {
+            ShareSheet(activityItems: shareItems)
+        }
+        .onAppear {
                 // 每次进入页面时从设置读取最新值
                 developmentMode = BatchProcessSettings.developmentMode
             }
@@ -61,13 +69,15 @@ struct KitView: View {
     // MARK: - AI 解锁卡片
     private var aiUnlockCard: some View {
         Button {
-            // TODO: 添加解锁 AI 视角功能
-        } label: {
-            KitMenuRow(
-                icon: "atom",
-                title: "解锁 AI 视角"
-            )
-        }
+            withAnimation {
+                showCloudAlbumToast = true
+            }
+            } label: {
+                KitMenuRow(
+                    icon: "atom",
+                    title: L10n.Mine.unlockAI.localized
+                )
+            }
         .buttonStyle(.plain)
         .background(Color(.systemBackground))
         .cornerRadius(Layout.cornerRadius)
@@ -78,11 +88,13 @@ struct KitView: View {
         VStack(spacing: 0) {
             // 云相册
             Button {
-                // TODO: 添加云相册功能
+                withAnimation {
+                    showCloudAlbumToast = true
+                }
             } label: {
                 KitMenuRow(
                     icon: "cloud",
-                    title: "云相册"
+                    title: L10n.Mine.cloudAlbum.localized
                 )
             }
             .buttonStyle(.plain)
@@ -93,7 +105,7 @@ struct KitView: View {
             } label: {
                 KitMenuRow(
                     icon: "slider.horizontal.below.square.filled.and.square",
-                    title: "照片暗房"
+                    title: L10n.Mine.photoDarkroom.localized
                 )
             }
             .buttonStyle(.plain)
@@ -105,7 +117,7 @@ struct KitView: View {
                     .foregroundColor(.primary)
                     .frame(width: 28)
                 
-                Text("显影模式")
+                Text(L10n.Mine.developmentMode.localized)
                     .font(.system(size: 17, weight: .regular))
                     .foregroundColor(.primary)
                 
@@ -118,17 +130,20 @@ struct KitView: View {
                             BatchProcessSettings.developmentMode = mode
                         } label: {
                             if mode == developmentMode {
-                                Label(mode.rawValue, systemImage: "checkmark")
+                                Label(mode.displayName, systemImage: "checkmark")
                             } else {
-                                Text(mode.rawValue)
+                                Text(mode.displayName)
                             }
                         }
                     }
                 } label: {
                     HStack(spacing: 4) {
-                        Text(developmentMode.rawValue)
-                            .font(.system(size: 17, weight: .regular))
+                        Text(developmentMode.displayName)
+                            .font(.system(size: 15, weight: .regular))
                             .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .frame(minWidth: 110, alignment: .trailing)
                         
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 12, weight: .medium))
@@ -151,7 +166,7 @@ struct KitView: View {
         } label: {
             KitMenuRow(
                 icon: "paintpalette",
-                title: "色彩实验室"
+                title: L10n.Mine.colorLab.localized
             )
         }
         .buttonStyle(.plain)
@@ -159,33 +174,39 @@ struct KitView: View {
         .cornerRadius(Layout.cornerRadius)
     }
     
-    // MARK: - 信息卡片
-    private var infoCard: some View {
-        VStack(spacing: 0) {
-            // 迭代记录
-            Button {
-                // TODO: 添加迭代记录功能
-            } label: {
-                KitMenuRow(
-                    icon: "shoeprints.fill",
-                    title: "迭代记录"
-                )
-            }
-            .buttonStyle(.plain)
+    // MARK: - 分享内容
+    private var shareItems: [Any] {
+        let currentLanguage = Locale.current.language.languageCode?.identifier ?? "en"
+        
+        if currentLanguage.hasPrefix("zh") {
+            // 中文分享内容
+            let shareText = """
+            推荐一款色彩分析 App - Feelm
             
-            // 隐私与数据说明
-            Button {
-                // TODO: 添加隐私与数据说明功能
-            } label: {
-                KitMenuRow(
-                    icon: "lock.shield",
-                    title: "隐私与数据说明"
-                )
-            }
-            .buttonStyle(.plain)
+            用摄影的方式，看见你的色彩。
+            
+            🎨 智能色彩分析
+            📸 照片色彩提取
+            🌈 色彩空间可视化
+            
+            （App 正在开发中，敬请期待）
+            """
+            return [shareText]
+        } else {
+            // 英文分享内容
+            let shareText = """
+            Check out Feelm - A Color Analysis App
+            
+            See your colors through the lens of photography.
+            
+            🎨 Smart Color Analysis
+            📸 Photo Color Extraction
+            🌈 Color Space Visualization
+            
+            (App is under development, stay tuned)
+            """
+            return [shareText]
         }
-        .background(Color(.systemBackground))
-        .cornerRadius(Layout.cornerRadius)
     }
     
     // MARK: - 更多选项卡片
@@ -193,11 +214,13 @@ struct KitView: View {
         VStack(spacing: 0) {
             // 反馈与联系
             Button {
-                // TODO: 添加反馈与联系功能
+                withAnimation {
+                    showCloudAlbumToast = true
+                }
             } label: {
                 KitMenuRow(
                     icon: "envelope",
-                    title: "反馈与联系"
+                    title: L10n.Mine.feedback.localized
                 )
             }
             .buttonStyle(.plain)
@@ -207,19 +230,31 @@ struct KitView: View {
                 // TODO: 添加鼓励一下功能
             } label: {
                 KitMenuRow(
-                    icon: "hand.thumbsup",
-                    title: "鼓励一下"
+                    icon: "hands.clap",
+                    title: L10n.Mine.encourage.localized,
+                    secondaryText: L10n.Mine.encourageSubtitle.localized
                 )
             }
             .buttonStyle(.plain)
             
             // 分享给朋友
             Button {
-                // TODO: 添加分享给朋友功能
+                showShareSheet = true
             } label: {
                 KitMenuRow(
                     icon: "paperplane",
-                    title: "分享给朋友"
+                    title: L10n.Mine.share.localized
+                )
+            }
+            .buttonStyle(.plain)
+            
+            // 关于 Feelm
+            NavigationLink {
+                AboutView()
+            } label: {
+                KitMenuRow(
+                    icon: "info.circle",
+                    title: L10n.Mine.aboutFeelm.localized
                 )
             }
             .buttonStyle(.plain)
@@ -229,33 +264,27 @@ struct KitView: View {
     }
 }
 
-// MARK: - 菜单行视图
-private struct KitMenuRow: View {
-    let icon: String
-    let title: String
+// MARK: - ShareSheet (UIActivityViewController wrapper)
+#if canImport(UIKit)
+import UIKit
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    let applicationActivities: [UIActivity]? = nil
     
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 20))
-                .foregroundColor(.primary)
-                .frame(width: 28)
-            
-            Text(title)
-                .font(.system(size: 17, weight: .regular))
-                .foregroundColor(.primary)
-            
-            Spacer()
-            
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.secondary)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .contentShape(Rectangle())
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(
+            activityItems: activityItems,
+            applicationActivities: applicationActivities
+        )
+        return controller
+    }
+    
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
+        // No update needed
     }
 }
+#endif
 
 #Preview {
     KitView()

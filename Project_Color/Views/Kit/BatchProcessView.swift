@@ -20,6 +20,7 @@ struct BatchProcessView: View {
     // MARK: - State
     @State private var usePhotoTimeAsDefault: Bool = BatchProcessSettings.usePhotoTimeAsDefault
     @State private var developmentFavoriteOnly: Bool = BatchProcessSettings.developmentFavoriteOnly
+    @State private var scanResultStyle: BatchProcessSettings.ScanResultStyle = BatchProcessSettings.scanResultStyle
     
     var body: some View {
         ScrollView {
@@ -34,7 +35,7 @@ struct BatchProcessView: View {
                             .frame(width: 28)
                         
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("使用照片时间作为默认日期")
+                            Text(L10n.Darkroom.usePhotoTime.localized)
                                 .font(.system(size: 17, weight: .regular))
                                 .foregroundColor(.primary)
                         }
@@ -60,7 +61,7 @@ struct BatchProcessView: View {
                             .frame(width: 28)
                         
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("只对收藏照片进行显影")
+                            Text(L10n.Darkroom.favoriteOnly.localized)
                             .font(.system(size: 17, weight: .regular))
                             .foregroundColor(.primary)
                         }
@@ -78,16 +79,47 @@ struct BatchProcessView: View {
                     Divider()
                         .padding(.leading, Layout.rowHorizontalPadding + 28 + 12)
                     
-                    // 清理缓存
-                    Button {
-                        // TODO: 添加清理缓存功能
-                    } label: {
-                        BatchProcessMenuRow(
-                            icon: "trash",
-                            title: "清理缓存"
-                        )
+                    // 扫描结果页样式
+                    HStack(spacing: 12) {
+                        Image(systemName: "rectangle.split.2x1")
+                            .font(.system(size: 20))
+                            .foregroundColor(.primary)
+                            .frame(width: 28)
+                        
+                        Text(L10n.Darkroom.scanResultStyle.localized)
+                            .font(.system(size: 17, weight: .regular))
+                            .foregroundColor(.primary)
+                        
+                        Spacer()
+                        
+                        Menu {
+                            ForEach(BatchProcessSettings.ScanResultStyle.allCases, id: \.self) { style in
+                                Button {
+                                    scanResultStyle = style
+                                    BatchProcessSettings.scanResultStyle = style
+                                } label: {
+                                    if style == scanResultStyle {
+                                        Label(style.displayName, systemImage: "checkmark")
+                                    } else {
+                                        Text(style.displayName)
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(scanResultStyle.displayName)
+                                    .font(.system(size: 17, weight: .regular))
+                                    .foregroundColor(.secondary)
+                                
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, Layout.rowHorizontalPadding)
+                    .padding(.vertical, Layout.rowVerticalPadding)
+                    .contentShape(Rectangle())
                 }
                 .background(Color(.systemBackground))
                 .cornerRadius(Layout.cornerRadius)
@@ -96,13 +128,14 @@ struct BatchProcessView: View {
             .padding(.top, Layout.verticalSpacing)
         }
         .background(Color(.systemGroupedBackground))
-        .navigationTitle("照片暗房")
+        .navigationTitle(L10n.Darkroom.title.localized)
         .navigationBarTitleDisplayMode(.inline)
         .hideTabBar()
         .onAppear {
             // 每次进入页面时从设置读取最新值
             usePhotoTimeAsDefault = BatchProcessSettings.usePhotoTimeAsDefault
             developmentFavoriteOnly = BatchProcessSettings.developmentFavoriteOnly
+            scanResultStyle = BatchProcessSettings.scanResultStyle
         }
         .onChange(of: usePhotoTimeAsDefault) { newValue in
             // 保存设置

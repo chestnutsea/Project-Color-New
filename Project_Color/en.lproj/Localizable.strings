@@ -1,0 +1,157 @@
+/* 
+  Localizable.strings
+  Project_Color (English)
+  
+  App 内所有文本的英文翻译
+*/
+
+// MARK: - Tab Bar
+"tab.scanner" = "Scan";
+"tab.album" = "Album";
+"tab.emerge" = "Emerge";
+"tab.mine" = "Mine";
+
+// MARK: - Common
+"common.confirm" = "Confirm";
+"common.cancel" = "Cancel";
+"common.done" = "Done";
+"common.delete" = "Delete";
+"common.save" = "Save";
+"common.loading" = "Loading...";
+"common.error" = "Error";
+"common.success" = "Success";
+
+// MARK: - Toast Messages
+"toast.feature_in_development" = "Feature in development, stay tuned";
+
+// MARK: - Mine/Kit View
+"mine.title" = "Mine";
+"mine.unlock_ai" = "Unlock AI Perspective";
+"mine.cloud_album" = "Cloud Album";
+"mine.photo_darkroom" = "Photo Darkroom";
+"mine.development_mode" = "Emerge";
+"mine.scan_result_style" = "Scan Result Style";
+"mine.color_lab" = "Color Lab";
+"mine.iteration_log" = "Iteration Log";
+"mine.privacy_policy" = "Privacy & Data Policy";
+"mine.feedback" = "Feedback & Contact";
+"mine.encourage" = "Encourage";
+"mine.encourage_subtitle" = "Clap if you're happy";
+"mine.share" = "Share with Friends";
+"mine.about_feelm" = "About Feelm";
+
+// MARK: - About View
+"about.navigation_title" = "About";
+"about.description" = "About";
+"about.iteration_log" = "Iteration Log";
+"about.privacy_policy" = "Privacy & Data Policy";
+
+// MARK: - Photo Darkroom
+"darkroom.title" = "Photo Darkroom";
+"darkroom.use_photo_time" = "Use Photo Time as Default Date";
+"darkroom.favorite_only" = "Emerge Favorites Only";
+"darkroom.scan_result_style" = "Scan Result Style";
+
+// MARK: - Development Mode
+"development_mode.tone" = "Tonal";
+"development_mode.shadow" = "Shadow";
+"development_mode.comprehensive" = "Comprehensive";
+
+// MARK: - Scan Result Style
+"scan_result_style.perspective_first" = "Perspective First";
+"scan_result_style.composition_first" = "Composition First";
+
+// MARK: - Analysis Result View
+"analysis_result.title" = "Results";
+"analysis_result.perspective" = "Perspective";
+"analysis_result.composition" = "Composition";
+"analysis_result.share" = "Share";
+"analysis_result.favorite" = "Favorite";
+
+// MARK: - Home View
+"home.title" = "Scan";
+"home.select_photos" = "Select Photos";
+"home.start_analysis" = "Start Analysis";
+"home.add_feeling" = "Add Feeling";
+"home.scan_prepare_title" = "Scan Preparation";
+"home.scan_prepare_message" = "Preparing to scan photos...";
+"home.processing" = "Processing...";
+"home.scan_preparing" = "Scan Preparing...";
+"home.confirm_selection" = "Confirm Selection";
+"home.feeling_placeholder" = "That moment...";
+
+// MARK: - Favorite
+"favorite.title" = "Favorite";
+"favorite.photo_date" = "Photo Date";
+"favorite.cancel" = "Cancel";
+"favorite.confirm" = "Confirm";
+"favorite.remove" = "Remove Favorite";
+"favorite.add" = "Add to Favorites";
+
+// MARK: - Album
+"album.title" = "Albums";
+"album.empty_title" = "No Albums";
+"album.empty_message" = "Albums will appear here\nafter analyzing photos";
+"album.photos_count" = "%d pics";
+"album.photos_count_singular" = "%d pic";
+"album.edit_info" = "Edit Info";
+"album.delete" = "Delete";
+"album.delete_confirm_title" = "Confirm Delete";
+"album.delete_confirm_message" = "Are you sure you want to delete album \"%@\"? This will delete all photo analysis records in this album and cannot be undone.";
+"album.edit_title" = "Edit Info";
+"album.name" = "Name";
+"album.name_placeholder" = "Enter name";
+
+// MARK: - Analysis Library
+"analysis_library.title" = "Albums";
+"analysis_library.favorites" = "Favorites";
+"analysis_library.materials" = "Materials";
+"analysis_library.empty_favorites" = "No Favorites";
+"analysis_library.empty_materials" = "No Materials";
+"analysis_library.delete_confirm_title" = "Confirm Delete";
+"analysis_library.delete_confirm_message" = "Are you sure you want to delete this analysis result? This action cannot be undone.";
+"analysis_library.delete" = "Delete";
+"analysis_library.cancel" = "Cancel";
+
+// MARK: - Emerge View
+"emerge.loading" = "Developing colors...";
+"emerge.insufficient_photos" = "Scan 10 photos to enable color development";
+"emerge.insufficient_favorites" = "Favorite 10 photos to enable color development";
+"emerge.current_scanned" = "Currently scanned %d photos";
+"emerge.current_favorited" = "Currently favorited %d photos";
+"emerge.error_title" = "Error";
+
+// MARK: - Analysis Result
+"analysis_result.perspective" = "Perspective";
+"analysis_result.composition" = "Composition";
+"analysis_result.share" = "Share";
+"analysis_result.favorite" = "Favorite";
+"analysis_result.ai_evaluation" = "Perspective";
+"analysis_result.distribution" = "Composition";
+"analysis_result.picker_title" = "Result View";
+"analysis_result.ai_loading" = "Opening perspective...";
+"analysis_result.ai_loading_refresh" = "Updating perspective...";
+"analysis_result.ai_loading_subtitle" = "This may take a few seconds";
+"analysis_result.ai_error" = "AI evaluation failed";
+"analysis_result.retry" = "Retry";
+"analysis_result.network_error" = "Perspective requires network connection.";
+"analysis_result.no_perspective" = "No suitable perspective available.";
+"analysis_result.color_evaluations" = "Color System Evaluations";
+"analysis_result.color_systems_count" = "%d color systems";
+"analysis_result.category_detail" = "Category Detail";
+"analysis_result.saturation" = "Saturation";
+"analysis_result.brightness" = "Brightness";
+"analysis_result.cumulative_percentage" = "Cumulative Percentage";
+"analysis_result.brightness_cdf_title" = "Cumulative Brightness Distribution (CDF)";
+"analysis_result.brightness_cdf_description" = "Each curve represents the cumulative brightness distribution of a photo, colored by its dominant color";
+"analysis_result.brightness_calculating" = "Calculating photo brightness data...";
+
+// MARK: - Lab View
+"lab.title" = "Color Lab";
+"lab.search_color" = "Search Color";
+"lab.calculate_color" = "Calculate Color";
+"lab.lookup_color" = "Lookup Color";
+
+// MARK: - 3D Color Space
+"3d_view.lch_explanation" = "L: Lightness; C: Chroma; H: Hue";
+

@@ -10,6 +10,9 @@ import SwiftUI
 import Photos
 import CoreData
 import Combine
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// 相册信息
 struct AlbumInfo: Identifiable {
@@ -30,16 +33,30 @@ struct AlbumLibraryView: View {
     @State private var showEditOverlay = false
     
     var body: some View {
-        NavigationView {
-            Group {
-                if viewModel.albums.isEmpty {
-                    emptyStateView
-                } else {
-                    albumGridView
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 0) {
+                    // 自定义标题
+                    Text(L10n.Album.title.localized)
+                        .font(.system(size: AppStyle.tabTitleFontSize, weight: AppStyle.tabTitleFontWeight))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
+                        .padding(.top, AppStyle.tabTitleTopPadding)
+                        .padding(.bottom, 8)
+                    
+                    // 内容区域
+                    Group {
+                        if viewModel.albums.isEmpty {
+                            emptyStateView
+                        } else {
+                            albumGridView
+                        }
+                    }
                 }
+                .padding(.horizontal, 16)
             }
-            .navigationTitle("相册")
-            .navigationBarTitleDisplayMode(.large)
+            .background(Color(.systemGroupedBackground))
+            .navigationBarHidden(true)
         }
         .onAppear {
             viewModel.loadAlbums()
@@ -47,19 +64,19 @@ struct AlbumLibraryView: View {
         .sheet(item: $selectedAlbum) { album in
             AlbumPhotosView(album: album)
         }
-        .confirmationDialog("确认删除", isPresented: $showDeleteAlert, titleVisibility: .visible) {
-            Button("删除", role: .destructive) {
+        .confirmationDialog(L10n.Album.deleteConfirmTitle.localized, isPresented: $showDeleteAlert, titleVisibility: .visible) {
+            Button(L10n.Album.delete.localized, role: .destructive) {
                 if let album = albumToDelete {
                     viewModel.deleteAlbum(albumId: album.id)
                     albumToDelete = nil
                 }
             }
-            Button("取消", role: .cancel) {
+            Button(L10n.Common.cancel.localized, role: .cancel) {
                 albumToDelete = nil
             }
         } message: {
             if let album = albumToDelete {
-                Text("确定要删除相册「\(album.name)」吗？此操作将删除该相册的所有照片分析记录，且无法撤销。")
+                Text(L10n.Album.deleteConfirmMessage.localized.replacingOccurrences(of: "%@", with: album.name))
             }
         }
         .overlay(alignment: .center) {
@@ -105,11 +122,11 @@ struct AlbumLibraryView: View {
                 .font(.system(size: 60))
                 .foregroundColor(.secondary.opacity(0.4))
             
-            Text("暂无相册")
+            Text(L10n.Album.emptyTitle.localized)
                 .font(.system(size: 18, weight: .medium))
                 .foregroundColor(.secondary)
             
-            Text("分析照片后\n相册会显示在这里")
+            Text(L10n.Album.emptyMessage.localized)
                 .font(.system(size: 14))
                 .foregroundColor(.secondary.opacity(0.6))
                 .multilineTextAlignment(.center)
@@ -119,49 +136,52 @@ struct AlbumLibraryView: View {
     
     // MARK: - 相册网格（正方形圆角矩形）
     private var albumGridView: some View {
-        GeometryReader { geometry in
-            let spacing: CGFloat = 16
-            let padding: CGFloat = 16
-            let availableWidth = geometry.size.width - (padding * 2) - spacing
-            let cardSize = availableWidth / 2
-            
-            ScrollView {
-                LazyVGrid(
-                    columns: [
-                        GridItem(.fixed(cardSize), spacing: spacing),
-                        GridItem(.fixed(cardSize), spacing: spacing)
-                    ],
-                    spacing: spacing
-                ) {
-                    ForEach(viewModel.albums) { album in
-                        AlbumCard(
-                            album: album,
-                            cardSize: cardSize,
-                            onEdit: {
-                                DispatchQueue.main.async {
-                                    albumToEdit = album
-                                    showEditOverlay = true
-                                }
-                            },
-                            onFavorite: {
-                                print("📌 onFavorite 闭包被调用: \(album.id)")
-                                viewModel.toggleFavorite(albumId: album.id)
-                            },
-                            onDelete: {
-                                DispatchQueue.main.async {
-                                    albumToDelete = album
-                                    showDeleteAlert = true
-                                }
-                            }
-                        )
-                            .onTapGesture {
-                                selectedAlbum = album
-                            }
+        let spacing: CGFloat = 16
+        let gridPadding: CGFloat = 16  // 网格内部的 padding
+        let outerPadding: CGFloat = 16  // VStack 外层的 padding
+        #if canImport(UIKit)
+        let screenWidth = UIScreen.main.bounds.width
+        #else
+        let screenWidth: CGFloat = 375 // macOS 默认宽度
+        #endif
+        // 计算可用宽度：屏幕宽度 - 外层 padding * 2 - 网格 padding * 2 - 卡片间距
+        let availableWidth = screenWidth - (outerPadding * 2) - (gridPadding * 2) - spacing
+        let cardSize = availableWidth / 2
+        
+        return LazyVGrid(
+            columns: [
+                GridItem(.fixed(cardSize), spacing: spacing),
+                GridItem(.fixed(cardSize), spacing: spacing)
+            ],
+            spacing: spacing
+        ) {
+            ForEach(viewModel.albums) { album in
+                AlbumCard(
+                    album: album,
+                    cardSize: cardSize,
+                    onEdit: {
+                        DispatchQueue.main.async {
+                            albumToEdit = album
+                            showEditOverlay = true
+                        }
+                    },
+                    onFavorite: {
+                        print("📌 onFavorite 闭包被调用: \(album.id)")
+                        viewModel.toggleFavorite(albumId: album.id)
+                    },
+                    onDelete: {
+                        DispatchQueue.main.async {
+                            albumToDelete = album
+                            showDeleteAlert = true
+                        }
                     }
-                }
-                .padding(padding)
+                )
+                    .onTapGesture {
+                        selectedAlbum = album
+                    }
             }
         }
+        .padding(gridPadding)
     }
 }
 
@@ -199,17 +219,29 @@ struct AlbumCard: View {
                     print("📌 contextMenu 收藏按钮被点击")
                     onFavorite()
                 } label: {
-                    Label(album.isFavorite ? "移除收藏" : "收藏", systemImage: album.isFavorite ? "heart.slash" : "heart")
+                    HStack {
+                        Image(systemName: album.isFavorite ? "heart.slash" : "heart")
+                            .foregroundColor(.primary)
+                        Text(album.isFavorite ? L10n.Favorite.remove.localized : L10n.Favorite.add.localized)
+                    }
                 }
                 
                 Button(action: onEdit) {
-                    Label("编辑信息", systemImage: "square.and.pencil")
+                    HStack {
+                        Image(systemName: "square.and.pencil")
+                            .foregroundColor(.primary)
+                        Text(L10n.Album.editInfo.localized)
+                    }
                 }
                 
                 Divider()
                 
                 Button(role: .destructive, action: onDelete) {
-                    Label("删除", systemImage: "trash")
+                    HStack {
+                        Image(systemName: "trash")
+                            .foregroundColor(.red)
+                        Text(L10n.Album.delete.localized)
+                    }
                 }
             }
             
@@ -220,7 +252,7 @@ struct AlbumCard: View {
                 .frame(width: cardSize, alignment: .leading)
             
             // 照片数量
-            Text("\(album.photoCount) 张照片")
+            Text(L10n.Album.photosCountText(count: album.photoCount))
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .frame(width: cardSize, alignment: .leading)
@@ -501,17 +533,17 @@ struct AlbumEditAlertView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            Text("编辑信息")
+            Text(L10n.Album.editTitle.localized)
                 .font(.headline)
                 .padding(.top, 20)
                 .padding(.bottom, 16)
             
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("名称")
+                    Text(L10n.Album.name.localized)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                    TextField("请输入名称", text: $albumName)
+                    TextField(L10n.Album.namePlaceholder.localized, text: $albumName)
                         .textFieldStyle(.roundedBorder)
                 }
                 
@@ -526,7 +558,7 @@ struct AlbumEditAlertView: View {
             Divider()
             
             HStack(spacing: 0) {
-                Button("取消") {
+                Button(L10n.Common.cancel.localized) {
                     onCancel()
                 }
                 .frame(maxWidth: .infinity)
@@ -536,7 +568,7 @@ struct AlbumEditAlertView: View {
                 Divider()
                     .frame(height: 44)
                 
-                Button("确认") {
+                Button(L10n.Common.confirm.localized) {
                     onConfirm(albumName.trimmingCharacters(in: .whitespacesAndNewlines), albumDate)
                 }
                 .frame(maxWidth: .infinity)

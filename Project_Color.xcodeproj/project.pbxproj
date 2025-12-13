@@ -41,6 +41,7 @@
 				Info.plist,
 				Test/ColorWheelV1.md,
 				Views/Components/ColorWheel.md,
+				Views/CustomPhotoPickerView.md,
 			);
 			target = F4EE4BEF2EBF82F000EFDF4F /* Project_Color */;
 		};
@@ -53,6 +54,7 @@
 			membershipExceptions = (
 				Test/ColorWheelV1.md,
 				Views/Components/ColorWheel.md,
+				Views/CustomPhotoPickerView.md,
 			);
 		};
 /* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
@@ -72,6 +74,7 @@
 				README/Tasks.md = text;
 				"README/Tendency Inspector.md" = text;
 				"README/Warm-cold classification.md" = text;
+				Views/CustomPhotoPickerView.md = text;
 			};
 			path = Project_Color;
 			sourceTree = "<group>";
@@ -234,6 +237,7 @@
 			knownRegions = (
 				en,
 				Base,
+				"zh-Hans",
 			);
 			mainGroup = F4EE4BE72EBF82F000EFDF4F;
 			minimizedProjectReferenceProxies = 1;

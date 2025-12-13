@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Photos
+import PhotosUI
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -23,9 +24,9 @@ struct HomeView: View {
     
     // PhotoScanner 阴影常量
     private let scannerShadowColor = Color.black.opacity(0.5)
-    private let scannerShadowRadius: CGFloat = 15
-    private let scannerShadowOffsetX: CGFloat = 8
-    private let scannerShadowOffsetY: CGFloat = 8
+    private let scannerShadowRadius: CGFloat = 10
+    private let scannerShadowOffsetX: CGFloat = 0
+    private let scannerShadowOffsetY: CGFloat = 0
     
     // 照片模板布局常量（参考 TestPhotosChannel）
     private let photoCardBaseSize: CGFloat = 150 // 照片卡片基础尺寸（纵向图固定宽度，横向图固定高度）
@@ -70,11 +71,6 @@ struct HomeView: View {
     @State private var analysisProgress = AnalysisProgress()
     @State private var analysisResult: AnalysisResult?
     @State private var showAnalysisResult = false  // 显示分析结果页
-    @State private var showAnalysisHistory = false  // Phase 3: 历史记录
-    @State private var showAnalysisSettings = false  // Phase 5: 分析设置
-    @State private var showCollectedTags = false  // Vision 标签库
-    @State private var showShareSheet = false  // 导出分享
-    @State private var shareURL: URL?  // 分享文件 URL
     private let analysisPipeline = SimpleAnalysisPipeline()
     @State private var hasPrewarmedAnalysis = false
     private let progressThrottler = ProgressThrottler(interval: 0.15)
@@ -83,7 +79,6 @@ struct HomeView: View {
     @State private var showScanPrepareAlert = false  // 扫描预备弹窗
     @State private var showFeelingSheet = false  // 添加感受 Sheet
     @State private var userFeeling: String = ""  // 用户输入的感受
-    @State private var showInkCircle = false  // InkCircle 测试页面
     
 #if DEBUG
     private let enableVerboseLogging = false
@@ -176,84 +171,6 @@ struct HomeView: View {
                         }
                     }
                     
-                    // Phase 3 & 5: 历史记录和设置按钮
-                    if !isProcessing {
-                        VStack {
-                            HStack {
-                                Spacer()
-                                
-                                // InkCircle 测试按钮
-                                #if DEBUG
-                                Button(action: {
-                                    showInkCircle = true
-                                }) {
-                                    Image(systemName: "circle.grid.3x3.fill")
-                                        .font(.system(size: 24))
-                                        .foregroundColor(.primary)
-                                        .padding(12)
-                                        .background(Color.white.opacity(0.9))
-                                        .clipShape(Circle())
-                                        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
-                                }
-                                .padding(.trailing, 8)
-                                #endif
-                                
-                                // Vision 标签库菜单
-                                Menu {
-                                    Button(action: {
-                                        showCollectedTags = true
-                                    }) {
-                                        Label("查看标签库", systemImage: "tag.fill")
-                                    }
-                                    
-                                    Button(action: {
-                                        exportTags()
-                                    }) {
-                                        Label("导出标签", systemImage: "square.and.arrow.down")
-                                    }
-                                    .disabled(TagCollector.shared.count() == 0)
-                                } label: {
-                                    Image(systemName: "tag.fill")
-                                        .font(.system(size: 24))
-                                        .foregroundColor(.primary)
-                                        .padding(12)
-                                        .background(Color.white.opacity(0.9))
-                                        .clipShape(Circle())
-                                        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
-                                }
-                                .padding(.trailing, 8)
-                                
-                                // Phase 5: 设置按钮
-                                Button(action: {
-                                    showAnalysisSettings = true
-                                }) {
-                                    Image(systemName: "slider.horizontal.3")
-                                        .font(.system(size: 24))
-                                        .foregroundColor(.primary)
-                                        .padding(12)
-                                        .background(Color.white.opacity(0.9))
-                                        .clipShape(Circle())
-                                        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
-                                }
-                                .padding(.trailing, 8)
-                                
-                                // Phase 3: 历史记录按钮
-                                Button(action: {
-                                    showAnalysisHistory = true
-                                }) {
-                                    Image(systemName: "clock.arrow.circlepath")
-                                        .font(.system(size: 24))
-                                        .foregroundColor(.primary)
-                                        .padding(12)
-                                        .background(Color.white.opacity(0.9))
-                                        .clipShape(Circle())
-                                        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
-                                }
-                                .padding(.trailing)
-                            }
-                            Spacer()
-                        }
-                    }
                     
                     // 进度条（位于 scanner 下方）
                     if isProcessing {
@@ -301,46 +218,25 @@ struct HomeView: View {
                 .toolbar(showAnalysisResult ? .hidden : .visible, for: .tabBar)  // 根据状态控制 TabBar 显示
             }
             .fullScreenCover(isPresented: $showPhotoPicker) {
-                CustomPhotoPickerView { assets, album in
-                    selectionManager.updateSelection(assets)
-                    if let album {
-                        selectionAlbumContext = SelectedAlbumContext(
-                            id: album.collection.localIdentifier,
-                            name: album.title
-                        )
-                    } else {
+                SystemPhotoPickerView { results in
+                    // 转换 PHPickerResult 为 PHAsset
+                    convertPickerResultsToAssets(results) { assets in
+                        selectionManager.updateSelection(assets)
+                        // 注意：系统选择器无法获取相册信息，清空相册上下文
                         selectionAlbumContext = nil
+                        resetDragState()  // 重新选片后立即恢复照片堆展示状态
                     }
-                    resetDragState()  // 重新选片后立即恢复照片堆展示状态
-                }
-            }
-            .sheet(isPresented: $showAnalysisHistory) {
-                AnalysisHistoryView()
-            }
-            .sheet(isPresented: $showAnalysisSettings) {
-                AnalysisSettingsView()
-            }
-            .sheet(isPresented: $showCollectedTags) {
-                CollectedTagsView()
-            }
-            .sheet(isPresented: $showShareSheet) {
-                if let url = shareURL {
-                    #if canImport(UIKit)
-                    ShareSheet(activityItems: [url])
-                    #else
-                    EmptyView()
-                    #endif
                 }
             }
             // 扫描预备弹窗
-            .alert("扫描预备中...", isPresented: $showScanPrepareAlert) {
-                Button("添加感受") {
+            .alert(L10n.Home.scanPreparing.localized, isPresented: $showScanPrepareAlert) {
+                Button(L10n.Home.addFeeling.localized) {
                     // 关闭 alert 并立刻打开输入页
                     showScanPrepareAlert = false
                     showFeelingSheet = true
                     hidePhotoStack()
                 }
-                Button("确认选片") {
+                Button(L10n.Home.confirmSelection.localized) {
                     // 触感反馈：扫描开始
                     let impactFeedback = UIImpactFeedbackGenerator(style: .light)
                     impactFeedback.impactOccurred()
@@ -367,19 +263,6 @@ struct HomeView: View {
                         }
                     }
                 )
-            }
-            // InkCircle 测试页面
-            .fullScreenCover(isPresented: $showInkCircle) {
-                NavigationStack {
-                    MetaballDemoView()
-                        .toolbar {
-                            ToolbarItem(placement: .navigationBarTrailing) {
-                                Button("关闭") {
-                                    showInkCircle = false
-                                }
-                            }
-                        }
-                }
             }
             .onAppear {
                 prewarmAnalysisStack()
@@ -926,56 +809,30 @@ struct HomeView: View {
         #endif
     }
     
-    // MARK: - 导出标签
-    private func exportTags() {
-        #if canImport(UIKit)
-        let tagStats = TagCollector.shared.exportStats()
+    // MARK: - PHPickerResult 转换为 PHAsset
+    private func convertPickerResultsToAssets(_ results: [PHPickerResult], completion: @escaping ([PHAsset]) -> Void) {
+        var assets: [PHAsset] = []
+        let group = DispatchGroup()
         
-        guard !tagStats.isEmpty else {
-            print("⚠️ 没有标签可导出")
-            return
-        }
-        
-        // 创建文件内容
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        let dateString = dateFormatter.string(from: Date())
-        
-        var content = "Vision 标签导出\n"
-        content += "导出时间: \(dateString)\n"
-        content += "唯一标签数: \(tagStats.count)\n"
-        content += "总标签数: \(TagCollector.shared.totalCount())\n"
-        content += "\n"
-        content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        content += "\n"
-        content += String(format: "%-30s %s\n", "标签", "次数")
-        content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        content += "\n"
-        
-        // 添加所有标签（带次数）
-        for tagStat in tagStats {
-            content += String(format: "%-30s %d\n", tagStat.tag, tagStat.count)
-        }
-        
-        // 创建临时文件
-        let fileDateFormatter = DateFormatter()
-        fileDateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        let fileName = "vision_tags_\(fileDateFormatter.string(from: Date())).txt"
-        let tempDir = FileManager.default.temporaryDirectory
-        let fileURL = tempDir.appendingPathComponent(fileName)
-        
-        do {
-            // 写入文件
-            try content.write(to: fileURL, atomically: true, encoding: .utf8)
+        for result in results {
+            group.enter()
             
-            // 显示分享界面
-            shareURL = fileURL
-            showShareSheet = true
-        } catch {
-            print("❌ 导出失败: \(error.localizedDescription)")
+            if let assetIdentifier = result.assetIdentifier {
+                // 使用 asset identifier 获取 PHAsset
+                let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil)
+                if let asset = fetchResult.firstObject {
+                    assets.append(asset)
+                }
+            }
+            
+            group.leave()
         }
-        #endif
+        
+        group.notify(queue: .main) {
+            completion(assets)
+        }
     }
+    
 }
 
 // MARK: - Custom Views
@@ -1044,7 +901,7 @@ struct FeelingInputSheet: View {
                     // 输入框
                     ZStack(alignment: .topLeading) {
                         if feeling.isEmpty {
-                            Text("那一刻...")
+                            Text(L10n.Home.feelingPlaceholder.localized)
                                 .foregroundColor(.gray.opacity(0.5))
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 8)
@@ -1073,7 +930,7 @@ struct FeelingInputSheet: View {
                 
                 Spacer()
             }
-            .navigationTitle("添加感受")
+            .navigationTitle(L10n.Home.addFeeling.localized)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {

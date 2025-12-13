@@ -55,7 +55,7 @@ struct LabView: View {
             .padding(.top, Layout.verticalSpacing)
         }
         .background(Color(.systemGroupedBackground))
-        .navigationTitle("色彩实验室")
+        .navigationTitle(L10n.Lab.title.localized)
         .navigationBarTitleDisplayMode(.inline)
         .hideTabBar()
     }

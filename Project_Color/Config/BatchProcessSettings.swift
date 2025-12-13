@@ -11,9 +11,30 @@ import Foundation
 struct BatchProcessSettings {
     // MARK: - 显影解析方式
     enum DevelopmentMode: String, Codable, CaseIterable {
-        case tone = "色调模式"
-        case shadow = "影调模式"
-        case comprehensive = "融合模式"
+        case tone = "tone"
+        case shadow = "shadow"
+        case comprehensive = "comprehensive"
+        
+        var displayName: String {
+            switch self {
+            case .tone: return L10n.DevelopmentMode.tone.localized
+            case .shadow: return L10n.DevelopmentMode.shadow.localized
+            case .comprehensive: return L10n.DevelopmentMode.comprehensive.localized
+            }
+        }
+    }
+    
+    // MARK: - 扫描结果页样式
+    enum ScanResultStyle: String, Codable, CaseIterable {
+        case perspectiveFirst = "perspective_first"
+        case compositionFirst = "composition_first"
+        
+        var displayName: String {
+            switch self {
+            case .perspectiveFirst: return L10n.ScanResultStyle.perspectiveFirst.localized
+            case .compositionFirst: return L10n.ScanResultStyle.compositionFirst.localized
+            }
+        }
     }
     
     // MARK: - Settings Keys
@@ -21,6 +42,7 @@ struct BatchProcessSettings {
         static let usePhotoTimeAsDefault = "usePhotoTimeAsDefault"
         static let developmentMode = "developmentMode"
         static let developmentFavoriteOnly = "developmentFavoriteOnly"
+        static let scanResultStyle = "scanResultStyle"
     }
     
     /// 是否使用照片时间作为默认日期
@@ -62,6 +84,23 @@ struct BatchProcessSettings {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: SettingsKey.developmentFavoriteOnly)
+        }
+    }
+    
+    /// 扫描结果页样式
+    static var scanResultStyle: ScanResultStyle {
+        get {
+            // 如果从未设置过，默认为视角在前
+            guard let data = UserDefaults.standard.data(forKey: SettingsKey.scanResultStyle),
+                  let style = try? JSONDecoder().decode(ScanResultStyle.self, from: data) else {
+                return .perspectiveFirst
+            }
+            return style
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                UserDefaults.standard.set(data, forKey: SettingsKey.scanResultStyle)
+            }
         }
     }
 }

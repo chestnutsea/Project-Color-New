@@ -42,15 +42,24 @@ struct AnalysisLibraryView: View {
     @State private var showEditOverlay = false
     
     enum LibraryTab: String, CaseIterable {
-        case favorites = "收藏"
-        case all = "素材"
+        case favorites
+        case all
+        
+        var displayName: String {
+            switch self {
+            case .favorites:
+                return L10n.AnalysisLibrary.favorites.localized
+            case .all:
+                return L10n.AnalysisLibrary.materials.localized
+            }
+        }
     }
     
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
                 // 自定义标题
-                Text("相册")
+                Text(L10n.AnalysisLibrary.title.localized)
                     .font(.system(size: AppStyle.tabTitleFontSize, weight: AppStyle.tabTitleFontWeight))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal)
@@ -60,7 +69,7 @@ struct AnalysisLibraryView: View {
                 // Tab 选择器
                 Picker("", selection: $selectedTab) {
                     ForEach(LibraryTab.allCases, id: \.self) { tab in
-                        Text(tab.rawValue).tag(tab)
+                        Text(tab.displayName).tag(tab)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -102,18 +111,18 @@ struct AnalysisLibraryView: View {
             )
             .id(sessionInfo.id)
         }
-        .alert("确认删除", isPresented: $showDeleteAlert) {
-            Button("取消", role: .cancel) {
+        .alert(L10n.AnalysisLibrary.deleteConfirmTitle.localized, isPresented: $showDeleteAlert) {
+            Button(L10n.AnalysisLibrary.cancel.localized, role: .cancel) {
                 sessionToDelete = nil
             }
-            Button("删除", role: .destructive) {
+            Button(L10n.AnalysisLibrary.delete.localized, role: .destructive) {
                 if let session = sessionToDelete {
                     deleteSession(session)
                 }
                 sessionToDelete = nil
             }
         } message: {
-            Text("确定要删除这个分析结果吗？此操作无法撤销。")
+            Text(L10n.AnalysisLibrary.deleteConfirmMessage.localized)
         }
         .overlay(alignment: .center) {
             if showEditOverlay, let session = sessionToEdit {
@@ -189,7 +198,7 @@ struct AnalysisLibraryView: View {
                 .font(.system(size: 60))
                 .foregroundColor(.secondary.opacity(0.4))
             
-            Text(tab == .favorites ? "暂无收藏" : "暂无素材")
+            Text(tab == .favorites ? L10n.AnalysisLibrary.emptyFavorites.localized : L10n.AnalysisLibrary.emptyMaterials.localized)
                 .font(.system(size: 18, weight: .medium))
                 .foregroundColor(.secondary)
         }
@@ -444,7 +453,7 @@ struct LibrarySessionCard: View {
                 
                 Spacer()
                 
-                Text("\(session.photoCount) 张")
+                Text(L10n.Album.photosCountText(count: session.photoCount))
                     .font(.system(size: LibraryLayoutConstants.sessionInfoFontSize))
                     .foregroundColor(.secondary)
             }
@@ -457,7 +466,10 @@ struct LibrarySessionCard: View {
     
     private func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy年M月d日"
+        formatter.locale = Locale.current
+        // 使用 medium 样式，月份会显示为缩写（如 Dec 而不是 December）
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
         return formatter.string(from: date)
     }
     

@@ -112,7 +112,7 @@ struct SearchColorView: View {
     // MARK: - Body
     var body: some View {
         mainContent
-            .navigationTitle("寻色")
+            .navigationTitle(L10n.Lab.searchColor.localized)
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showPhotoPicker) {
                 PhotoPickerView { results in

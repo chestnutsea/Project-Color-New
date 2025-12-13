@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct AppStyle {
+    
     /// Tab 页标题字号
     static let tabTitleFontSize: CGFloat = 28
     

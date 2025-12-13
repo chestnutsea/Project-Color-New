@@ -72,7 +72,7 @@ struct CalculateColorView: View {
             }
         }
         // 使用系统导航栏和返回按钮（与上一级一致）
-        .navigationTitle("算色")
+        .navigationTitle(L10n.Lab.calculateColor.localized)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             // 键盘收起按钮

@@ -15,14 +15,28 @@ import UIKit
 import simd
 
 private enum AnalysisResultTab: String, CaseIterable, Identifiable {
-    case aiEvaluation = "视角"
-    case distribution = "构成"
+    case aiEvaluation
+    case distribution
     
     var id: Self { self }
     
-    // 定义顺序：视角在左边，构成在右边
+    var displayName: String {
+        switch self {
+        case .aiEvaluation:
+            return L10n.AnalysisResult.aiEvaluation.localized
+        case .distribution:
+            return L10n.AnalysisResult.distribution.localized
+        }
+    }
+    
+    // 定义顺序：根据用户设置动态调整
     static var orderedCases: [AnalysisResultTab] {
-        [.aiEvaluation, .distribution]
+        switch BatchProcessSettings.scanResultStyle {
+        case .perspectiveFirst:
+            return [.aiEvaluation, .distribution]
+        case .compositionFirst:
+            return [.distribution, .aiEvaluation]
+        }
     }
 }
 
@@ -43,12 +57,22 @@ private enum DistributionTabLayout {
     static let topOffset: CGFloat = -5  // 构成页card整体往上移的距离（负值往上）
 }
 
+// AI 卡片按钮布局常量
+private enum AICardButtonLayout {
+    static let iconSize: CGFloat = 24 * 0.7  // SVG 原始大小 24，缩放 0.7
+    static let buttonSpacing: CGFloat = 12  // 按钮之间的间距
+    static let topPadding: CGFloat = 12  // 按钮区域距离卡片的距离
+}
+
 struct AnalysisResultView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var result: AnalysisResult
     @State private var selectedCluster: ColorCluster?
-    @State private var selectedTab: AnalysisResultTab = .aiEvaluation
+    @State private var selectedTab: AnalysisResultTab = AnalysisResultTab.orderedCases.first ?? .aiEvaluation
     @State private var show3DView = false
+    
+    // Toast 状态
+    @State private var showShareToast = false
     
     // 收藏相关
     @State private var isFavorite: Bool = false
@@ -67,14 +91,10 @@ struct AnalysisResultView: View {
     // 是否以 Sheet 模式显示（影响返回按钮样式）
     var isSheetMode: Bool = false
     
-    // 缓存计算密集的属性
-    @State private var cachedHueRingPoints: [HueRingPoint] = []
-    @State private var cachedScatterPoints: [SaturationBrightnessPoint] = []
-    @State private var cachedColorSpacePoints: [ColorSpacePoint] = []
-    @State private var cachedColorCastPoints: [ColorCastPoint] = []
-    @State private var cachedHighlightStatus: ColorCastStatus = .noneSignificant
-    @State private var cachedShadowStatus: ColorCastStatus = .noneSignificant
-    @State private var isDistributionDataReady = false
+    // AI 刷新状态
+    @State private var isRefreshingAI: Bool = false
+    
+    // 缓存计算密集的属性（改为计算属性，数据已在内存中，无需异步）
     
     private let labConverter = ColorSpaceConverter()
     private let normalizedLabBounds = (
@@ -94,9 +114,9 @@ struct AnalysisResultView: View {
             VStack(spacing: 0) {
                 // Tab Bar（固定在顶部，不随 ScrollView 滚动）
                 VStack(spacing: 0) {
-                    Picker("结果视图", selection: $selectedTab) {
+                    Picker(L10n.AnalysisResult.pickerTitle.localized, selection: $selectedTab) {
                         ForEach(AnalysisResultTab.orderedCases) { tab in
-                            Text(tab.rawValue).tag(tab)
+                            Text(tab.displayName).tag(tab)
                         }
                     }
                     .pickerStyle(.segmented)
@@ -162,7 +182,7 @@ struct AnalysisResultView: View {
         }  // ZStack 结束
         .background(Color(.systemBackground))
         .ignoresSafeArea(edges: .bottom)
-        .navigationTitle("扫描结果")
+        .navigationTitle(L10n.AnalysisResult.title.localized)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(showFullScreenPhoto ? .hidden : .visible, for: .navigationBar)
         .toolbar {
@@ -177,7 +197,8 @@ struct AnalysisResultView: View {
                         }
                     }) {
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 20, weight: .semibold))
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.primary)
                     }
                 }
             }
@@ -197,20 +218,24 @@ struct AnalysisResultView: View {
             // 分享按钮（放在收藏按钮左边）
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: {
-                    // TODO: 添加分享功能
+                    withAnimation {
+                        showShareToast = true
+                    }
                 }) {
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(.primary)
                 }
             }
         }
         .toolbarBackground(Color(.systemBackground), for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .toast(isPresented: $showShareToast, message: L10n.Toast.featureInDevelopment.localized)
         .sheet(item: $selectedCluster) { cluster in
             ClusterDetailView(cluster: cluster, result: result)
         }
         .sheet(isPresented: $show3DView) {
-            threeDView(points: cachedColorSpacePoints)
+            threeDView(points: colorSpacePoints)
         }
         .overlay {
             if showFavoriteAlert, let sessionId = sessionId {
@@ -257,28 +282,8 @@ struct AnalysisResultView: View {
             print("🔍 AnalysisResultView.onAppear 被调用")
             print("   - result.sessionId: \(result.sessionId?.uuidString ?? "nil")")
             
-            // 加载收藏状态（必须先执行）
+            // 加载收藏状态
             loadFavoriteStatus()
-            
-            // 页面出现时立即计算分布数据（在后台）
-            if !isDistributionDataReady {
-                Task.detached(priority: .userInitiated) {
-                    let huePoints = await computeHueRingPoints()
-                    let scatterPts = await computeScatterPoints()
-                    let spacePts = await computeColorSpacePoints()
-                    let (colorCastPts, highlightStat, shadowStat) = await computeColorCastPoints()
-                    
-                    await MainActor.run {
-                        cachedHueRingPoints = huePoints
-                        cachedScatterPoints = scatterPts
-                        cachedColorSpacePoints = spacePts
-                        cachedColorCastPoints = colorCastPts
-                        cachedHighlightStatus = highlightStat
-                        cachedShadowStatus = shadowStat
-                        isDistributionDataReady = true
-                    }
-                }
-            }
         }
     }
     
@@ -425,62 +430,56 @@ struct AnalysisResultView: View {
     
     private var distributionTabContent: some View {
         VStack(spacing: 20) {
-            if isDistributionDataReady {
-                // 色相环（带 card，正方形）
-                HueRingDistributionView(
-                    points: cachedHueRingPoints,
-                    dominantHue: dominantHue,
-                    primaryColor: dominantCluster?.color,
-                    onPresent3D: cachedColorSpacePoints.isEmpty ? nil : {
-                        show3DView = true
-                    }
-                )
-                .padding()
-                .background(Color(.systemBackground))
-                .cornerRadius(15)
-                .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
-                .aspectRatio(1, contentMode: .fit)
-                
-                // 色偏分析轮（高光和阴影，带 card）- 暂时隐藏
-                // ColorCastWheelView(
-                //     points: cachedColorCastPoints,
-                //     highlightStatus: cachedHighlightStatus,
-                //     shadowStatus: cachedShadowStatus
-                // )
-                // .padding()
-                // .background(Color(.systemBackground))
-                // .cornerRadius(15)
-                // .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
-                
-                // 散点图和 CDF 图表并排显示（带 card，左右对齐）
-                ScatterAndCDFCardView(
-                    scatterPoints: cachedScatterPoints,
-                    photoInfos: result.photoInfos
-                )
-                
-                // 相机镜头信息 card
-                if !cameraLensCombinations.isEmpty {
-                    cameraLensCard
+            // 色相环（带 card，正方形）
+            HueRingDistributionView(
+                points: hueRingPoints,
+                dominantHue: dominantHue,
+                primaryColor: dominantCluster?.color,
+                onPresent3D: colorSpacePoints.isEmpty ? nil : {
+                    show3DView = true
                 }
-                
-                // 温度分布图（带 card，放到最下面）- 暂时隐藏
-                // if let warmCoolDist = result.warmCoolDistribution,
-                //    !warmCoolDist.scores.isEmpty,
-                //    let dominantColor = dominantCluster?.color {
-                //     TemperatureDistributionView(
-                //         distribution: warmCoolDist,
-                //         dominantColor: dominantColor,
-                //         photoInfos: result.photoInfos
-                //     )
-                //     .background(Color(.systemBackground))
-                //     .cornerRadius(15)
-                //     .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
-                // }
-            } else {
-                ProgressView("正在计算分布数据...")
-                    .padding()
+            )
+            .padding()
+            .background(Color(.systemBackground))
+            .cornerRadius(15)
+            .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+            .aspectRatio(1, contentMode: .fit)
+            
+            // 色偏分析轮（高光和阴影，带 card）- 暂时隐藏
+            // ColorCastWheelView(
+            //     points: colorCastPoints,
+            //     highlightStatus: highlightStatus,
+            //     shadowStatus: shadowStatus
+            // )
+            // .padding()
+            // .background(Color(.systemBackground))
+            // .cornerRadius(15)
+            // .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+            
+            // 散点图和 CDF 图表并排显示（带 card，左右对齐）
+            ScatterAndCDFCardView(
+                scatterPoints: scatterPoints,
+                photoInfos: result.photoInfos
+            )
+            
+            // 相机镜头信息 card
+            if !cameraLensCombinations.isEmpty {
+                cameraLensCard
             }
             
+            // 温度分布图（带 card，放到最下面）- 暂时隐藏
+            // if let warmCoolDist = result.warmCoolDistribution,
+            //    !warmCoolDist.scores.isEmpty,
+            //    let dominantColor = dominantCluster?.color {
+            //     TemperatureDistributionView(
+            //         distribution: warmCoolDist,
+            //         dominantColor: dominantColor,
+            //         photoInfos: result.photoInfos
+            //     )
+            //     .background(Color(.systemBackground))
+            //     .cornerRadius(15)
+            //     .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+            // }
         }
     }
     
@@ -584,13 +583,13 @@ struct AnalysisResultView: View {
             }
             
             if let evaluation = result.aiEvaluation {
-                if evaluation.isLoading {
-                    // 加载状态：显示提示卡片
-                    aiLoadingView
+                if evaluation.isLoading || isRefreshingAI {
+                    // 加载状态或刷新状态：显示提示卡片
+                    aiLoadingView(isRefreshing: isRefreshingAI)
                 } else if let error = evaluation.error {
                     // 错误状态：显示提示卡片
                     if isNetworkError(error) {
-                        aiErrorMessageView(message: "开启视角需连接网络。")
+                        aiErrorMessageView(message: L10n.AnalysisResult.networkError.localized)
                 } else {
                         aiErrorMessageView(message: error)
                     }
@@ -601,12 +600,12 @@ struct AnalysisResultView: View {
                     
                     if !hasContent {
                         // AI 返回的内容为空：只显示提示卡片，不显示评论内容卡片
-                        aiErrorMessageView(message: "暂无合适的视角。")
+                        aiErrorMessageView(message: L10n.AnalysisResult.noPerspective.localized)
                     } else {
                         // 有内容时，显示评价内容（不显示提示卡片）
                     // 评价内容
                         if let overall = evaluation.overallEvaluation, !overall.fullText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        overallEvaluationCard(overall)
+                        overallEvaluationCardWithButtons(overall)
                     }
                     
                     if !evaluation.clusterEvaluations.isEmpty {
@@ -616,7 +615,7 @@ struct AnalysisResultView: View {
                 }
             } else {
                 // 初始状态（正在生成）：显示提示卡片
-                aiLoadingView
+                aiLoadingView(isRefreshing: false)
             }
         }
     }
@@ -687,16 +686,16 @@ struct AnalysisResultView: View {
         .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
     }
     
-    private var aiLoadingView: some View {
+    private func aiLoadingView(isRefreshing: Bool) -> some View {
         VStack(spacing: 16) {
             ProgressView()
                 .scaleEffect(1.2)
             
-            Text("视角开启中...")
+            Text(isRefreshing ? L10n.AnalysisResult.aiLoadingRefresh.localized : L10n.AnalysisResult.aiLoading.localized)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
             
-            Text("这可能需要几秒钟")
+            Text(L10n.AnalysisResult.aiLoadingSubtitle.localized)
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
@@ -734,35 +733,55 @@ struct AnalysisResultView: View {
         .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
     }
     
+    // 带按钮的 AI 评价卡片组合视图
+    private func overallEvaluationCardWithButtons(_ overall: OverallEvaluation) -> some View {
+        VStack(spacing: 0) {
+            // AI 评价卡片
+            overallEvaluationCard(overall)
+            
+            // 按钮区域（左右对齐）
+            HStack(spacing: AICardButtonLayout.buttonSpacing) {
+                // 刷新按钮（左对齐，向右移动 10）
+                Button(action: {
+                    refreshAIEvaluation()
+                }) {
+                    loadSVGIcon(named: "refresh")
+                        .resizable()
+                        .renderingMode(.template)
+                        .foregroundColor(.secondary)
+                        .frame(width: AICardButtonLayout.iconSize, height: AICardButtonLayout.iconSize)
+                }
+                .disabled(isRefreshingAI)
+                .opacity(isRefreshingAI ? 0.5 : 1.0)
+                .padding(.leading, 10)
+                
+                Spacer()
+                
+                // 复制按钮（右对齐，向左移动 10）
+                Button(action: {
+                    copyAIContent(overall)
+                }) {
+                    loadSVGIcon(named: "copy")
+                        .resizable()
+                        .renderingMode(.template)
+                        .foregroundColor(.secondary)
+                        .frame(width: AICardButtonLayout.iconSize, height: AICardButtonLayout.iconSize)
+                }
+                .padding(.trailing, 10)
+            }
+            .padding(.top, AICardButtonLayout.topPadding)
+        }
+    }
+    
     private func overallEvaluationCard(_ overall: OverallEvaluation) -> some View {
         // 获取主代表色（照片数量最多的聚类）
         let dominantColor = getDominantClusterColor()
         
-        return ZStack(alignment: .topLeading) {
-            VStack(alignment: .leading, spacing: 20) {
-                // 解析并格式化显示评价内容
-                formattedEvaluationView(overall.fullText, dominantColor: dominantColor)
-            }
-            .padding(20)
-            
-            // Sparkle SVG 在左上角
-            if let sparklesImage = loadSparklesImage() {
-                Image(uiImage: sparklesImage)
-                    .resizable()
-                    .renderingMode(.template)
-                    .foregroundColor(dominantColor)
-                    .frame(width: 16, height: 16)
-                    .padding(.leading, 8)
-                    .padding(.top, 8)
-            } else {
-                // 回退到系统图标
-                Image(systemName: "sparkles")
-                    .font(.system(size: 16))
-                    .foregroundColor(dominantColor)
-                    .padding(.leading, 8)
-                    .padding(.top, 8)
-            }
+        return VStack(alignment: .leading, spacing: 20) {
+            // 解析并格式化显示评价内容
+            formattedEvaluationView(overall.fullText, dominantColor: dominantColor)
         }
+        .padding(20)
         .background(Color(.systemBackground))
         .cornerRadius(15)
         .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
@@ -797,6 +816,56 @@ struct AnalysisResultView: View {
         return UIImage(named: "sparkles")
         #else
         return nil
+        #endif
+    }
+    
+    // 加载 SVG 图标
+    // 注意：SVG 文件需要添加到 Assets.xcassets 中，Xcode 会自动处理 SVG
+    // 如果 SVG 在 AppStyle 文件夹中，请将它们拖到 Assets.xcassets 中
+    private func loadSVGIcon(named name: String) -> Image {
+        // 直接使用 Image 资源名称（SVG 应该在 Assets.xcassets 中）
+        // Xcode 13+ 支持在 Assets 中直接使用 SVG 文件
+        return Image(name)
+    }
+    
+    // MARK: - AI 卡片按钮动作
+    
+    /// 刷新 AI 评价
+    private func refreshAIEvaluation() {
+        guard !isRefreshingAI else { return }
+        
+        isRefreshingAI = true
+        
+        // 触感反馈
+        #if canImport(UIKit)
+        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+        impactFeedback.impactOccurred()
+        #endif
+        
+        Task {
+            // 调用已有的重试逻辑
+            await performAIRetry()
+            
+            await MainActor.run {
+                isRefreshingAI = false
+            }
+        }
+    }
+    
+    /// 复制 AI 内容
+    private func copyAIContent(_ overall: OverallEvaluation) {
+        #if canImport(UIKit)
+        // 获取完整内容（关键词 + 正文）
+        let fullText = overall.fullText
+        
+        // 复制到剪贴板
+        UIPasteboard.general.string = fullText
+        
+        // 触感反馈
+        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+        impactFeedback.impactOccurred()
+        
+        print("📋 已复制 AI 内容到剪贴板")
         #endif
     }
     
@@ -997,13 +1066,13 @@ struct AnalysisResultView: View {
     private func clusterEvaluationsSection(_ evaluations: [ClusterEvaluation]) -> some View {
         VStack(alignment: .leading, spacing: 15) {
             HStack {
-                Text("各色系评价")
+                Text(L10n.AnalysisResult.colorEvaluations.localized)
                     .font(.title3)
                     .fontWeight(.bold)
                 
                 Spacer()
                 
-                Text("\(evaluations.count) 个色系")
+                Text(L10n.AnalysisResult.colorSystemsCount.localized(with: evaluations.count))
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
@@ -1068,84 +1137,90 @@ struct AnalysisResultView: View {
         return Color(red: r, green: g, blue: b)
     }
     
-    // 重试 AI 评价
+    // 重试 AI 评价（从错误视图调用）
     private func retryAIEvaluation() {
         Task {
+            await performAIRetry()
+        }
+    }
+    
+    // 执行 AI 重试的核心逻辑
+    private func performAIRetry() async {
+        await MainActor.run {
+            result.aiEvaluation = ColorEvaluation(isLoading: true)
+        }
+        
+        print("🔄 开始重新加载图片进行 AI 评价...")
+        
+        // 1. 从 PhotoInfo 加载 PHAsset
+        var assets: [PHAsset] = []
+        for photoInfo in result.photoInfos {
+            if let asset = PHAsset.fetchAssets(withLocalIdentifiers: [photoInfo.assetIdentifier], options: nil).firstObject {
+                assets.append(asset)
+            }
+        }
+        
+        print("📸 加载了 \(assets.count) 个资源")
+        
+        // 2. 压缩图片
+        var compressedImages: [UIImage] = []
+        let imageManager = PHImageManager.default()
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .highQualityFormat
+        options.isNetworkAccessAllowed = true
+        options.isSynchronous = true
+        
+        for asset in assets {
+            let targetSize = CGSize(width: 1024, height: 1024)
+            var resultImage: UIImage?
+            
+            imageManager.requestImage(
+                for: asset,
+                targetSize: targetSize,
+                contentMode: .aspectFit,
+                options: options
+            ) { image, _ in
+                resultImage = image
+            }
+            
+            if let image = resultImage {
+                compressedImages.append(image)
+            }
+        }
+        
+        print("🖼️ 压缩了 \(compressedImages.count) 张图片")
+        
+        // 3. 调用 AI 评价
+        let evaluator = ColorAnalysisEvaluator()
+        let userMessage = await MainActor.run { result.userMessage }
+        do {
+            let evaluation = try await evaluator.evaluateColorAnalysis(
+                result: result,
+                compressedImages: compressedImages,
+                userMessage: userMessage,
+                onUpdate: { @MainActor updatedEvaluation in
+                    // 实时更新 UI（流式显示）
+                    result.aiEvaluation = updatedEvaluation
+                }
+            )
             await MainActor.run {
-                result.aiEvaluation = ColorEvaluation(isLoading: true)
+                result.aiEvaluation = evaluation
             }
-            
-            print("🔄 开始重新加载图片进行 AI 评价...")
-            
-            // 1. 从 PhotoInfo 加载 PHAsset
-            var assets: [PHAsset] = []
-            for photoInfo in result.photoInfos {
-                if let asset = PHAsset.fetchAssets(withLocalIdentifiers: [photoInfo.assetIdentifier], options: nil).firstObject {
-                    assets.append(asset)
-                }
-            }
-            
-            print("📸 加载了 \(assets.count) 个资源")
-            
-            // 2. 压缩图片
-            var compressedImages: [UIImage] = []
-            let imageManager = PHImageManager.default()
-            let options = PHImageRequestOptions()
-            options.deliveryMode = .highQualityFormat
-            options.isNetworkAccessAllowed = true
-            options.isSynchronous = true
-            
-            for asset in assets {
-                let targetSize = CGSize(width: 1024, height: 1024)
-                var resultImage: UIImage?
-                
-                imageManager.requestImage(
-                    for: asset,
-                    targetSize: targetSize,
-                    contentMode: .aspectFit,
-                    options: options
-                ) { image, _ in
-                    resultImage = image
-                }
-                
-                if let image = resultImage {
-                    compressedImages.append(image)
-                }
-            }
-            
-            print("🖼️ 压缩了 \(compressedImages.count) 张图片")
-            
-            // 3. 调用 AI 评价
-            let evaluator = ColorAnalysisEvaluator()
-            let userMessage = await MainActor.run { result.userMessage }
-            do {
-                let evaluation = try await evaluator.evaluateColorAnalysis(
-                    result: result,
-                    compressedImages: compressedImages,
-                    userMessage: userMessage,
-                    onUpdate: { @MainActor updatedEvaluation in
-                        // 实时更新 UI（流式显示）
-                        result.aiEvaluation = updatedEvaluation
-                    }
-                )
-                await MainActor.run {
-                    result.aiEvaluation = evaluation
-                }
-            } catch {
-                print("❌ AI 评价失败: \(error.localizedDescription)")
-                await MainActor.run {
-                    var errorEvaluation = ColorEvaluation()
-                    errorEvaluation.isLoading = false
-                    errorEvaluation.error = error.localizedDescription
-                    result.aiEvaluation = errorEvaluation
-                }
+        } catch {
+            print("❌ AI 评价失败: \(error.localizedDescription)")
+            await MainActor.run {
+                var errorEvaluation = ColorEvaluation()
+                errorEvaluation.isLoading = false
+                errorEvaluation.error = error.localizedDescription
+                result.aiEvaluation = errorEvaluation
             }
         }
     }
     
-    // MARK: - 异步计算方法
+    // MARK: - 数据转换（同步计算属性）
     
-    private func computeScatterPoints() async -> [SaturationBrightnessPoint] {
+    /// 散点图数据点（数据已在内存中，只需格式转换）
+    private var scatterPoints: [SaturationBrightnessPoint] {
         #if DEBUG
         print("📊 computeScatterPoints 开始，照片数: \(result.photoInfos.count)")
         #endif
@@ -1284,7 +1359,8 @@ struct AnalysisResultView: View {
         return Double(hue)
     }
     
-    private func computeHueRingPoints() async -> [HueRingPoint] {
+    /// 色相环数据点
+    private var hueRingPoints: [HueRingPoint] {
         result.photoInfos.flatMap { photoInfo in
             photoInfo.dominantColors.compactMap { dominantColor -> HueRingPoint? in
                 let uiColor = UIColor(
@@ -1312,7 +1388,8 @@ struct AnalysisResultView: View {
         }
     }
     
-    private func computeColorSpacePoints() async -> [ColorSpacePoint] {
+    /// 3D 色彩空间数据点
+    private var colorSpacePoints: [ColorSpacePoint] {
         result.photoInfos.flatMap { photoInfo in
             photoInfo.dominantColors.compactMap { dominantColor -> ColorSpacePoint? in
                 let weight = Double(max(0, min(1, dominantColor.weight)))
@@ -1340,7 +1417,8 @@ struct AnalysisResultView: View {
     }
     
     /// 计算色偏散点数据（从每张照片的 ColorCastResult 提取高光和阴影点）
-    private func computeColorCastPoints() async -> ([ColorCastPoint], ColorCastStatus, ColorCastStatus) {
+    /// 色偏分析数据点
+    private var colorCastData: (points: [ColorCastPoint], highlightStatus: ColorCastStatus, shadowStatus: ColorCastStatus) {
         var points: [ColorCastPoint] = []
         var highlightCount = 0
         var highlightNilCount = 0
@@ -1418,7 +1496,7 @@ struct AnalysisResultView: View {
             shadowStatus = .partialSignificant
         }
         
-        return (points, highlightStatus, shadowStatus)
+        return (points: points, highlightStatus: highlightStatus, shadowStatus: shadowStatus)
     }
     
     private func normalizedLChPosition(for rgb: SIMD3<Float>) -> SIMD3<Float> {
@@ -1935,7 +2013,7 @@ struct ClusterDetailView: View {
                     .padding(.horizontal)
                 }
             }
-            .navigationTitle("类别详情")
+            .navigationTitle(L10n.AnalysisResult.categoryDetail.localized)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {

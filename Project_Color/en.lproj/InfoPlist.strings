@@ -1,0 +1,13 @@
+/* 
+  InfoPlist.strings
+  Project_Color (English)
+*/
+
+/* Photo Library Access */
+NSPhotoLibraryUsageDescription = "Feelm needs access to your photo library to process analysis.";
+NSPhotoLibraryAddUsageDescription = "Feelm needs access to save analysis results to your photo library.";
+
+/* App Display Name */
+CFBundleDisplayName = "Feelm";
+CFBundleName = "Feelm";
+

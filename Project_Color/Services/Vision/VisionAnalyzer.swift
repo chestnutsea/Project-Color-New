@@ -110,15 +110,6 @@ class VisionAnalyzer {
         visionInfo.horizonAngle = horizon?.0
         visionInfo.horizonTransform = horizon?.1
         
-        // 收集所有标签到 TagCollector（带来源信息和置信度）
-        for scene in scenes {
-            TagCollector.shared.add(scene.identifier, source: .sceneClassification, confidence: Double(scene.confidence))
-        }
-        // 移除了重复的图像分类标签收集
-        for object in objects {
-            TagCollector.shared.add(object.identifier, source: .objectRecognition, confidence: Double(object.confidence))
-        }
-        
         // 推断摄影属性
         visionInfo.photographyAttributes = inferPhotographyAttributes(from: visionInfo)
         

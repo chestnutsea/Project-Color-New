@@ -150,6 +150,7 @@ class QwenVLService {
     ///   - maxTokens: 最大生成 token 数
     ///   - onToken: 每收到一个 token 的回调
     ///   - onComplete: 流式传输完成的回调
+    ///   - onUsage: 收到 token 使用量统计的回调（可选）
     func analyzeImagesStreaming(
         images: [UIImage],
         systemPrompt: String,
@@ -158,7 +159,8 @@ class QwenVLService {
         temperature: Double = 0.7,
         maxTokens: Int? = 2000,
         onToken: @escaping (String) -> Void,
-        onComplete: @escaping () -> Void
+        onComplete: @escaping () -> Void,
+        onUsage: ((Int, Int, Int) -> Void)? = nil
     ) async throws {
         
         // 构建请求 URL
@@ -240,6 +242,11 @@ class QwenVLService {
         let sseClient = SSEClient()
         currentSSEClient = sseClient
         
+        // Token 使用量统计
+        var promptTokens: Int?
+        var completionTokens: Int?
+        var totalTokens: Int?
+        
         sseClient.connect(
             url: url,
             body: requestBody,
@@ -247,6 +254,17 @@ class QwenVLService {
                 onToken(token)
             },
             onComplete: { [weak self] in
+                // 打印最终的 token 使用统计
+                if let prompt = promptTokens, let completion = completionTokens, let total = totalTokens {
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("📊 AI 生成 Token 使用统计:")
+                    print("   📤 上传 (输入/Prompt): \(prompt) tokens")
+                    print("   📥 下载 (输出/Completion): \(completion) tokens")
+                    print("   📦 总计 (Total): \(total) tokens")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                } else {
+                    print("⚠️ 未收到 Token 使用统计信息（可能 API 未返回 usage 字段）")
+                }
                 onComplete()
                 self?.currentSSEClient = nil
             },
@@ -255,6 +273,13 @@ class QwenVLService {
                 // 错误时也调用 onComplete，避免 UI 卡住
                 onComplete()
                 self?.currentSSEClient = nil
+            },
+            onUsage: { prompt, completion, total in
+                // 保存 token 统计，在 onComplete 时统一打印
+                promptTokens = prompt
+                completionTokens = completion
+                totalTokens = total
+                onUsage?(prompt, completion, total)
             }
         )
         
@@ -427,12 +452,18 @@ class QwenVLService {
         let content = firstChoice.message.content
         
         if let usage = chatResponse.usage {
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print("✅ Qwen API 调用成功")
             print("   📌 实际使用模型: \(chatResponse.model)")
-            print("   📊 Token 使用: \(usage.promptTokens) + \(usage.completionTokens) = \(usage.totalTokens)")
+            print("📊 AI 生成 Token 使用统计:")
+            print("   📤 上传 (输入/Prompt): \(usage.promptTokens) tokens")
+            print("   📥 下载 (输出/Completion): \(usage.completionTokens) tokens")
+            print("   📦 总计 (Total): \(usage.totalTokens) tokens")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         } else {
             print("✅ Qwen API 调用成功")
             print("   📌 实际使用模型: \(chatResponse.model)")
+            print("⚠️ 未收到 Token 使用统计信息（API 响应中未包含 usage 字段）")
         }
         
         return content

@@ -24,11 +24,20 @@ struct FavoriteAlertView: View {
     @State private var customDate: Date
     @State private var showDatePicker: Bool = false
     
-    /// 日期格式化器（年月日格式，有空格，单位数月日不补零）
+    /// 日期格式化器（年月日格式，根据系统语言自动适配）
     private var dateFormatter: DateFormatter {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_Hans_CN")
-        formatter.dateFormat = "yyyy 年 M 月 d 日"
+        formatter.locale = Locale.current
+        
+        // 根据当前语言选择日期格式
+        if Locale.current.language.languageCode?.identifier == "zh" {
+            // 中文：2025 年 11 月 9 日
+            formatter.dateFormat = "yyyy 年 M 月 d 日"
+        } else {
+            // 英文及其他语言：2025/11/9
+            formatter.dateFormat = "yyyy/M/d"
+        }
+        
         return formatter
     }
     
@@ -50,14 +59,14 @@ struct FavoriteAlertView: View {
     var body: some View {
         VStack(spacing: 0) {
             // 标题
-            Text("收藏")
+            Text(L10n.Favorite.title.localized)
                 .font(.headline)
                 .padding(.top, 16)
                 .padding(.bottom, 12)
             
             // 日期选择行：左侧"照片日期"，右侧日期按钮，整体居中
             HStack {
-                Text("照片日期")
+                Text(L10n.Favorite.photoDate.localized)
                     .font(.body)
                     .foregroundColor(.primary)
                 
@@ -84,7 +93,7 @@ struct FavoriteAlertView: View {
                 )
                 .datePickerStyle(.wheel)
                 .labelsHidden()
-                .environment(\.locale, Locale(identifier: "zh_Hans_CN"))
+                .environment(\.locale, Locale.current)
                 .frame(height: FavoriteAlertLayout.datePickerHeight)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
@@ -94,7 +103,7 @@ struct FavoriteAlertView: View {
             
             // 按钮区域
             HStack(spacing: 0) {
-                Button("取消") {
+                Button(L10n.Favorite.cancel.localized) {
                     onDismiss()
                 }
                 .frame(maxWidth: .infinity)
@@ -104,7 +113,7 @@ struct FavoriteAlertView: View {
                 Divider()
                     .frame(height: 44)
                 
-                Button("确认") {
+                Button(L10n.Favorite.confirm.localized) {
                     // 使用日期格式化后的字符串作为名称
                     let name = formattedDate
                     onConfirm(name, customDate)

@@ -40,10 +40,10 @@ struct MainTabView: View {
         
         var title: String {
             switch self {
-            case .scanner: return "扫描"
-            case .album: return "相册"
-            case .emerge: return "显影"
-            case .mine: return "我的"
+            case .scanner: return L10n.Tab.scanner.localized
+            case .album: return L10n.Tab.album.localized
+            case .emerge: return L10n.Tab.emerge.localized
+            case .mine: return L10n.Tab.mine.localized
             }
         }
     }

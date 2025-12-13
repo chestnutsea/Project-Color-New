@@ -90,7 +90,6 @@ class SimpleAnalysisPipeline {
         if let msg = userMessage, !msg.isEmpty {
             NSLog("   用户感受: \(msg)")
         }
-        NSLog("   📊 用户设置: \(settings.configurationDescription)")
         NSLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         
         let result = AnalysisResult()
@@ -398,50 +397,10 @@ class SimpleAnalysisPipeline {
         let modeDesc = analysisMode == .tone ? "色调模式" : "综合模式"
         print("   🎨 显影解析模式: \(modeDesc)")
         
-        // 检查是否手动指定了 K 值
+        // 自动选择最优 K 值
         let clusteringResult: SimpleKMeans.ClusteringResult
         
-        if let manualK = settings.manualKValue {
-            // 使用手动指定的 K 值
-            print("   📌 使用手动指定的 K=\(manualK)")
-            
-            await MainActor.run {
-                progressHandler(AnalysisProgress(
-                    currentPhoto: assets.count,
-                    totalPhotos: assets.count,
-                    currentStage: "颜色聚类中（K=\(manualK)）",
-                    overallProgress: 0.72,  // 颜色提取完成后开始聚类
-                    failedCount: result.failedCount,
-                    cachedCount: cachedInfos.count,
-                    isConcurrent: true
-                ))
-            }
-            
-            // 直接执行 KMeans 聚类
-            guard let clustering = kmeans.cluster(
-                points: allMainColorsLAB,
-                k: manualK,
-                maxIterations: 50,
-                colorSpace: .lab,
-                weights: allColorWeights,
-                analysisMode: analysisMode
-            ) else {
-                print("❌ 手动K值聚类失败，使用默认K=5")
-                result.optimalK = 5
-                result.qualityLevel = "未知"
-                return result
-            }
-            
-            clusteringResult = clustering
-            result.optimalK = manualK
-            result.silhouetteScore = 0.0  // 手动模式不计算质量分数
-            result.qualityLevel = "手动指定"
-            result.qualityDescription = "使用手动指定的 K=\(manualK)"
-            result.allKScores = [:]
-            
-        } else {
-            // 自动选择最优 K 值
-            await MainActor.run {
+        await MainActor.run {
                 // 计算K值选择的预计时间（约6-8秒）
                 let elapsed = Date().timeIntervalSince(startTime)
                 let kSelectionTime: TimeInterval = 7.0  // K值选择预计7秒
@@ -520,9 +479,8 @@ class SimpleAnalysisPipeline {
             result.qualityLevel = kResult.qualityLevel.rawValue
             result.qualityDescription = kResult.qualityDescription
             result.allKScores = kResult.allScores
-        }
         
-            await MainActor.run {
+        await MainActor.run {
                 progressHandler(AnalysisProgress(
                     currentPhoto: assets.count,
                     totalPhotos: assets.count,
@@ -626,16 +584,9 @@ class SimpleAnalysisPipeline {
                     ))
                 }
                 
-                // Phase 5: 使用用户设置或默认配置
-                // 动态计算最小簇大小（如果用户没有手动设置）
-                let dynamicMinClusterSize: Int
-                if let userMinClusterSize = settings.minClusterSize {
-                    // 用户手动设置了，直接使用
-                    dynamicMinClusterSize = userMinClusterSize
-                } else {
-                    // 统一设为 1，保留所有非空簇（包括只有 1 张照片的簇）
-                    dynamicMinClusterSize = 1
-                }
+                // Phase 5: 使用默认配置
+                // 统一设为 2（默认值），保留至少有 2 张照片的簇
+                let dynamicMinClusterSize = settings.effectiveMinClusterSize
                 
                 let adaptiveConfig = AdaptiveClusterManager.Config(
                     mergeThresholdDeltaE: settings.effectiveMergeThreshold,
@@ -647,7 +598,7 @@ class SimpleAnalysisPipeline {
                 print("📊 自适应聚类配置:")
                 print("   - 照片数量: \(assets.count)")
                 print("   - 合并阈值 ΔE: \(String(format: "%.1f", adaptiveConfig.mergeThresholdDeltaE))")
-                print("   - 最小簇大小: \(adaptiveConfig.minClusterSize) \(settings.minClusterSize == nil ? "(动态)" : "(手动)")")
+                print("   - 最小簇大小: \(adaptiveConfig.minClusterSize)")
                 print("   - 名称相似性: \(adaptiveConfig.useColorNameSimilarity ? "开启" : "关闭")")
                 
                 let (updatedClusters, updateResult) = adaptiveManager.updateClusters(

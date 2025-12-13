@@ -32,7 +32,7 @@ struct BrightnessCDFView: View {
                 HStack {
                     Image(systemName: "chart.line.uptrend.xyaxis")
                         .foregroundColor(.blue)
-                    Text("累计亮度分布（CDF）")
+                    Text(L10n.AnalysisResult.brightnessCdfTitle.localized)
                         .font(.headline)
                     Spacer()
                     Text("\(photosWithCDF.count)/\(photoInfos.count)")
@@ -43,7 +43,7 @@ struct BrightnessCDFView: View {
                 chartContent(photosWithCDF: photosWithCDF)
                 
                 // 图例说明
-                Text("每条曲线代表一张照片的亮度累计分布，曲线颜色为照片的主代表色")
+                Text(L10n.AnalysisResult.brightnessCdfDescription.localized)
                     .font(.caption2)
                     .foregroundColor(.secondary)
                     .padding(.top, 8)
@@ -64,7 +64,7 @@ struct BrightnessCDFView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding()
         } else if photosWithCDF.isEmpty {
-            Text("照片亮度数据正在计算中...")
+            Text(L10n.AnalysisResult.brightnessCalculating.localized)
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -114,14 +114,14 @@ struct BrightnessCDFView: View {
             }
             
             // Y 轴标签：累计百分比，旋转 -90 度
-            Text("累计百分比")
+            Text(L10n.AnalysisResult.cumulativePercentage.localized)
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .rotationEffect(.degrees(-90))
                 .position(x: resolvedLabelSpace / 2, y: chartRect.midY)
             
             // X 轴标签：亮度
-            Text("亮度")
+            Text(L10n.AnalysisResult.brightness.localized)
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .position(x: chartRect.midX, y: chartSize - resolvedLabelSpace / 2 + 5)

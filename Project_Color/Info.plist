@@ -21,9 +21,9 @@
 	<key>DEEPSEEK_API_KEY</key>
 	<string>$(DEEPSEEK_API_KEY)</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Feelm需要访问您的相册来保存分析结果。</string>
+	<string>FeelmFeelm requires access to your photo library to strore analysis results.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Feelm需要访问您的相册来分析照片颜色和风格。</string>
+	<string>Feelm requires access to your photo library to process analysis.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
