@@ -378,6 +378,19 @@ struct CustomPhotoPickerView: View {
         // 预加载数据
         if let fetchResult = currentFetchResult {
             queueLoadIfNeeded(upTo: targetIndex + scrubberLoadAhead, fetchResult: fetchResult)
+
+            // 提前为目标附近一小段做缩略图预热，减少到站时的模糊
+            let preheatStart = max(0, clampedIndex - columns * 6)
+            let preheatEnd = min(fetchResult.count, clampedIndex + columns * 9)
+            if preheatEnd > preheatStart {
+                let assets = (preheatStart..<preheatEnd).compactMap { fetchResult.object(at: $0) }
+                Task.detached(priority: .background) {
+                    await MainActor.run {
+                        // 仅预热本地可用资源，避免触发网络；仍使用高质量模式以提高落点清晰度
+                        self.startPreheatThumbnails(for: assets, allowNetwork: false, deliveryMode: .highQualityFormat)
+                    }
+                }
+            }
         }
         
         // 直接设置 UICollectionView 的 contentOffset（丝滑滚动）
@@ -905,24 +918,45 @@ struct CustomPhotoPickerView: View {
     /// 同步快速加载照片（仅加载 PHAsset 对象，不加载图片）
     private func syncLoadPhotosIfNeeded(from fetchResult: PHFetchResult<PHAsset>, startIndex: Int, targetIndex: Int) {
         guard startIndex < fetchResult.count else { return }
-        
-        // 只加载到目标索引后一点点（比如 1 行），避免阻塞太久
+
+        // 大跨度跳转时避免在主线程一次性塞入大量元素，限制同步批次
+        let maxSyncCount = 300
+        let isBigJump = targetIndex - startIndex > maxSyncCount
+
+        // 针对大跳跃：只抓取目标附近一小段，放到后台再回主线程更新
+        if isBigJump {
+            let windowStart = max(targetIndex - columns * 3, startIndex)
+            let windowEnd = min(targetIndex + columns * 6, fetchResult.count)
+            let range = windowStart..<windowEnd
+            let currentToken = albumLoadToken
+
+            Task.detached(priority: .userInitiated) {
+                let assets = await self.fetchAssets(from: fetchResult, range: range)
+                await MainActor.run {
+                    guard currentToken == self.albumLoadToken else { return }
+                    self.photos.append(contentsOf: assets)
+                    self.loadedPhotoCount = self.photos.count
+                    print("⚡️ 异步补充 \(assets.count) 张（大跳跃窗口），当前总数: \(self.loadedPhotoCount)")
+                }
+            }
+            return
+        }
+
+        // 小范围同步补齐
         let endIndex = min(targetIndex + columns * 3, fetchResult.count)
         let loadCount = endIndex - startIndex
-        
+
         guard loadCount > 0 else { return }
-        
-        // 同步提取 PHAsset 对象（这个很快，不会卡顿）
+
         var newPhotos: [PHAsset] = []
         newPhotos.reserveCapacity(loadCount)
         for i in startIndex..<endIndex {
             newPhotos.append(fetchResult.object(at: i))
         }
-        
-        // 立即更新数组
+
         photos.append(contentsOf: newPhotos)
         loadedPhotoCount = photos.count
-        
+
         print("⚡️ 同步加载 \(newPhotos.count) 张照片，当前总数: \(loadedPhotoCount)")
     }
     
@@ -1021,7 +1055,7 @@ struct CustomPhotoPickerView: View {
     private let maxCachedAssetCount = 100
     
     /// 使用 PHCachingImageManager 预热缩略图（限制数量，避免内存暴涨）
-    private func startPreheatThumbnails(for assets: [PHAsset]) {
+    private func startPreheatThumbnails(for assets: [PHAsset], allowNetwork: Bool = false, deliveryMode: PHImageRequestOptionsDeliveryMode = .opportunistic) {
         // 过滤出未预热的 assets
         let uncachedAssets = assets.filter { !cachedAssets.contains($0.localIdentifier) }
         guard !uncachedAssets.isEmpty else { return }
@@ -1033,9 +1067,9 @@ struct CustomPhotoPickerView: View {
         
         // 使用 PHCachingImageManager 的原生预热 API
         let options = PHImageRequestOptions()
-        options.deliveryMode = .opportunistic
+        options.deliveryMode = deliveryMode
         options.resizeMode = .fast
-        options.isNetworkAccessAllowed = false
+        options.isNetworkAccessAllowed = allowNetwork
         
         imageManager.startCachingImages(
             for: assetsToCache,
@@ -1194,7 +1228,8 @@ struct PhotoCell: View {
         }
         
         let options = PHImageRequestOptions()
-        options.deliveryMode = .opportunistic
+        // 使用高质量单次回调，避免先糊后清
+        options.deliveryMode = .highQualityFormat
         options.resizeMode = .fast
         options.isNetworkAccessAllowed = true
         
@@ -1489,7 +1524,16 @@ class PhotoCollectionViewCoordinator: NSObject, UICollectionViewDataSource, UICo
     
     // MARK: - UICollectionViewDelegate
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        let asset = photos[indexPath.item]
+        // 防御：当快速跳转到远处而 photos 尚未填充时，直接从 fetchResult 取 asset
+        let asset: PHAsset
+        if indexPath.item < photos.count {
+            asset = photos[indexPath.item]
+        } else if let fetchResult = onGetFetchResult?(), indexPath.item < fetchResult.count {
+            asset = fetchResult.object(at: indexPath.item)
+            photos.append(asset)
+        } else {
+            return
+        }
         
         // 收集需要更新的 indexPaths
         var indexPathsToReload: [IndexPath] = [indexPath]
