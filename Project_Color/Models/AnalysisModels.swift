@@ -234,6 +234,10 @@ class AnalysisResult: ObservableObject {
     // 用户输入的感受（发送给 AI 的 message）
     @Published var userMessage: String? = nil
     
+    // 缓存的压缩图片（用于 AI 评价刷新，避免重复加载和压缩）
+    // 注意：这些图片仅在内存中，不会持久化到 Core Data
+    var compressedImages: [UIImage] = []
+    
     // 冷暖色调分布
     @Published var warmCoolDistribution: WarmCoolDistribution? = nil
     

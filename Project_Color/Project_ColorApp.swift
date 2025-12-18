@@ -9,6 +9,10 @@ import SwiftUI
 
 @main
 struct Project_ColorApp: App {
+    #if canImport(UIKit)
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    #endif
+    
     private let coreDataManager = CoreDataManager.shared
     private let cleanupScheduler = DataCleanupScheduler.shared
     

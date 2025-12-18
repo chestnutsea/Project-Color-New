@@ -107,8 +107,14 @@ struct AboutView: View {
 }
 
 #Preview {
+    if #available(iOS 16.0, *) {
     NavigationStack {
         AboutView()
+        }
+    } else {
+        NavigationView {
+            AboutView()
+        }
     }
 }
 

@@ -244,7 +244,9 @@ enum L10n {
     enum Lab {
         static let title = "lab.title"
         static let searchColor = "lab.search_color"
+        static let searchColorSubtitle = "lab.search_color_subtitle"
         static let calculateColor = "lab.calculate_color"
+        static let calculateColorSubtitle = "lab.calculate_color_subtitle"
         static let lookupColor = "lab.lookup_color"
     }
     

@@ -259,7 +259,10 @@ class SimpleAnalysisPipeline {
         // 获取收集的所有压缩图片（按照排序后的 photoInfos 顺序）
         let orderedIdentifiers = result.photoInfos.map { $0.assetIdentifier }
         let compressedImages = await imageCollector.getAll(orderedBy: orderedIdentifiers)
+        
+        // 💾 缓存压缩图片到 result 中，用于后续 AI 评价刷新
         await MainActor.run {
+            result.compressedImages = compressedImages
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print("📦 图片收集完成")
             print("   - 收集到的压缩图片: \(compressedImages.count) 张")
@@ -267,6 +270,7 @@ class SimpleAnalysisPipeline {
             print("   - 缓存照片: \(cachedInfos.count) 张")
             print("   - 新分析照片: \(assetsToProcess.count) 张")
             print("   - ✅ 图片顺序: 与用户选择顺序一致")
+            print("   - 💾 已缓存到 result.compressedImages")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         }
         

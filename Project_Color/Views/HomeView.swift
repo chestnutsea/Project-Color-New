@@ -80,6 +80,10 @@ struct HomeView: View {
     @State private var showFeelingSheet = false  // 添加感受 Sheet
     @State private var userFeeling: String = ""  // 用户输入的感受
     
+    // Toast 提示相关
+    @State private var showPermissionToast = false
+    @State private var permissionToastMessage = ""
+    
 #if DEBUG
     private let enableVerboseLogging = false
 #endif
@@ -99,192 +103,286 @@ struct HomeView: View {
     
     var body: some View {
         GeometryReader { geometry in
-            NavigationStack {
-                ZStack {
-                    // PhotoScanner - 始终显示在同一位置
-                    VStack {
-                        Spacer()
-                            .frame(height: scannerTopOffset)
-                        
-                        HStack {
-                            Spacer()
-                            Button(action: handleImageTap) {
-                                loadPhotoScannerImage()
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: imageSize, height: imageSize)
-                                    .shadow(
-                                        color: scannerShadowColor,
-                                        radius: scannerShadowRadius,
-                                        x: scannerShadowOffsetX,
-                                        y: scannerShadowOffsetY
-                                    )
-                                    .background(
-                                        GeometryReader { scannerGeo in
-                                            Color.clear.preference(
-                                                key: ScannerPositionKey.self,
-                                                value: scannerGeo.frame(in: .global)
-                                            )
-                                        }
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                            Spacer()
-                        }
-                        
-                        Spacer()
-                    }
-                    
-                    // 照片模板展示 - 仅在选中照片时显示
-                    if selectionManager.hasSelection && !isProcessing && photoStackOpacity > 0 {
-                        VStack {
-                            Spacer()
-                            
-                            HStack {
-                                Spacer()
-                                photoTemplateView
-                                    .opacity(photoStackOpacity)
-                                    .offset(dragOffset)
-                                    .background(
-                                        GeometryReader { photoGeo in
-                                            Color.clear.preference(
-                                                key: PhotoStackPositionKey.self,
-                                                value: photoGeo.frame(in: .global)
-                                            )
-                                        }
-                                    )
-                                    .gesture(
-                                        DragGesture(minimumDistance: 10)
-                                            .onChanged { value in
-                                                dragOffset = value.translation
-                                            }
-                                            .onEnded { _ in
-                                                handleDragEnd(geometry: geometry)
-                                            }
-                                    )
-                                    .onTapGesture {
-                                        showPhotoPicker = true
-                                    }
-                                Spacer()
-                            }
-                            .padding(.bottom, photoStackBottomOffset)
-                        }
-                    }
-                    
-                    
-                    // 进度条（位于 scanner 下方）
-                    if isProcessing {
-                        VStack {
-                            Spacer()
-                                .frame(height: scannerTopOffset + imageSize + progressBarBelowScannerOffset)
-                            
-                            AnalysisProgressBar(progress: processingProgress, fillColor: .black)
-                                .frame(width: progressBarWidth, height: progressBarHeight)
-                            
-                            Spacer()
-                        }
-                    }
-                }
-                .onPreferenceChange(ScannerPositionKey.self) { rect in
-                    debugLog("Scanner frame updated: \(rect)")
-                    scannerFrame = rect
-                }
-                .onPreferenceChange(PhotoStackPositionKey.self) { rect in
-                    debugLog("Photo stack frame updated: \(rect)")
-                    photoStackFrame = rect
-                }
+            // iOS 16+ 兼容：使用条件编译选择最佳导航方案
+            if #available(iOS 16.0, *) {
+                navigationStackContent(geometry: geometry)
+            } else {
+                navigationViewContent(geometry: geometry)
+            }
+        }
+    }
+    
+    // MARK: - iOS 16+ NavigationStack 版本
+    @available(iOS 16.0, *)
+    private func navigationStackContent(geometry: GeometryProxy) -> some View {
+        NavigationStack {
+            mainContent(geometry: geometry)
                 .navigationDestination(isPresented: $showAnalysisResult) {
                     if let result = analysisResult {
                         AnalysisResultView(result: result, onDismiss: {
                             showAnalysisResult = false
-                            // 退出分析结果页后清空照片选择
                             selectionManager.clearSelection()
                             selectionAlbumContext = nil
-                            // ✅ 标记相册预热需要刷新（用户可能在分析期间拍了新照片）
                             AlbumPreheater.shared.markNeedsRefresh()
                         })
-                        .navigationBarBackButtonHidden(false)  // 保留原生返回按钮以支持边缘左滑
+                        .navigationBarBackButtonHidden(false)
                         .toolbar(.hidden, for: .tabBar)
                     }
                 }
                 .onChange(of: showAnalysisResult) { newValue in
-                    // 当从分析结果页返回时（包括系统返回按钮和边缘左滑），清空照片选择
                     if !newValue {
                         selectionManager.clearSelection()
                         selectionAlbumContext = nil
                         AlbumPreheater.shared.markNeedsRefresh()
                     }
                 }
-                .toolbar(showAnalysisResult ? .hidden : .visible, for: .tabBar)  // 根据状态控制 TabBar 显示
-            }
-            .fullScreenCover(isPresented: $showPhotoPicker) {
-                SystemPhotoPickerView { results in
-                    // 转换 PHPickerResult 为 PHAsset
-                    convertPickerResultsToAssets(results) { assets in
-                        selectionManager.updateSelection(assets)
-                        // 注意：系统选择器无法获取相册信息，清空相册上下文
-                        selectionAlbumContext = nil
-                        resetDragState()  // 重新选片后立即恢复照片堆展示状态
-                    }
+                .toolbar(showAnalysisResult ? .hidden : .visible, for: .tabBar)
+                .fullScreenCover(isPresented: $showPhotoPicker) {
+                    photoPickerView
                 }
-            }
-            // 扫描预备弹窗
-            .alert(L10n.Home.scanPreparing.localized, isPresented: $showScanPrepareAlert) {
-                Button(L10n.Home.addFeeling.localized) {
-                    // 关闭 alert 并立刻打开输入页
-                    showScanPrepareAlert = false
-                    showFeelingSheet = true
-                    hidePhotoStack()
+                .alert(L10n.Home.scanPreparing.localized, isPresented: $showScanPrepareAlert) {
+                    alertButtons
                 }
-                Button(L10n.Home.confirmSelection.localized) {
-                    // 触感反馈：扫描开始
-                    let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-                    impactFeedback.impactOccurred()
-                    startProcessing()
+                .sheet(isPresented: $showFeelingSheet) {
+                    feelingInputSheet
                 }
-            }
-            // 添加感受 Sheet
-            .sheet(isPresented: $showFeelingSheet) {
-                FeelingInputSheet(
-                    feeling: $userFeeling,
-                    onConfirm: {
-                        // 触感反馈：扫描开始
-                        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-                        impactFeedback.impactOccurred()
-                        showFeelingSheet = false
-                        startProcessing()
-                    },
-                    onCancel: {
-                        showFeelingSheet = false
-                        // 恢复照片堆显示并弹回原位
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                            photoStackOpacity = 1.0
-                            dragOffset = .zero
+                .onAppear {
+                    setupOnAppear()
+                }
+                .onChange(of: selectionManager.selectedAssets) { _ in
+                    handleSelectionChange()
+                }
+        }
+    }
+    
+    // MARK: - iOS 16 NavigationView 版本（兼容）
+    private func navigationViewContent(geometry: GeometryProxy) -> some View {
+        NavigationView {
+            ZStack {
+                mainContent(geometry: geometry)
+                
+                // iOS 16 兼容：使用 NavigationLink 实现导航
+                NavigationLink(
+                    destination: Group {
+                        if let result = analysisResult {
+                            AnalysisResultView(result: result, onDismiss: {
+                                showAnalysisResult = false
+                                selectionManager.clearSelection()
+                                selectionAlbumContext = nil
+                                AlbumPreheater.shared.markNeedsRefresh()
+                            })
+                            .navigationBarBackButtonHidden(false)
                         }
+                    },
+                    isActive: $showAnalysisResult
+                ) {
+                    EmptyView()
+                }
+            }
+            .onChange(of: showAnalysisResult) { newValue in
+                if !newValue {
+                    selectionManager.clearSelection()
+                    selectionAlbumContext = nil
+                    AlbumPreheater.shared.markNeedsRefresh()
+                }
+            }
+        }
+        .navigationViewStyle(.stack)
+        .fullScreenCover(isPresented: $showPhotoPicker) {
+            photoPickerView
+        }
+        .alert(L10n.Home.scanPreparing.localized, isPresented: $showScanPrepareAlert) {
+            alertButtons
+        }
+        .sheet(isPresented: $showFeelingSheet) {
+            feelingInputSheet
+        }
+        .onAppear {
+            setupOnAppear()
+        }
+        .onChange(of: selectionManager.selectedAssets) { _ in
+            handleSelectionChange()
+        }
+    }
+    
+    // MARK: - 共享主内容视图
+    private func mainContent(geometry: GeometryProxy) -> some View {
+        ZStack {
+            // PhotoScanner - 始终显示在同一位置
+            VStack {
+                Spacer()
+                    .frame(height: scannerTopOffset)
+                
+                HStack {
+                    Spacer()
+                    Button(action: handleImageTap) {
+                        loadPhotoScannerImage()
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: imageSize, height: imageSize)
+                            .shadow(
+                                color: scannerShadowColor,
+                                radius: scannerShadowRadius,
+                                x: scannerShadowOffsetX,
+                                y: scannerShadowOffsetY
+                            )
+                            .background(
+                                GeometryReader { scannerGeo in
+                                    Color.clear.preference(
+                                        key: ScannerPositionKey.self,
+                                        value: scannerGeo.frame(in: .global)
+                                    )
+                                }
+                            )
                     }
-                )
-            }
-            .onAppear {
-                prewarmAnalysisStack()
-                checkPhotoLibraryStatus()
-                
-                // ✅ 预热相册数据（后台执行，用户点开相册时会更快）
-                Task.detached(priority: .background) {
-                    await AlbumPreheater.shared.preheatDefaultAlbum()
+                    .buttonStyle(.plain)
+                    Spacer()
                 }
                 
-                // 如果已有选中的照片但图片未加载，重新加载图片
-                if !selectionManager.selectedAssets.isEmpty && selectionManager.selectedImages.isEmpty {
-                    selectionManager.loadLatestImages()
+                Spacer()
+            }
+            
+            // 照片模板展示 - 仅在选中照片时显示
+            if selectionManager.hasSelection && !isProcessing && photoStackOpacity > 0 {
+                VStack {
+                    Spacer()
+                    
+                    HStack {
+                        Spacer()
+                        photoTemplateView
+                            .opacity(photoStackOpacity)
+                            .offset(dragOffset)
+                            .background(
+                                GeometryReader { photoGeo in
+                                    Color.clear.preference(
+                                        key: PhotoStackPositionKey.self,
+                                        value: photoGeo.frame(in: .global)
+                                    )
+                                }
+                            )
+                            .gesture(
+                                DragGesture(minimumDistance: 10)
+                                    .onChanged { value in
+                                        dragOffset = value.translation
+                                    }
+                                    .onEnded { _ in
+                                        handleDragEnd(geometry: geometry)
+                                    }
+                            )
+                            .onTapGesture {
+                                showPhotoPicker = true
+                            }
+                        Spacer()
+                    }
+                    .padding(.bottom, photoStackBottomOffset)
                 }
             }
-            .onChange(of: selectionManager.selectedAssets) { _ in
+            
+            
+            // 进度条（位于 scanner 下方）
+            if isProcessing {
+                VStack {
+                    Spacer()
+                        .frame(height: scannerTopOffset + imageSize + progressBarBelowScannerOffset)
+                    
+                    AnalysisProgressBar(progress: processingProgress, fillColor: .primary)
+                        .frame(width: progressBarWidth, height: progressBarHeight)
+                    
+                    Spacer()
+                }
+            }
+            
+            // 权限提示 Toast（显示在屏幕中央）
+            if showPermissionToast {
+                VStack {
+                    Spacer()
+                    
+                    Text(permissionToastMessage)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 16)
+                        .background(Color.black.opacity(0.8))
+                        .cornerRadius(12)
+                        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 4)
+                    
+                    Spacer()
+                }
+                .transition(.opacity)
+                .zIndex(1000)
+                .allowsHitTesting(false)
+            }
+        }
+        .onPreferenceChange(ScannerPositionKey.self) { rect in
+            debugLog("Scanner frame updated: \(rect)")
+            scannerFrame = rect
+        }
+        .onPreferenceChange(PhotoStackPositionKey.self) { rect in
+            debugLog("Photo stack frame updated: \(rect)")
+            photoStackFrame = rect
+        }
+    }
+    
+    // MARK: - 共享视图组件
+    private var photoPickerView: some View {
+        SystemPhotoPickerView { results in
+            convertPickerResultsToAssets(results) { assets in
+                selectionManager.updateSelection(assets)
+                selectionAlbumContext = nil
                 resetDragState()
-                // 当选中照片变化时，确保图片已加载
-                if !selectionManager.selectedAssets.isEmpty && selectionManager.selectedImages.isEmpty {
-                    selectionManager.loadLatestImages()
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var alertButtons: some View {
+        Button(L10n.Home.addFeeling.localized) {
+            showScanPrepareAlert = false
+            showFeelingSheet = true
+            hidePhotoStack()
+        }
+        Button(L10n.Home.confirmSelection.localized) {
+            let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+            impactFeedback.impactOccurred()
+            startProcessing()
+        }
+    }
+    
+    private var feelingInputSheet: some View {
+        FeelingInputSheet(
+            feeling: $userFeeling,
+            onConfirm: {
+                let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                impactFeedback.impactOccurred()
+                showFeelingSheet = false
+                startProcessing()
+            },
+            onCancel: {
+                showFeelingSheet = false
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                    photoStackOpacity = 1.0
+                    dragOffset = .zero
                 }
             }
+        )
+    }
+    
+    private func setupOnAppear() {
+        prewarmAnalysisStack()
+        // ⚠️ 不在 onAppear 时检查权限或预热相册，避免触发系统弹窗
+        // 权限检查和相册预热延迟到用户点击 scanner 时进行
+        
+        // 如果已有选中的照片但图片未加载，重新加载图片
+        if !selectionManager.selectedAssets.isEmpty && selectionManager.selectedImages.isEmpty {
+            selectionManager.loadLatestImages()
+        }
+    }
+    
+    private func handleSelectionChange() {
+        resetDragState()
+        if !selectionManager.selectedAssets.isEmpty && selectionManager.selectedImages.isEmpty {
+            selectionManager.loadLatestImages()
         }
     }
     
@@ -561,45 +659,47 @@ struct HomeView: View {
     }
     
     // MARK: - 相册权限处理
-    private func checkPhotoLibraryStatus() {
-        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        photoAuthorizationStatus = status
-        
-        // 预先请求权限，避免首次点击时的长等待
-        if status == .notDetermined {
-            PHPhotoLibrary.requestAuthorization(for: .readWrite) { newStatus in
-                DispatchQueue.main.async {
-                    photoAuthorizationStatus = newStatus
-                }
-            }
-        }
-    }
     
     private func handleImageTap() {
         // 即刻给出触感反馈，避免点击后长时间无响应的感知
         let impactFeedback = UIImpactFeedbackGenerator(style: .light)
         impactFeedback.impactOccurred()
         
-        switch photoAuthorizationStatus {
+        // ✅ 每次点击时重新检查权限状态（用户可能在设置中修改了权限）
+        let currentStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        photoAuthorizationStatus = currentStatus
+        
+        switch currentStatus {
         case .authorized, .limited:
-            // 已授权，直接打开照片选择器
+            // ✅ 已授权或受限访问，直接打开照片选择器
+            // 注意：.limited 状态下，系统会在打开选择器时自动询问是否更改权限
             showPhotoPicker = true
             
+            // ✅ 在后台预热相册数据（用户打开选择器时会更快）
+            Task.detached(priority: .background) {
+                await AlbumPreheater.shared.preheatDefaultAlbum()
+            }
+            
         case .notDetermined:
-            // 未决定，请求权限
+            // ✅ 未决定，点击 scanner 时才请求权限
             PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
                 DispatchQueue.main.async {
-                    photoAuthorizationStatus = status
+                    self.photoAuthorizationStatus = status
                     if status == .authorized || status == .limited {
-                        showPhotoPicker = true
+                        self.showPhotoPicker = true
+                        
+                        // ✅ 授权后预热相册数据
+                        Task.detached(priority: .background) {
+                            await AlbumPreheater.shared.preheatDefaultAlbum()
+                        }
                     }
                 }
             }
             
         case .denied, .restricted:
-            // 被拒绝或受限，保持在当前页面
+            // ❌ 被拒绝或受限，保持在当前页面
             // TODO: 可以添加提示用户去设置中开启权限
-            print("相册权限被拒绝")
+            print("⚠️ 相册权限被拒绝或受限")
             
         @unknown default:
             break
@@ -813,6 +913,7 @@ struct HomeView: View {
     private func convertPickerResultsToAssets(_ results: [PHPickerResult], completion: @escaping ([PHAsset]) -> Void) {
         var assets: [PHAsset] = []
         let group = DispatchGroup()
+        var failedCount = 0  // 记录无法访问的照片数量
         
         for result in results {
             group.enter()
@@ -822,13 +923,43 @@ struct HomeView: View {
                 let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil)
                 if let asset = fetchResult.firstObject {
                     assets.append(asset)
+                } else {
+                    // 照片存在但无法访问（可能是权限不足）
+                    failedCount += 1
                 }
+            } else {
+                // 无法获取 asset identifier（可能是权限不足）
+                failedCount += 1
             }
             
             group.leave()
         }
         
         group.notify(queue: .main) {
+            // ✅ 如果有照片无法访问，显示 Toast 提示用户
+            if failedCount > 0 {
+                print("⚠️ 有 \(failedCount) 张照片无法访问（可能是权限限制）")
+                
+                // 显示友好的提示信息
+                let selectedCount = results.count
+                let successCount = assets.count
+                
+                if successCount == 0 {
+                    // 所有照片都无法访问
+                    self.permissionToastMessage = "无法访问选中的照片\n请在设置中授予相册权限"
+                } else {
+                    // 部分照片无法访问
+                    self.permissionToastMessage = "已添加 \(successCount) 张照片\n\(failedCount) 张照片无法访问"
+                }
+                
+                self.showPermissionToast = true
+                
+                // 3 秒后自动隐藏
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                    self.showPermissionToast = false
+                }
+            }
+            
             completion(assets)
         }
     }
@@ -839,7 +970,7 @@ struct HomeView: View {
 private struct AnalysisProgressBar: View {
     var progress: Double
     var trackColor: Color = Color.gray.opacity(0.2)
-    var fillColor: Color = Color.blue
+    var fillColor: Color = Color.primary  // 亮色模式：黑色，暗黑模式：白色
     
     var body: some View {
         GeometryReader { geometry in
@@ -907,11 +1038,23 @@ struct FeelingInputSheet: View {
                                 .padding(.vertical, 8)
                         }
                         
-                        TextEditor(text: $feeling)
-                            .focused($isTextFieldFocused)
-                            .frame(minHeight: 120)
-                            .scrollContentBackground(.hidden)
-                            .background(Color.clear)
+                        // iOS 16+ 兼容：条件编译处理 scrollContentBackground
+                        if #available(iOS 16.4, *) {
+                            TextEditor(text: $feeling)
+                                .focused($isTextFieldFocused)
+                                .frame(minHeight: 120)
+                                .scrollContentBackground(.hidden)
+                                .background(Color.clear)
+                        } else {
+                            // iOS 16.0-16.3: 使用 UITextView appearance 作为替代
+                            TextEditor(text: $feeling)
+                                .focused($isTextFieldFocused)
+                                .frame(minHeight: 120)
+                                .background(Color.clear)
+                                .onAppear {
+                                    UITextView.appearance().backgroundColor = .clear
+                                }
+                        }
                     }
                     .padding(12)
                     .background(Color(uiColor: .systemGray6))

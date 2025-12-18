@@ -267,7 +267,13 @@ struct NativePhotoDetailWrapper: Identifiable {
 
 // MARK: - Preview
 #Preview {
+    if #available(iOS 16.0, *) {
     NavigationStack {
         Text("Native Album Photos View")
+        }
+    } else {
+        NavigationView {
+            Text("Native Album Photos View")
+        }
     }
 }

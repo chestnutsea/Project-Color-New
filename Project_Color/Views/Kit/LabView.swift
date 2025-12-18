@@ -29,8 +29,8 @@ struct LabView: View {
                     } label: {
                         LabMenuRow(
                             icon: "eyedropper",
-                            title: "查色",
-                            subtitle: "在人们共建的色彩词典里，找到最接近的那一个"
+                            title: L10n.Lab.searchColor.localized,
+                            subtitle: L10n.Lab.searchColorSubtitle.localized
                         )
                     }
                     .buttonStyle(.plain)
@@ -42,8 +42,8 @@ struct LabView: View {
                     } label: {
                         LabMenuRow(
                             icon: "function",
-                            title: "算色",
-                            subtitle: "在不同颜色空间中进行换算"
+                            title: L10n.Lab.calculateColor.localized,
+                            subtitle: L10n.Lab.calculateColorSubtitle.localized
                         )
                     }
                     .buttonStyle(.plain)

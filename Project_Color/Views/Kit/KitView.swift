@@ -28,7 +28,30 @@ struct KitView: View {
     @State private var showShareSheet = false
     
     var body: some View {
+        // iOS 16+ 兼容：使用条件编译选择最佳导航方案
+        Group {
+            if #available(iOS 16.0, *) {
         NavigationStack {
+                    contentView
+                }
+            } else {
+                NavigationView {
+                    contentView
+                }
+                .navigationViewStyle(.stack)
+            }
+        }
+        .toast(isPresented: $showCloudAlbumToast, message: L10n.Toast.featureInDevelopment.localized)
+        .sheet(isPresented: $showShareSheet) {
+            ShareSheet(activityItems: shareItems)
+        }
+        .onAppear {
+            developmentMode = BatchProcessSettings.developmentMode
+        }
+    }
+    
+    // MARK: - 主内容视图
+    private var contentView: some View {
             ScrollView {
                 VStack(spacing: Layout.cardSpacing) {
                     // 自定义标题
@@ -55,15 +78,6 @@ struct KitView: View {
             }
         .background(Color(.systemGroupedBackground))
         .navigationBarHidden(true)
-        .toast(isPresented: $showCloudAlbumToast, message: L10n.Toast.featureInDevelopment.localized)
-        .sheet(isPresented: $showShareSheet) {
-            ShareSheet(activityItems: shareItems)
-        }
-        .onAppear {
-                // 每次进入页面时从设置读取最新值
-                developmentMode = BatchProcessSettings.developmentMode
-            }
-        }
     }
     
     // MARK: - AI 解锁卡片

@@ -74,8 +74,16 @@ struct MainTabView: View {
                 }
                 .tag(TabItem.mine)
         }
-        .tint(.black)  // 设置选中颜色为黑色
-        .toolbar(tabBarVisibility.isHidden ? .hidden : .visible, for: .tabBar)
+        // ✅ 设置 TabBar 的强调色为黑色（亮色模式）/ 白色（暗黑模式）
+        .tint(Color.primary)
+        // iOS 16+ 兼容：条件编译处理 toolbar(for:)
+        .apply { view in
+            if #available(iOS 16.0, *) {
+                view.toolbar(tabBarVisibility.isHidden ? .hidden : .visible, for: .tabBar)
+            } else {
+                view  // iOS 16 不支持 .toolbar(for:)，TabBar 始终显示
+            }
+        }
         .environmentObject(tabBarVisibility)
         .onAppear {
             // 设置 TabBar 的外观：透明背景

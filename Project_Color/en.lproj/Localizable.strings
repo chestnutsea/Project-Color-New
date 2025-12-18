@@ -149,7 +149,9 @@
 // MARK: - Lab View
 "lab.title" = "Color Lab";
 "lab.search_color" = "Search Color";
+"lab.search_color_subtitle" = "Find colors in the community-built color dictionary";
 "lab.calculate_color" = "Calculate Color";
+"lab.calculate_color_subtitle" = "Convert between different color spaces";
 "lab.lookup_color" = "Lookup Color";
 
 // MARK: - 3D Color Space

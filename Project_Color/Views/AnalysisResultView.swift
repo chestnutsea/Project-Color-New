@@ -184,7 +184,14 @@ struct AnalysisResultView: View {
         .ignoresSafeArea(edges: .bottom)
         .navigationTitle(L10n.AnalysisResult.title.localized)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(showFullScreenPhoto ? .hidden : .visible, for: .navigationBar)
+        // iOS 16+ 兼容：条件编译处理 toolbar(for:)
+        .apply { view in
+            if #available(iOS 16.0, *) {
+                view.toolbar(showFullScreenPhoto ? .hidden : .visible, for: .navigationBar)
+            } else {
+                view  // iOS 16 不支持 .toolbar(for:)
+            }
+        }
         .toolbar {
             // Sheet 模式：显示自定义关闭按钮
             if isSheetMode {
@@ -1150,45 +1157,63 @@ struct AnalysisResultView: View {
             result.aiEvaluation = ColorEvaluation(isLoading: true)
         }
         
-        print("🔄 开始重新加载图片进行 AI 评价...")
+        print("🔄 开始 AI 评价刷新...")
         
-        // 1. 从 PhotoInfo 加载 PHAsset
-        var assets: [PHAsset] = []
-        for photoInfo in result.photoInfos {
-            if let asset = PHAsset.fetchAssets(withLocalIdentifiers: [photoInfo.assetIdentifier], options: nil).firstObject {
-                assets.append(asset)
-            }
-        }
+        // ✅ 优化：直接使用缓存的压缩图片，避免重新加载和压缩
+        let compressedImages = await MainActor.run { result.compressedImages }
         
-        print("📸 加载了 \(assets.count) 个资源")
-        
-        // 2. 压缩图片
-        var compressedImages: [UIImage] = []
-        let imageManager = PHImageManager.default()
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .highQualityFormat
-        options.isNetworkAccessAllowed = true
-        options.isSynchronous = true
-        
-        for asset in assets {
-            let targetSize = CGSize(width: 1024, height: 1024)
-            var resultImage: UIImage?
+        if compressedImages.isEmpty {
+            print("⚠️ 缓存的压缩图片为空，需要重新加载")
             
-            imageManager.requestImage(
-                for: asset,
-                targetSize: targetSize,
-                contentMode: .aspectFit,
-                options: options
-            ) { image, _ in
-                resultImage = image
+            // 降级方案：如果缓存为空，重新加载图片
+            // 1. 从 PhotoInfo 加载 PHAsset
+            var assets: [PHAsset] = []
+            for photoInfo in result.photoInfos {
+                if let asset = PHAsset.fetchAssets(withLocalIdentifiers: [photoInfo.assetIdentifier], options: nil).firstObject {
+                    assets.append(asset)
+                }
             }
             
-            if let image = resultImage {
-                compressedImages.append(image)
+            print("📸 加载了 \(assets.count) 个资源")
+            
+            // 2. 压缩图片
+            var loadedImages: [UIImage] = []
+            let imageManager = PHImageManager.default()
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .highQualityFormat
+            options.isNetworkAccessAllowed = true
+            options.isSynchronous = true
+            
+            for asset in assets {
+                let targetSize = CGSize(width: 400, height: 400)  // 使用与分析管线一致的尺寸
+                var resultImage: UIImage?
+                
+                imageManager.requestImage(
+                    for: asset,
+                    targetSize: targetSize,
+                    contentMode: .aspectFit,
+                    options: options
+                ) { image, _ in
+                    resultImage = image
+                }
+                
+                if let image = resultImage {
+                    loadedImages.append(image)
+                }
             }
+            
+            print("🖼️ 重新加载了 \(loadedImages.count) 张图片")
+            
+            // 更新缓存
+            await MainActor.run {
+                result.compressedImages = loadedImages
+            }
+        } else {
+            print("✅ 使用缓存的 \(compressedImages.count) 张压缩图片（跳过重新加载）")
         }
         
-        print("🖼️ 压缩了 \(compressedImages.count) 张图片")
+        // 获取最新的图片（可能是缓存的，也可能是刚加载的）
+        let finalImages = await MainActor.run { result.compressedImages }
         
         // 3. 调用 AI 评价
         let evaluator = ColorAnalysisEvaluator()
@@ -1196,7 +1221,7 @@ struct AnalysisResultView: View {
         do {
             let evaluation = try await evaluator.evaluateColorAnalysis(
                 result: result,
-                compressedImages: compressedImages,
+                compressedImages: finalImages,
                 userMessage: userMessage,
                 onUpdate: { @MainActor updatedEvaluation in
                     // 实时更新 UI（流式显示）
@@ -2339,3 +2364,4 @@ private struct WidthPreferenceKey: PreferenceKey {
         value = nextValue()
     }
 }
+

@@ -87,26 +87,9 @@ struct SystemPhotoPickerView: UIViewControllerRepresentable {
         let picker = PHPickerViewController(configuration: configuration)
         picker.delegate = context.coordinator
         
-        // 设置导航栏和按钮颜色为黑色
-        picker.view.tintColor = .black
-        
-        // 配置导航栏外观
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()
-        appearance.buttonAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.black]
-        
-        if let navigationBar = picker.navigationController?.navigationBar {
-            navigationBar.tintColor = .black
-            navigationBar.standardAppearance = appearance
-            navigationBar.scrollEdgeAppearance = appearance
-        }
-        
-        // 延迟设置，确保视图层级加载完成
-        DispatchQueue.main.async {
-            if let navigationBar = picker.navigationController?.navigationBar {
-                navigationBar.tintColor = .black
-            }
-        }
+        // ✅ 设置照片选择器的强调色为系统蓝色
+        // 这会影响：确定按钮、选中照片的数字背景、导航栏按钮等
+        picker.view.tintColor = UIColor.systemBlue
         
         return picker
     }

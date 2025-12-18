@@ -33,7 +33,37 @@ struct AlbumLibraryView: View {
     @State private var showEditOverlay = false
     
     var body: some View {
+        // iOS 16+ 兼容：使用条件编译选择最佳导航方案
+        Group {
+            if #available(iOS 16.0, *) {
         NavigationStack {
+                    contentView
+                }
+            } else {
+                NavigationView {
+                    contentView
+                }
+                .navigationViewStyle(.stack)
+            }
+        }
+        .onAppear {
+            viewModel.loadAlbums()
+        }
+        .sheet(item: $selectedAlbum) { album in
+            AlbumPhotosView(album: album)
+        }
+        .confirmationDialog(L10n.Album.deleteConfirmTitle.localized, isPresented: $showDeleteAlert, titleVisibility: .visible) {
+            deleteAlertButtons
+        } message: {
+            deleteAlertMessage
+        }
+        .overlay(alignment: .center) {
+            editOverlayView
+        }
+    }
+    
+    // MARK: - 主内容视图
+    private var contentView: some View {
             ScrollView {
                 VStack(spacing: 0) {
                     // 自定义标题
@@ -58,13 +88,10 @@ struct AlbumLibraryView: View {
             .background(Color(.systemGroupedBackground))
             .navigationBarHidden(true)
         }
-        .onAppear {
-            viewModel.loadAlbums()
-        }
-        .sheet(item: $selectedAlbum) { album in
-            AlbumPhotosView(album: album)
-        }
-        .confirmationDialog(L10n.Album.deleteConfirmTitle.localized, isPresented: $showDeleteAlert, titleVisibility: .visible) {
+    
+    // MARK: - 辅助视图
+    @ViewBuilder
+    private var deleteAlertButtons: some View {
             Button(L10n.Album.delete.localized, role: .destructive) {
                 if let album = albumToDelete {
                     viewModel.deleteAlbum(albumId: album.id)
@@ -74,12 +101,17 @@ struct AlbumLibraryView: View {
             Button(L10n.Common.cancel.localized, role: .cancel) {
                 albumToDelete = nil
             }
-        } message: {
+    }
+    
+    @ViewBuilder
+    private var deleteAlertMessage: some View {
             if let album = albumToDelete {
                 Text(L10n.Album.deleteConfirmMessage.localized.replacingOccurrences(of: "%@", with: album.name))
             }
         }
-        .overlay(alignment: .center) {
+    
+    @ViewBuilder
+    private var editOverlayView: some View {
             if showEditOverlay, let album = albumToEdit {
                 ZStack {
                     Color.black.opacity(0.35)
@@ -111,8 +143,6 @@ struct AlbumLibraryView: View {
                 }
                 .zIndex(1)
             }
-        }
-        .animation(.easeInOut(duration: 0.2), value: showEditOverlay)
     }
     
     // MARK: - 空状态

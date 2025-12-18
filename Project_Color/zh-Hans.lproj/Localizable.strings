@@ -93,6 +93,7 @@
 "album.empty_title" = "暂无相册";
 "album.empty_message" = "分析照片后\n相册会显示在这里";
 "album.photos_count" = "%d 张照片";
+"album.photos_count_singular" = "%d 张照片";
 "album.edit_info" = "编辑信息";
 "album.delete" = "删除";
 "album.delete_confirm_title" = "确认删除";
@@ -147,8 +148,10 @@
 
 // MARK: - Lab View
 "lab.title" = "色彩实验室";
-"lab.search_color" = "寻色";
+"lab.search_color" = "查色";
+"lab.search_color_subtitle" = "在人们共建的色彩词典里找颜色";
 "lab.calculate_color" = "算色";
+"lab.calculate_color_subtitle" = "在不同颜色空间中进行换算";
 "lab.lookup_color" = "查色";
 
 // MARK: - 3D Color Space
