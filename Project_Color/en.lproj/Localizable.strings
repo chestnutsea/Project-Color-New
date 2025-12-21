@@ -57,6 +57,12 @@
 "development_mode.shadow" = "Shadow";
 "development_mode.comprehensive" = "Comprehensive";
 
+// MARK: - Development Shape
+"development_shape.title" = "Emerge Shape";
+"development_shape.circle" = "Circle";
+"development_shape.flower" = "Flower";
+"development_shape.garden_flower" = "Garden";
+
 // MARK: - Scan Result Style
 "scan_result_style.perspective_first" = "Perspective First";
 "scan_result_style.composition_first" = "Composition First";

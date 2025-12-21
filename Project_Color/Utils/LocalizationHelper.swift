@@ -132,6 +132,14 @@ enum L10n {
         static let comprehensive = "development_mode.comprehensive"
     }
     
+    // MARK: - Development Shape
+    enum DevelopmentShape {
+        static let title = "development_shape.title"
+        static let circle = "development_shape.circle"
+        static let flower = "development_shape.flower"
+        static let gardenFlower = "development_shape.garden_flower"
+    }
+    
     // MARK: - Scan Result Style
     enum ScanResultStyle {
         static let perspectiveFirst = "scan_result_style.perspective_first"

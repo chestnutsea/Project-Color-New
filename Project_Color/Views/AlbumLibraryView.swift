@@ -31,6 +31,7 @@ struct AlbumLibraryView: View {
     @State private var albumToDelete: AlbumInfo?
     @State private var showDeleteAlert = false
     @State private var showEditOverlay = false
+    @State private var hasLoadedOnce = false  // 标记是否已加载过
     
     var body: some View {
         // iOS 16+ 兼容：使用条件编译选择最佳导航方案
@@ -45,9 +46,6 @@ struct AlbumLibraryView: View {
                 }
                 .navigationViewStyle(.stack)
             }
-        }
-        .onAppear {
-            viewModel.loadAlbums()
         }
         .sheet(item: $selectedAlbum) { album in
             AlbumPhotosView(album: album)
@@ -87,6 +85,13 @@ struct AlbumLibraryView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationBarHidden(true)
+            .onAppear {
+                // ⚠️ 延迟加载：只在用户真正切换到相册 Tab 时才加载数据
+                if !hasLoadedOnce {
+                    hasLoadedOnce = true
+                    viewModel.loadAlbums()
+                }
+            }
         }
     
     // MARK: - 辅助视图

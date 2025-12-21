@@ -208,6 +208,10 @@ struct HomeView: View {
     // MARK: - 共享主内容视图
     private func mainContent(geometry: GeometryProxy) -> some View {
         ZStack {
+            // 统一背景色
+            Color(.systemGroupedBackground)
+                .ignoresSafeArea()
+            
             // PhotoScanner - 始终显示在同一位置
             VStack {
                 Spacer()
@@ -674,6 +678,9 @@ struct HomeView: View {
             // ✅ 已授权或受限访问，直接打开照片选择器
             // 注意：.limited 状态下，系统会在打开选择器时自动询问是否更改权限
             showPhotoPicker = true
+            if currentStatus == .authorized {
+                CachePreloader.shared.startPreloading()
+            }
             
             // ✅ 在后台预热相册数据（用户打开选择器时会更快）
             Task.detached(priority: .background) {
@@ -687,6 +694,10 @@ struct HomeView: View {
                     self.photoAuthorizationStatus = status
                     if status == .authorized || status == .limited {
                         self.showPhotoPicker = true
+                        
+                        if status == .authorized {
+                            CachePreloader.shared.startPreloading()
+                        }
                         
                         // ✅ 授权后预热相册数据
                         Task.detached(priority: .background) {

@@ -53,6 +53,21 @@ private enum PerlinMotion {
     static let maxSpeed: CGFloat = 0.6         // 最大速度
     static let boundarySoftness: CGFloat = 0.3 // 边界软回弹力度
     static let boundaryPadding: CGFloat = 16   // 边界安全距离
+    static let rotationSpeed: Double = 0.3     // 花朵旋转速度（度/帧，60fps下约18度/秒）
+}
+
+// MARK: - 花园模式参数
+
+private enum GardenFlowerLayout {
+    static let petalCount: Int = 5             // 固定 5 瓣
+    static let stemHeightRatio: CGFloat = 0.98 // 茎的高度占完整高度的比例
+    static let growDuration: TimeInterval = 2.5 // 生长动画时长
+    static let swayAmplitude: CGFloat = 20     // 摇曳幅度
+    static let swaySpeed: Double = 1.0         // 摇曳速度
+    
+    // 花瓣大小范围（与圆形 radius 映射一致，实际花朵直径 = radius * 2）
+    static let minFlowerRadius: CGFloat = 5   // 最小花朵半径（对应最少照片数）
+    static let maxFlowerRadius: CGFloat = 15   // 最大花朵半径（对应最多照片数）
 }
 
 // MARK: - Perlin Noise 生成器
@@ -151,9 +166,11 @@ struct EmergeView: View {
     @EnvironmentObject private var tabBarVisibility: TabBarVisibility  // 控制 Tab Bar 显示/隐藏
     @State private var screenSize: CGSize = .zero
     @State private var isAnimating = false
-    @State private var selectedCircleID: UUID? = nil  // 选中的圆形 ID
+    @State private var selectedCircleID: UUID? = nil  // 选中的圆形/花朵 ID
     @State private var fullScreenPhotoIndex: Int? = nil  // 全屏查看的照片索引
     @State private var fullScreenPhotos: [ViewModel.PhotoInfo] = []  // 全屏查看的照片列表
+    @State private var gardenStartTime: Date? = nil  // 花园模式的开始时间
+    @State private var gardenFlowerHeights: [UUID: CGFloat] = [:]  // 每个花朵的随机高度
     
     // ✅ 锚点状态：记录点击时圆形的位置和半径
     @State private var anchorPosition: CGPoint = .zero
@@ -166,6 +183,7 @@ struct EmergeView: View {
     @State private var lastKnownPhotoCount: Int = 0  // 上次已知的照片数量
     @State private var lastKnownDevelopmentMode: BatchProcessSettings.DevelopmentMode = .tone  // 上次已知的显影解析模式
     @State private var lastKnownFavoriteOnly: Bool = BatchProcessSettings.developmentFavoriteOnly  // 上次已知的收藏过滤开关
+    @State private var lastKnownDevelopmentShape: BatchProcessSettings.DevelopmentShape = .circle  // 上次已知的显影形状
     
     // ✅ 计算属性：根据 ID 获取实时的 circle 数据（用于颜色等信息，不用于位置）
     private var selectedCircle: ViewModel.ColorCircle? {
@@ -219,34 +237,64 @@ struct EmergeView: View {
                         }
                     }
                 }
-                // ✅ 色调/综合模式：展示圆形
+                // ✅ 色调/综合模式：展示圆形、花朵或花园花朵
                 else if !viewModel.colorCircles.isEmpty {
+                    let currentShape = BatchProcessSettings.developmentShape
+                    
+                    // 花园模式：从底部生长的花朵
+                    if currentShape == .gardenFlower {
+                        gardenFlowerView
+                    } else {
+                    
                     ZStack {
                         ForEach(viewModel.colorCircles) { circle in
                             // 发光效果层（不响应点击）
-                            glowingCircleGlow(circle: circle)
+                            glowingCircleGlow(circle: circle, shape: currentShape)
                                 .position(circle.position)
                                 .allowsHitTesting(false)
                         }
                         
                         ForEach(viewModel.colorCircles) { circle in
-                            // 核心圆形（响应点击）
-                            Circle()
-                                .fill(circle.color)
-                                .frame(width: circle.radius * 2, height: circle.radius * 2)
-                                .opacity(0.92)
-                                .position(circle.position)
-                                .onTapGesture {
-                                    // 记录点击时的锚点信息
-                                    anchorPosition = circle.position
-                                    anchorRadius = circle.radius
-                                    anchorColor = circle.color
-                                    anchorPhotos = circle.photos
-                                    
-                                    // 直接显示详情视图，无动画，圆继续移动
-                                    selectedCircleID = circle.id
-                                }
+                            // 核心形状（响应点击）
+                            if currentShape == .circle {
+                                Circle()
+                                    .fill(circle.color)
+                                    .frame(width: circle.radius * 2, height: circle.radius * 2)
+                                    .opacity(0.92)
+                                    .position(circle.position)
+                                    .onTapGesture {
+                                        // 记录点击时的锚点信息
+                                        anchorPosition = circle.position
+                                        anchorRadius = circle.radius
+                                        anchorColor = circle.color
+                                        anchorPhotos = circle.photos
+                                        
+                                        // 直接显示详情视图，无动画，圆继续移动
+                                        selectedCircleID = circle.id
+                                    }
+                            } else {
+                                // 花朵形状（带旋转）
+                                Image("flower")
+                                    .resizable()
+                                    .renderingMode(.template)
+                                    .foregroundColor(circle.color)
+                                    .frame(width: circle.radius * 2, height: circle.radius * 2)
+                                    .rotationEffect(circle.rotation)
+                                    .opacity(0.92)
+                                    .position(circle.position)
+                                    .onTapGesture {
+                                        // 记录点击时的锚点信息
+                                        anchorPosition = circle.position
+                                        anchorRadius = circle.radius
+                                        anchorColor = circle.color
+                                        anchorPhotos = circle.photos
+                                        
+                                        // 直接显示详情视图，无动画，圆继续移动
+                                        selectedCircleID = circle.id
+                                    }
+                            }
                         }
+                    }
                     }
                 }
                 
@@ -282,10 +330,11 @@ struct EmergeView: View {
             .onAppear {
                 screenSize = geometry.size
                 
-                // ✅ 检查照片数量、显影解析模式或收藏过滤是否变化
+                // ✅ 检查照片数量、显影解析模式、收藏过滤或显影形状是否变化
                 Task {
                     let currentFavoriteOnly = BatchProcessSettings.developmentFavoriteOnly
                     let currentDevelopmentMode = BatchProcessSettings.developmentMode
+                    let currentDevelopmentShape = BatchProcessSettings.developmentShape
                     
                     // 根据收藏开关选择正确的照片数量来源，避免使用总数导致状态不一致
                     let currentPhotoCount: Int
@@ -302,6 +351,9 @@ struct EmergeView: View {
                         // 如果显影解析模式变化，需要重新聚类
                         let developmentModeChanged = hasLoadedOnce && currentDevelopmentMode != lastKnownDevelopmentMode
                         
+                        // 如果显影形状变化，只需要刷新视图（不需要重新聚类）
+                        let developmentShapeChanged = hasLoadedOnce && currentDevelopmentShape != lastKnownDevelopmentShape
+                        
                         if photoCountChanged {
                             print("📊 显影页：检测到照片数量变化 \(lastKnownPhotoCount) → \(currentPhotoCount)，重新聚类")
                             hasLoadedOnce = false  // 重置标志，触发重新聚类
@@ -310,6 +362,17 @@ struct EmergeView: View {
                         if developmentModeChanged {
                             print("📊 显影页：检测到显影解析模式变化 \(lastKnownDevelopmentMode.rawValue) → \(currentDevelopmentMode.rawValue)，重新聚类")
                             hasLoadedOnce = false  // 重置标志，触发重新聚类
+                        }
+                        
+                        if developmentShapeChanged {
+                            print("📊 显影页：检测到显影形状变化 \(lastKnownDevelopmentShape.rawValue) → \(currentDevelopmentShape.rawValue)，刷新视图")
+                            lastKnownDevelopmentShape = currentDevelopmentShape
+                            // 如果切换到花园模式，重置开始时间和高度分布
+                            if currentDevelopmentShape == .gardenFlower {
+                                gardenStartTime = nil
+                                gardenFlowerHeights = [:]
+                            }
+                            // 不需要重新聚类，只需要刷新视图
                         }
                         
                         // 如果收藏过滤开关变化，需要重新聚类
@@ -334,6 +397,7 @@ struct EmergeView: View {
                         lastKnownPhotoCount = currentPhotoCount
                         lastKnownDevelopmentMode = currentDevelopmentMode
                         lastKnownFavoriteOnly = currentFavoriteOnly
+                        lastKnownDevelopmentShape = currentDevelopmentShape
                         isAnimating = false
                         viewModel.reset()
                         
@@ -346,6 +410,9 @@ struct EmergeView: View {
             .onDisappear {
                 // ✅ 视图消失时停止动画，减少资源消耗
                 isAnimating = false
+                // 重置花园模式状态，下次进入时重新生成
+                gardenStartTime = nil
+                gardenFlowerHeights = [:]
             }
             .onChange(of: viewModel.isLoading) { isLoading in
                 if !isLoading && (!viewModel.colorCircles.isEmpty || !viewModel.tonalSquares.isEmpty) {
@@ -386,7 +453,10 @@ final class ViewModel: ObservableObject {
         var noiseOffsetY: CGFloat = 0  // Y 方向噪声偏移
         var time: CGFloat = 0          // 时间累积
         
-        init(id: UUID = UUID(), color: Color, rgb: SIMD3<Float>, lab: SIMD3<Float>, photoCount: Int, position: CGPoint, radius: CGFloat, velocity: CGPoint, photos: [PhotoInfo] = [], noiseOffsetX: CGFloat = 0, noiseOffsetY: CGFloat = 0, time: CGFloat = 0) {
+        // 旋转角度（用于花朵形状）
+        var rotation: Angle = .zero
+        
+        init(id: UUID = UUID(), color: Color, rgb: SIMD3<Float>, lab: SIMD3<Float>, photoCount: Int, position: CGPoint, radius: CGFloat, velocity: CGPoint, photos: [PhotoInfo] = [], noiseOffsetX: CGFloat = 0, noiseOffsetY: CGFloat = 0, time: CGFloat = 0, rotation: Angle = .zero) {
             self.id = id
             self.color = color
             self.rgb = rgb
@@ -399,6 +469,7 @@ final class ViewModel: ObservableObject {
             self.noiseOffsetX = noiseOffsetX
             self.noiseOffsetY = noiseOffsetY
             self.time = time
+            self.rotation = rotation
         }
     }
     
@@ -1470,6 +1541,9 @@ final class ViewModel: ObservableObject {
             c.position.x += c.velocity.x
             c.position.y += c.velocity.y
             
+            // 更新旋转角度（花朵形状缓慢旋转）
+            c.rotation = Angle(degrees: c.rotation.degrees + PerlinMotion.rotationSpeed)
+            
             // 边界处理：软回弹
             let pad = c.radius + PerlinMotion.boundaryPadding
             
@@ -1550,34 +1624,65 @@ final class ViewModel: ObservableObject {
 
 extension EmergeView {
     
-    // 发光效果（不包含核心圆形）
-    private func glowingCircleGlow(circle: ViewModel.ColorCircle) -> some View {
+    // 发光效果（不包含核心形状）
+    private func glowingCircleGlow(circle: ViewModel.ColorCircle, shape: BatchProcessSettings.DevelopmentShape) -> some View {
         let r = circle.radius
         
         return ZStack {
-            // 外层发光效果
-            Circle()
-                .fill(
-                    RadialGradient(
-                        gradient: Gradient(colors: [
-                            circle.color.opacity(0.35),
-                            circle.color.opacity(0.15),
-                            .clear
-                        ]),
-                        center: .center,
-                        startRadius: r * 0.3,
-                        endRadius: r * 2.2
+            if shape == .circle {
+                // 圆形发光效果
+                // 外层发光效果
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            gradient: Gradient(colors: [
+                                circle.color.opacity(0.35),
+                                circle.color.opacity(0.15),
+                                .clear
+                            ]),
+                            center: .center,
+                            startRadius: r * 0.3,
+                            endRadius: r * 2.2
+                        )
                     )
-                )
-                .frame(width: r * 4.4, height: r * 4.4)
-                .blendMode(.screen)
-            
-            // 中层模糊
-            Circle()
-                .fill(circle.color)
-                .frame(width: r * 2.4, height: r * 2.4)
-                .blur(radius: r * 0.25)
-                .opacity(0.35)
+                    .frame(width: r * 4.4, height: r * 4.4)
+                    .blendMode(.screen)
+                
+                // 中层模糊
+                Circle()
+                    .fill(circle.color)
+                    .frame(width: r * 2.4, height: r * 2.4)
+                    .blur(radius: r * 0.25)
+                    .opacity(0.35)
+            } else {
+                // 花朵形状发光效果
+                // 外层发光效果（使用圆形渐变）
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            gradient: Gradient(colors: [
+                                circle.color.opacity(0.35),
+                                circle.color.opacity(0.15),
+                                .clear
+                            ]),
+                            center: .center,
+                            startRadius: r * 0.3,
+                            endRadius: r * 2.2
+                        )
+                    )
+                    .frame(width: r * 4.4, height: r * 4.4)
+                    .blendMode(.screen)
+                
+                // 中层模糊（花朵形状，带旋转）
+                Image("flower")
+                    .resizable()
+                    .renderingMode(.template)
+                    .foregroundColor(circle.color)
+                    .frame(width: r * 2.4, height: r * 2.4)
+                    .rotationEffect(circle.rotation)
+                    .blur(radius: r * 0.25)
+                    .opacity(0.35)
+            }
         }
     }
     
@@ -2088,13 +2193,238 @@ extension EmergeView {
     }
 }
 
+// MARK: - ✅ 花园模式视图
+
+extension EmergeView {
+    
+    private var gardenFlowerView: some View {
+        GeometryReader { geometry in
+            ZStack {
+                // 花朵绘制层
+                TimelineView(.animation) { timeline in
+                    let startTime = gardenStartTime ?? Date()
+                    let t = timeline.date.timeIntervalSince(startTime)
+                    
+                    Canvas { context, size in
+                        let groundY = size.height  // 茎的底部在屏幕最底部
+                        let circles = viewModel.colorCircles.sorted(by: { $0.id.uuidString < $1.id.uuidString })
+                        
+                        for (index, circle) in circles.enumerated() {
+                            drawGardenFlower(
+                                context: &context,
+                                size: size,
+                                time: t,
+                                groundY: groundY,
+                                circle: circle,
+                                index: index,
+                                total: circles.count
+                            )
+                        }
+                    }
+                }
+                
+                // 点击检测层
+                ForEach(viewModel.colorCircles) { circle in
+                    let sortedCircles = viewModel.colorCircles.sorted(by: { $0.id.uuidString < $1.id.uuidString })
+                    if let index = sortedCircles.firstIndex(where: { $0.id == circle.id }) {
+                        GeometryReader { _ in
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    // 在点击时计算所有值，确保使用正确的 circle
+                                    let x = calculateGardenFlowerX(index: index, total: sortedCircles.count, screenWidth: geometry.size.width)
+                                    let flowerHeight = gardenFlowerHeights[circle.id] ?? 0
+                                    let flowerSize = calculateGardenFlowerSize(photoCount: circle.photoCount)
+                                    let flowerTopY = geometry.size.height - flowerHeight
+                                    
+                                    anchorPosition = CGPoint(x: x, y: flowerTopY)
+                                    anchorRadius = flowerSize / 2
+                                    anchorColor = circle.color
+                                    anchorPhotos = circle.photos
+                                    selectedCircleID = circle.id
+                                }
+                        }
+                        .frame(
+                            width: {
+                                let flowerSize = calculateGardenFlowerSize(photoCount: circle.photoCount)
+                                return max(flowerSize * 2, 60.0)
+                            }(),
+                            height: {
+                                let flowerHeight = gardenFlowerHeights[circle.id] ?? 0
+                                let flowerSize = calculateGardenFlowerSize(photoCount: circle.photoCount)
+                                return max(flowerHeight + flowerSize, 100.0)
+                            }()
+                        )
+                        .position(
+                            x: {
+                                let sortedCircles = viewModel.colorCircles.sorted(by: { $0.id.uuidString < $1.id.uuidString })
+                                guard let idx = sortedCircles.firstIndex(where: { $0.id == circle.id }) else { return 0 }
+                                return calculateGardenFlowerX(index: idx, total: sortedCircles.count, screenWidth: geometry.size.width)
+                            }(),
+                            y: {
+                                let flowerHeight = gardenFlowerHeights[circle.id] ?? 0
+                                let flowerSize = calculateGardenFlowerSize(photoCount: circle.photoCount)
+                                let hitAreaHeight = max(flowerHeight + flowerSize, 100.0)
+                                return geometry.size.height - hitAreaHeight / 2
+                            }()
+                        )
+                    }
+                }
+            }
+        }
+        .onAppear {
+            if gardenStartTime == nil {
+                gardenStartTime = Date()
+                // 重置高度分布
+                gardenFlowerHeights = [:]
+            }
+        }
+    }
+    
+    private func getOrCreateFlowerHeight(for id: UUID, screenHeight: CGFloat) -> CGFloat {
+        if let existingHeight = gardenFlowerHeights[id] {
+            return existingHeight
+        }
+        
+        // 高度范围：从底部 1/3 到顶部 1/4
+        // 底部 1/3 = screenHeight * (1 - 1/3) = screenHeight * 2/3
+        // 顶部 1/4 = screenHeight * 1/4
+        // 所以高度范围是 screenHeight * 1/4 到 screenHeight * 2/3
+        let minHeight = screenHeight * 0.25  // 距离顶部 1/4
+        let maxHeight = screenHeight * (2.0/3.0)  // 距离底部 1/3
+        let height = CGFloat.random(in: minHeight...maxHeight)
+        
+        gardenFlowerHeights[id] = height
+        return height
+    }
+    
+    private func calculateGardenFlowerX(index: Int, total: Int, screenWidth: CGFloat) -> CGFloat {
+        let centerX = screenWidth / 2
+        let spacing = min(screenWidth * 0.8 / CGFloat(max(total - 1, 1)), 80)
+        let totalWidth = CGFloat(total - 1) * spacing
+        let startX = centerX - totalWidth / 2
+        return startX + CGFloat(index) * spacing
+    }
+    
+    private func drawGardenFlower(
+        context: inout GraphicsContext,
+        size: CGSize,
+        time t: TimeInterval,
+        groundY: CGFloat,
+        circle: ViewModel.ColorCircle,
+        index: Int,
+        total: Int
+    ) {
+        let x = calculateGardenFlowerX(index: index, total: total, screenWidth: size.width)
+        
+        // 使用预先生成的随机高度
+        let maxHeight = getOrCreateFlowerHeight(for: circle.id, screenHeight: size.height)
+        
+        // 生长进度
+        let growT = max(0, min(1, t / GardenFlowerLayout.growDuration))
+        let growth = easeOutCubic(CGFloat(growT))
+        let currentHeight = maxHeight * growth
+        
+        // 摇曳
+        let phase = Double(index) * 0.5
+        let sway = sin(t * GardenFlowerLayout.swaySpeed + phase) * GardenFlowerLayout.swayAmplitude * growth
+        
+        let base = CGPoint(x: x, y: groundY)
+        let stemTop = CGPoint(x: x + sway, y: groundY - currentHeight * GardenFlowerLayout.stemHeightRatio)
+        let flowerTop = CGPoint(x: x + sway, y: groundY - currentHeight)
+        
+        // 计算花朵大小（使用布局常量，根据照片数量映射）
+        let flowerSize = calculateGardenFlowerSize(photoCount: circle.photoCount)
+        
+        // 绘制茎
+        if currentHeight > 1 {
+            let c1 = CGPoint(x: x + sway * 0.15, y: groundY - currentHeight * 0.35)
+            let c2 = CGPoint(x: x + sway * 0.65, y: groundY - currentHeight * 0.70)
+            
+            var path = Path()
+            path.move(to: base)
+            path.addCurve(to: stemTop, control1: c1, control2: c2)
+            
+            context.stroke(path, with: .color(circle.color.opacity(0.9)), lineWidth: 2.5)
+        }
+        
+        // 花朵开放进度
+        let bloomStart: CGFloat = 0.65
+        let bloomT = max(0, min(1, (growth - bloomStart) / (1 - bloomStart)))
+        
+        if bloomT > 0 {
+            drawGardenFlowerPetals(
+                context: &context,
+                center: flowerTop,
+                bloom: CGFloat(bloomT),
+                time: t,
+                color: circle.color,
+                size: flowerSize,
+                phase: phase
+            )
+        }
+    }
+    
+    private func calculateGardenFlowerSize(photoCount: Int) -> CGFloat {
+        // 需要知道最大照片数来计算归一化比例
+        // 使用与 ViewModel 中相同的逻辑
+        let maxPhotoCount = viewModel.colorCircles.map { $0.photoCount }.max() ?? 1
+        let normalizedCount = CGFloat(photoCount) / CGFloat(maxPhotoCount)
+        let radius = GardenFlowerLayout.minFlowerRadius + 
+                    (GardenFlowerLayout.maxFlowerRadius - GardenFlowerLayout.minFlowerRadius) * sqrt(normalizedCount)
+        return radius * 2  // 返回直径
+    }
+    
+    private func drawGardenFlowerPetals(
+        context: inout GraphicsContext,
+        center: CGPoint,
+        bloom: CGFloat,
+        time t: TimeInterval,
+        color: Color,
+        size: CGFloat,
+        phase: Double
+    ) {
+        let bloomEase = easeOutBack(bloom)
+        let rotation = sin(t * GardenFlowerLayout.swaySpeed + phase) * 0.3
+        
+        // 使用与 Garden.swift 完全一致的比例
+        let flowerSize = size
+        let petalRadius = flowerSize * bloomEase
+        let petalLength = flowerSize * 1.4 * bloomEase
+        
+        for i in 0..<GardenFlowerLayout.petalCount {
+            let angle = Double(i) / Double(GardenFlowerLayout.petalCount) * .pi * 2 + rotation
+            let dir = CGVector(dx: cos(angle), dy: sin(angle))
+            let petalCenter = CGPoint(
+                x: center.x + dir.dx * petalRadius,
+                y: center.y + dir.dy * petalRadius
+            )
+            
+            var petalContext = context
+            petalContext.translateBy(x: petalCenter.x, y: petalCenter.y)
+            petalContext.rotate(by: .radians(angle))
+            
+            let rect = CGRect(
+                x: -petalLength * 0.5,
+                y: -flowerSize * 0.45,
+                width: petalLength,
+                height: flowerSize * 0.9
+            )
+            
+            let petal = Path(ellipseIn: rect)
+            petalContext.fill(petal, with: .color(color.opacity(0.95)))
+            petalContext.stroke(petal, with: .color(color.opacity(0.4)), lineWidth: 1)
+        }
+    }
+}
+
 // MARK: - ✅ 空间背景
 
 extension EmergeView {
     
     private var appleSpaceBackground: some View {
         ZStack {
-            Color(.systemBackground).ignoresSafeArea()
+            Color(.systemGroupedBackground).ignoresSafeArea()
             
             LinearGradient(
                 colors: [Color.primary.opacity(0.05), .clear],

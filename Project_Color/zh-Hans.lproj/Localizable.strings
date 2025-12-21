@@ -57,6 +57,12 @@
 "development_mode.shadow" = "影调模式";
 "development_mode.comprehensive" = "融合模式";
 
+// MARK: - Development Shape
+"development_shape.title" = "显影形状";
+"development_shape.circle" = "图形";
+"development_shape.flower" = "花朵";
+"development_shape.garden_flower" = "花园";
+
 // MARK: - Scan Result Style
 "scan_result_style.perspective_first" = "视角在前";
 "scan_result_style.composition_first" = "构成在前";

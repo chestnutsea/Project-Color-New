@@ -24,6 +24,21 @@ struct BatchProcessSettings {
         }
     }
     
+    // MARK: - 显影形状
+    enum DevelopmentShape: String, Codable, CaseIterable {
+        case circle = "circle"
+        case flower = "flower"
+        case gardenFlower = "gardenFlower"
+        
+        var displayName: String {
+            switch self {
+            case .circle: return L10n.DevelopmentShape.circle.localized
+            case .flower: return L10n.DevelopmentShape.flower.localized
+            case .gardenFlower: return L10n.DevelopmentShape.gardenFlower.localized
+            }
+        }
+    }
+    
     // MARK: - 扫描结果页样式
     enum ScanResultStyle: String, Codable, CaseIterable {
         case perspectiveFirst = "perspective_first"
@@ -41,6 +56,7 @@ struct BatchProcessSettings {
     private enum SettingsKey {
         static let usePhotoTimeAsDefault = "usePhotoTimeAsDefault"
         static let developmentMode = "developmentMode"
+        static let developmentShape = "developmentShape"
         static let developmentFavoriteOnly = "developmentFavoriteOnly"
         static let scanResultStyle = "scanResultStyle"
     }
@@ -72,6 +88,23 @@ struct BatchProcessSettings {
         set {
             if let data = try? JSONEncoder().encode(newValue) {
                 UserDefaults.standard.set(data, forKey: SettingsKey.developmentMode)
+            }
+        }
+    }
+    
+    /// 显影形状
+    static var developmentShape: DevelopmentShape {
+        get {
+            // 如果从未设置过，默认为圆形
+            guard let data = UserDefaults.standard.data(forKey: SettingsKey.developmentShape),
+                  let shape = try? JSONDecoder().decode(DevelopmentShape.self, from: data) else {
+                return .circle
+            }
+            return shape
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                UserDefaults.standard.set(data, forKey: SettingsKey.developmentShape)
             }
         }
     }

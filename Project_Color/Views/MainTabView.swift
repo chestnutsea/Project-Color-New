@@ -23,6 +23,30 @@ struct MainTabView: View {
     @State private var selectedTab: TabItem = .scanner
     @StateObject private var tabBarVisibility = TabBarVisibility()
     
+    init() {
+        // 设置 TabBar 的外观：iOS 16+ 使用半透明毛玻璃，其它版本保持纯透明
+        let appearance = UITabBarAppearance()
+        
+        if #available(iOS 16.0, *) {
+            appearance.configureWithTransparentBackground()
+            appearance.backgroundEffect = UIBlurEffect(style: .systemChromeMaterial)
+            appearance.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.45)
+        } else {
+            appearance.configureWithTransparentBackground()
+            appearance.backgroundColor = .clear
+            appearance.backgroundEffect = nil
+        }
+        
+        appearance.shadowColor = .clear
+        appearance.shadowImage = nil
+        appearance.backgroundImage = nil
+        
+        UITabBar.appearance().standardAppearance = appearance
+        UITabBar.appearance().scrollEdgeAppearance = appearance
+        UITabBar.appearance().isTranslucent = true
+        UITabBar.appearance().barTintColor = .clear
+    }
+    
     private enum TabItem: Int, CaseIterable {
         case scanner = 0
         case album = 1
@@ -85,18 +109,6 @@ struct MainTabView: View {
             }
         }
         .environmentObject(tabBarVisibility)
-        .onAppear {
-            // 设置 TabBar 的外观：透明背景
-            let appearance = UITabBarAppearance()
-            appearance.configureWithTransparentBackground()
-            appearance.backgroundColor = .clear
-            
-            // 保持 TabBar 图标的正常显示
-            appearance.shadowColor = .clear  // 移除阴影
-            
-            UITabBar.appearance().standardAppearance = appearance
-            UITabBar.appearance().scrollEdgeAppearance = appearance
-        }
     }
 }
 

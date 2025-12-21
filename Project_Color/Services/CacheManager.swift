@@ -318,6 +318,13 @@ final class CachePreloader {
     
     /// 启动预热（在后台线程执行，不阻塞主线程）
     func startPreloading() {
+        // 仅在获得完整相册权限时进行预热，避免受限权限触发系统升级弹窗
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard status == .authorized else {
+            print("⚠️ 缓存预热：当前无完整相册权限（\(status)），跳过启动")
+            return
+        }
+        
         guard !hasPreloaded else { return }
         hasPreloaded = true
         
@@ -621,4 +628,3 @@ struct PreheatedAlbumInfo {
     let title: String
     let count: Int
 }
-

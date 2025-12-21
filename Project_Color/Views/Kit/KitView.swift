@@ -19,6 +19,7 @@ struct KitView: View {
     
     // MARK: - State
     @State private var developmentMode: BatchProcessSettings.DevelopmentMode = BatchProcessSettings.developmentMode
+    @State private var developmentShape: BatchProcessSettings.DevelopmentShape = BatchProcessSettings.developmentShape
     @Environment(\.openURL) private var openURL
     
     // Toast 状态
@@ -47,6 +48,7 @@ struct KitView: View {
         }
         .onAppear {
             developmentMode = BatchProcessSettings.developmentMode
+            developmentShape = BatchProcessSettings.developmentShape
         }
     }
     
@@ -65,18 +67,24 @@ struct KitView: View {
                     // 第一个卡片：解锁 AI 视角
                     aiUnlockCard
                     
-                    // 第二个卡片：云相册 + 照片暗房 + 显影模式
+                    // 第二个卡片：云相册 + 照片暗房
                     featuresCard
                     
-                    // 第三个卡片：色彩实验室（单独）
+                    // 第三个卡片：显影模式 + 显影形状（单独）
+                    developmentCard
+                    
+                    // 第四个卡片：色彩实验室（单独）
                     labCard
                     
-                    // 第四个卡片：更多选项（反馈、鼓励、分享、关于）
+                    // 第五个卡片：更多选项（反馈、鼓励、分享、关于）
                     moreOptionsCard
                 }
                 .padding(.horizontal, Layout.horizontalPadding)
             }
-        .background(Color(.systemGroupedBackground))
+        .background(
+            Color(.systemGroupedBackground)
+                .ignoresSafeArea()
+        )
         .navigationBarHidden(true)
     }
     
@@ -123,12 +131,21 @@ struct KitView: View {
                 )
             }
             .buttonStyle(.plain)
-            
+        }
+        .background(Color(.systemBackground))
+        .cornerRadius(Layout.cornerRadius)
+    }
+    
+    // MARK: - 显影设置卡片（显影模式 + 显影形状）
+    private var developmentCard: some View {
+        VStack(spacing: 0) {
             // 显影模式
             HStack(spacing: 12) {
-                Image(systemName: "camera.filters")
-                    .font(.system(size: 20))
+                Image("emerge_mode")
+                    .resizable()
+                    .renderingMode(.template)
                     .foregroundColor(.primary)
+                    .frame(width: 20, height: 20)
                     .frame(width: 28)
                 
                 Text(L10n.Mine.developmentMode.localized)
@@ -158,6 +175,83 @@ struct KitView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                             .frame(minWidth: 110, alignment: .trailing)
+                        
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, Layout.rowHorizontalPadding)
+            .padding(.vertical, Layout.rowVerticalPadding)
+            .contentShape(Rectangle())
+            
+            // 显影形状
+            HStack(spacing: 12) {
+                Image("shape")
+                    .resizable()
+                    .renderingMode(.template)
+                    .foregroundColor(.primary)
+                    .frame(width: 20, height: 20)
+                    .frame(width: 28)
+                
+                Text(L10n.DevelopmentShape.title.localized)
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundColor(.primary)
+                
+                Spacer()
+                
+                // 显影形状下拉菜单
+                Menu {
+                    ForEach(BatchProcessSettings.DevelopmentShape.allCases, id: \.self) { shape in
+                        Button {
+                            developmentShape = shape
+                            BatchProcessSettings.developmentShape = shape
+                        } label: {
+                            HStack {
+                                if shape == .circle {
+                                    Image(systemName: "circle.fill")
+                                        .font(.system(size: 22))
+                                        .frame(width: 20, height: 20)
+                                } else if shape == .flower {
+                                    Image("flower")
+                                        .resizable()
+                                        .renderingMode(.template)
+                                        .frame(width: 18, height: 18)
+                                } else {
+                                    Image("flower_with_stem")
+                                        .resizable()
+                                        .renderingMode(.template)
+                                        .frame(width: 18, height: 18)
+                                }
+                                if shape == developmentShape {
+                                    Spacer()
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        // 只显示当前选中的图标
+                        if developmentShape == .circle {
+                            Image(systemName: "circle.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(.primary)
+                                .frame(width: 20, height: 20)
+                        } else if developmentShape == .flower {
+                            Image("flower")
+                                .resizable()
+                                .renderingMode(.template)
+                                .foregroundColor(.primary)
+                                .frame(width: 20, height: 20)
+                        } else {
+                            Image("flower_with_stem")
+                                .resizable()
+                                .renderingMode(.template)
+                                .foregroundColor(.primary)
+                                .frame(width: 20, height: 20)
+                        }
                         
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 12, weight: .medium))

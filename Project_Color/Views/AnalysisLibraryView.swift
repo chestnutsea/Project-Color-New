@@ -40,6 +40,7 @@ struct AnalysisLibraryView: View {
     @State private var showDeleteAlert = false
     @State private var sessionToEdit: AnalysisSessionInfo?
     @State private var showEditOverlay = false
+    @State private var hasLoadedOnce = false  // 标记是否已加载过
     
     enum LibraryTab: String, CaseIterable {
         case favorites
@@ -57,9 +58,14 @@ struct AnalysisLibraryView: View {
     
     var body: some View {
         NavigationView {
-            VStack(spacing: 0) {
-                // 自定义标题
-                Text(L10n.AnalysisLibrary.title.localized)
+            ZStack {
+                // 统一背景色
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
+                
+                VStack(spacing: 0) {
+                    // 自定义标题
+                    Text(L10n.AnalysisLibrary.title.localized)
                     .font(.system(size: AppStyle.tabTitleFontSize, weight: AppStyle.tabTitleFontWeight))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal)
@@ -87,13 +93,18 @@ struct AnalysisLibraryView: View {
                         .tag(LibraryTab.all)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
+                .background(Color.clear)
+                }
             }
             .navigationBarHidden(true)
-        }
-        .onAppear {
-            viewModel.loadSessions()
-            // ✅ 优化：预加载最近的分析结果，避免首次点击时等待
-            viewModel.preloadRecentResults()
+            .onAppear {
+                // ⚠️ 延迟加载：只在用户真正切换到这个 Tab 时才加载数据
+                if !hasLoadedOnce {
+                    hasLoadedOnce = true
+                    viewModel.loadSessions()
+                    viewModel.preloadRecentResults()
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .analysisSessionDidSave)) { _ in
             // 收到新分析保存通知，强制刷新数据
@@ -249,6 +260,7 @@ struct AnalysisLibraryView: View {
                 }
                 .padding(padding)
             }
+            .background(Color.clear)
         }
     }
     
