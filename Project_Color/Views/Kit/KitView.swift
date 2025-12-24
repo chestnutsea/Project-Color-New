@@ -135,7 +135,7 @@ struct KitView: View {
         .background(Color(.systemBackground))
         .cornerRadius(Layout.cornerRadius)
     }
-    
+            
     // MARK: - 显影设置卡片（显影模式 + 显影形状）
     private var developmentCard: some View {
         VStack(spacing: 0) {

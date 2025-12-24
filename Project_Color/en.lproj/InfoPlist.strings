@@ -7,6 +7,9 @@
 NSPhotoLibraryUsageDescription = "Feelm needs access to your photo library to process analysis.";
 NSPhotoLibraryAddUsageDescription = "Feelm needs access to save analysis results to your photo library.";
 
+/* Location Access */
+NSLocationWhenInUseUsageDescription = "Feelm needs your location to display local weather information in Garden view.";
+
 /* App Display Name */
 CFBundleDisplayName = "Feelm";
 CFBundleName = "Feelm";

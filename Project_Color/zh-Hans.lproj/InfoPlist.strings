@@ -7,6 +7,9 @@
 NSPhotoLibraryUsageDescription = "Feelm 需要访问您的相册以分析照片。";
 NSPhotoLibraryAddUsageDescription = "Feelm 需要访问您的相册以保存分析结果。";
 
+/* 位置访问权限 */
+NSLocationWhenInUseUsageDescription = "Feelm 需要获取您的位置信息以在花园视图中显示当地天气。";
+
 /* 应用显示名称 */
 CFBundleDisplayName = "Feelm";
 CFBundleName = "Feelm";

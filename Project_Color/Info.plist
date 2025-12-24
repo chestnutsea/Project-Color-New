@@ -24,6 +24,8 @@
 	<string>FeelmFeelm requires access to your photo library to strore analysis results.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Feelm requires access to your photo library to process analysis.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Feelm needs your location to display local weather information in Garden view.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

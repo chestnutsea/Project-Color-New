@@ -84,6 +84,9 @@ struct HomeView: View {
     @State private var showPermissionToast = false
     @State private var permissionToastMessage = ""
     
+    // Planet 页面导航
+    @State private var showPlanetView = false
+    
 #if DEBUG
     private let enableVerboseLogging = false
 #endif
@@ -128,6 +131,10 @@ struct HomeView: View {
                         .navigationBarBackButtonHidden(false)
                         .toolbar(.hidden, for: .tabBar)
                     }
+                }
+                .navigationDestination(isPresented: $showPlanetView) {
+                    PlanetView()
+                        .navigationBarBackButtonHidden(false)
                 }
                 .onChange(of: showAnalysisResult) { newValue in
                     if !newValue {
@@ -178,6 +185,15 @@ struct HomeView: View {
                 ) {
                     EmptyView()
                 }
+                
+                // Planet 页面导航
+                NavigationLink(
+                    destination: PlanetView()
+                        .navigationBarBackButtonHidden(false),
+                    isActive: $showPlanetView
+                ) {
+                    EmptyView()
+                }
             }
             .onChange(of: showAnalysisResult) { newValue in
                 if !newValue {
@@ -211,6 +227,24 @@ struct HomeView: View {
             // 统一背景色
             Color(.systemGroupedBackground)
                 .ignoresSafeArea()
+            
+            // Planet 按钮 - 右上角
+            VStack {
+                HStack {
+                    Spacer()
+                    Button(action: {
+                        showPlanetView = true
+                    }) {
+                        Image("planet")
+                            .resizable()
+                            .renderingMode(.template)
+                            .foregroundColor(.primary)
+                            .frame(width: 28, height: 28)
+                            .padding(16)
+                    }
+                }
+                Spacer()
+            }
             
             // PhotoScanner - 始终显示在同一位置
             VStack {

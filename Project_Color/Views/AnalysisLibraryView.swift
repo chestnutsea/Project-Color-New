@@ -63,9 +63,9 @@ struct AnalysisLibraryView: View {
                 Color(.systemGroupedBackground)
                     .ignoresSafeArea()
                 
-                VStack(spacing: 0) {
-                    // 自定义标题
-                    Text(L10n.AnalysisLibrary.title.localized)
+            VStack(spacing: 0) {
+                // 自定义标题
+                Text(L10n.AnalysisLibrary.title.localized)
                     .font(.system(size: AppStyle.tabTitleFontSize, weight: AppStyle.tabTitleFontWeight))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal)
