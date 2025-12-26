@@ -29,19 +29,23 @@ struct KitMenuRow: View {
             Text(title)
                 .font(.system(size: 17, weight: .regular))
                 .foregroundColor(.primary)
+                .lineLimit(1)
             
-            Spacer()
+            Spacer(minLength: 8)
             
             if let secondaryText = secondaryText {
                 Text(secondaryText)
                     .font(.system(size: 15, weight: .regular))
                     .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                     .padding(.trailing, 4)
             }
             
             Image(systemName: "chevron.right")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(.secondary)
+                .frame(width: 8)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)

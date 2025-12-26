@@ -7,7 +7,6 @@
 //
 
 import SwiftUI
-import Photos
 
 struct PhotoDetailView: View {
     let photos: [PhotoItem]
@@ -163,32 +162,13 @@ struct PhotoImageView: View {
     }
     
     private func loadFullImage() {
-        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [photo.assetIdentifier], options: nil)
-        guard let asset = fetchResult.firstObject else {
-            isLoading = false
-            return
-        }
-        
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .highQualityFormat
-        options.isNetworkAccessAllowed = true
-        options.resizeMode = .none
-        
-        let targetSize = CGSize(
-            width: UIScreen.main.bounds.width * UIScreen.main.scale,
-            height: UIScreen.main.bounds.height * UIScreen.main.scale
-        )
-        
-        PHImageManager.default().requestImage(
-            for: asset,
-            targetSize: targetSize,
-            contentMode: .aspectFit,
-            options: options
-        ) { image, info in
+        if let data = photo.thumbnailData, let image = UIImage(data: data) {
             DispatchQueue.main.async {
-                if let image = image {
-                    self.fullImage = image
-                }
+                self.fullImage = image
+                self.isLoading = false
+            }
+        } else {
+            DispatchQueue.main.async {
                 self.isLoading = false
             }
         }

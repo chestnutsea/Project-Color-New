@@ -238,6 +238,10 @@ class AnalysisResult: ObservableObject {
     // 注意：这些图片仅在内存中，不会持久化到 Core Data
     var compressedImages: [UIImage] = []
     
+    // 原图（用于全屏查看）
+    // 注意：这些图片仅在内存中，不会持久化到 Core Data
+    var originalImages: [UIImage] = []
+    
     // 冷暖色调分布
     @Published var warmCoolDistribution: WarmCoolDistribution? = nil
     

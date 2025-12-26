@@ -300,29 +300,30 @@ struct AlbumCard: View {
     private func loadCoverImage() {
         guard let assetId = album.coverAssetIdentifier else { return }
         
-        // ✅ 优化：在后台线程加载封面图片
+        // ✅ 隐私模式：优先从 Core Data 的 thumbnailData 加载
         Task.detached(priority: .userInitiated) {
-        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil)
-        guard let asset = fetchResult.firstObject else { return }
-        
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .opportunistic
-        options.resizeMode = .fast
-            options.isNetworkAccessAllowed = false
-            options.isSynchronous = true  // 在后台线程同步加载更高效
-        
-        PHImageManager.default().requestImage(
-            for: asset,
-            targetSize: CGSize(width: 300, height: 300),
-            contentMode: .aspectFill,
-            options: options
-        ) { image, _ in
-            if let image = image {
-                    Task { @MainActor in
-                    self.coverImage = image
-                    }
+            let context = CoreDataManager.shared.newBackgroundContext()
+            var thumbnailData: Data?
+            
+            context.performAndWait {
+                let request = PhotoAnalysisEntity.fetchRequest()
+                request.predicate = NSPredicate(format: "assetLocalIdentifier == %@", assetId)
+                request.fetchLimit = 1
+                
+                if let entity = try? context.fetch(request).first,
+                   let data = entity.thumbnailData {
+                    thumbnailData = data
                 }
             }
+            
+            // 如果有 thumbnailData，直接使用
+            if let data = thumbnailData, let image = UIImage(data: data) {
+                await MainActor.run {
+                    self.coverImage = image
+                }
+                return
+            }
+            
         }
     }
 }

@@ -101,6 +101,20 @@ class PhotoMetadataReader {
         }
     }
     
+    // MARK: - 从图片数据读取元数据（隐私模式）
+    
+    /// 从图片数据直接读取 EXIF 元数据（不需要 PHAsset）
+    /// - Parameter imageData: 图片的原始数据
+    /// - Returns: PhotoMetadata（如果成功）
+    func readMetadata(from imageData: Data) -> PhotoMetadata? {
+        guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil) else {
+            print("⚠️ PhotoMetadataReader: 无法创建 CGImageSource")
+            return nil
+        }
+        
+        return readEXIFMetadata(from: imageSource)
+    }
+    
     // MARK: - 读取 EXIF 元数据
     
     /// 从 CGImageSource 读取 EXIF 元数据

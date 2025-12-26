@@ -1232,4 +1232,395 @@ class SimpleAnalysisPipeline {
         print("🎉 风格分析完成")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
+    
+    // MARK: - 隐私模式分析方法
+    /// 隐私模式：直接使用 UIImage 数组进行分析，不使用 PHAsset
+    /// 适用于通过 PhotosPicker 选择的照片
+    func analyzePhotos(
+        images: [UIImage],
+        identifiers: [String],
+        metadata: [PhotoMetadata] = [],
+        userMessage: String? = nil,
+        progressHandler: @escaping (AnalysisProgress) -> Void
+    ) async -> AnalysisResult {
+        
+        NSLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        NSLog("🎨 开始颜色分析（隐私模式）")
+        NSLog("   照片数量: \(images.count)")
+        if let msg = userMessage, !msg.isEmpty {
+            NSLog("   用户感受: \(msg)")
+        }
+        NSLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        
+        let result = AnalysisResult()
+        result.totalPhotoCount = images.count
+        result.timestamp = Date()
+        
+        // 设置用户输入的感受
+        if let msg = userMessage, !msg.isEmpty {
+            result.userMessage = msg
+        }
+        
+        var allMainColorsLAB: [SIMD3<Float>] = []
+        var photoInfos: [PhotoColorInfo] = []
+        
+        let startTime = Date()
+        
+        // Phase 1: 并发提取所有照片的颜色
+        let progressTracker = ProgressTracker(initialCount: 0)
+        let compressedImageCollector = CompressedImageCollector()
+        
+        await withTaskGroup(of: (PhotoColorInfo?, UIImage?, String).self) { group in
+            for (index, image) in images.enumerated() {
+                let identifier = identifiers[index]
+                
+                group.addTask {
+                    let photoStartTime = Date()
+                    
+                    // 报告开始处理
+                    let currentProgress = await progressTracker.getCounts().processed
+                    let progress = AnalysisProgress(
+                        currentPhoto: currentProgress + 1,
+                        totalPhotos: images.count,
+                        currentStage: "正在分析第 \(currentProgress + 1) 张照片...",
+                        overallProgress: Double(currentProgress) / Double(images.count) * 0.7
+                    )
+                    progressHandler(progress)
+                    
+                    // 提取颜色
+                    guard let cgImage = image.cgImage else {
+                        await progressTracker.incrementFailed()
+                        return (nil, nil, identifier)
+                    }
+                    
+                    // 构建与常规管线一致的配置
+                    let algorithm: SimpleColorExtractor.Config.Algorithm =
+                        self.settings.effectiveColorExtractionAlgorithm == .labWeighted
+                            ? .labWeighted
+                            : .medianCut
+                    
+                    let quality: SimpleColorExtractor.Config.Quality
+                    switch self.settings.effectiveExtractionQuality {
+                    case .fast:
+                        quality = .fast
+                    case .balanced:
+                        quality = .balanced
+                    case .fine:
+                        quality = .fine
+                    }
+                    
+                    let config = SimpleColorExtractor.Config(
+                        algorithm: algorithm,
+                        quality: quality,
+                        autoMergeSimilarColors: self.settings.effectiveAutoMergeSimilarColors
+                    )
+                    
+                    // 提取主色与亮度分布
+                    let extractionResult = self.colorExtractor.extractDominantColorsWithCDF(
+                        from: cgImage,
+                        count: 5,
+                        config: config
+                    )
+                    
+                    // 命名主色
+                    var dominantColors = extractionResult.dominantColors
+                    for i in 0..<dominantColors.count {
+                        dominantColors[i].colorName = self.colorNamer.getColorName(rgb: dominantColors[i].rgb)
+                    }
+                    
+                    // Vision 识别（隐私模式下默认关闭）
+                    let visionInfo: PhotoVisionInfo? = nil
+                    
+                    // 创建 PhotoColorInfo
+                    var info = PhotoColorInfo(
+                        assetIdentifier: identifier,
+                        dominantColors: dominantColors,
+                        brightnessCDF: extractionResult.brightnessCDF
+                    )
+                    
+                    // 计算衍生数据
+                    info.computeVisualRepresentativeColor()
+                    info.computeBrightnessStatistics()
+                    info.visionInfo = visionInfo
+                    
+                    // 设置元数据（如果有）
+                    if index < metadata.count {
+                        info.metadata = metadata[index]
+                        if metadata[index].cameraMake != nil {
+                            print("📸 照片 \(identifier.prefix(8))... 已关联元数据")
+                        }
+                    }
+                    
+                    // 压缩图片用于保存（优化：从 800px 降低到 400px 以加快 AI 分析）
+                    let compressedImage = self.compressImage(image, maxDimension: 400)
+                    
+                    await progressTracker.incrementProcessed()
+                    
+                    let elapsed = Date().timeIntervalSince(photoStartTime)
+                    NSLog("✅ 照片 \(currentProgress + 1) 分析完成，耗时 \(String(format: "%.2f", elapsed)) 秒")
+                    
+                    return (info, compressedImage, identifier)
+                }
+            }
+            
+            // 收集结果
+            for await (info, compressedImage, identifier) in group {
+                if let info = info {
+                    photoInfos.append(info)
+                    allMainColorsLAB.append(contentsOf: info.dominantColors.map { self.converter.rgbToLab($0.rgb) })
+                    
+                    if let compressedImage = compressedImage {
+                        await compressedImageCollector.append(compressedImage, identifier: identifier)
+                    }
+                }
+            }
+        }
+        
+        let (processedCount, failedCount) = await progressTracker.getCounts()
+        NSLog("📊 颜色提取完成: 成功 \(processedCount) 张，失败 \(failedCount) 张")
+        result.photoInfos = photoInfos
+        result.processedCount = processedCount
+        result.failedCount = failedCount
+        
+        guard !photoInfos.isEmpty else {
+            NSLog("❌ 没有成功提取的照片")
+            return result
+        }
+        
+        // 更新进度
+        progressHandler(AnalysisProgress(
+            currentPhoto: images.count,
+            totalPhotos: images.count,
+            currentStage: "正在聚类分析...",
+            overallProgress: 0.75
+        ))
+        
+        // Phase 2: 聚类分析
+        // 收集所有主色点与权重
+        var allColorWeights: [Float] = []
+        allMainColorsLAB.removeAll(keepingCapacity: true)
+        for info in photoInfos {
+            for color in info.dominantColors {
+                allMainColorsLAB.append(self.converter.rgbToLab(color.rgb))
+                allColorWeights.append(color.weight)
+            }
+        }
+        
+        // 选择 K 值（并发）
+        let minK = 3
+        let maxK = max(minK, min(12, max(1, allMainColorsLAB.count / 3)))
+        var clusteringResult: SimpleKMeans.ClusteringResult?
+        
+        if let kResult = await autoKSelector.findOptimalKConcurrent(
+            points: allMainColorsLAB,
+            config: AutoKSelector.Config(
+                minK: minK,
+                maxK: maxK,
+                maxIterations: 50,
+                colorSpace: .lab,
+                weights: allColorWeights,
+                analysisMode: .comprehensive
+            )
+        ) {
+            clusteringResult = kResult.bestClustering
+            result.optimalK = kResult.optimalK
+            result.silhouetteScore = kResult.silhouetteScore
+            result.qualityLevel = kResult.qualityLevel.rawValue
+            result.qualityDescription = kResult.qualityDescription
+            result.allKScores = kResult.allScores
+        } else {
+            // 回退到固定 K
+            clusteringResult = kmeans.cluster(
+                points: allMainColorsLAB,
+                k: minK,
+                maxIterations: 50,
+                colorSpace: .lab,
+                weights: allColorWeights,
+                analysisMode: .comprehensive
+            )
+            result.optimalK = minK
+        }
+        
+        guard let clusteringResult else {
+            NSLog("❌ 聚类失败")
+            return result
+        }
+        
+        // 创建聚类结果
+        var clusters: [ColorCluster] = []
+        let centroidsLAB = clusteringResult.centroids
+        for (index, centroidLAB) in centroidsLAB.enumerated() {
+            let centroidRGB = converter.labToRgb(centroidLAB)
+            let colorName = colorNamer.getColorName(lab: centroidLAB)
+            clusters.append(ColorCluster(
+                index: index,
+                centroid: centroidRGB,
+                colorName: colorName
+            ))
+        }
+        
+        // 为照片分配簇
+        for i in 0..<photoInfos.count {
+            assignPhotoToCluster(
+                photoInfo: &photoInfos[i],
+                clusters: clusters,
+                centroidsLAB: centroidsLAB,
+                analysisMode: .comprehensive
+            )
+        }
+        
+        // 统计簇信息
+        for i in 0..<clusters.count {
+            let photosInCluster = photoInfos.filter { $0.primaryClusterIndex == i }
+            clusters[i].photoCount = photosInCluster.count
+            clusters[i].photoIdentifiers = photosInCluster.map { $0.assetIdentifier }
+        }
+        
+        // 按照片数量排序簇，并重新映射索引
+        clusters.sort { $0.photoCount > $1.photoCount }
+        var oldToNewIndex: [Int: Int] = [:]
+        for (newIndex, cluster) in clusters.enumerated() {
+            oldToNewIndex[cluster.index] = newIndex
+        }
+        
+        for i in 0..<photoInfos.count {
+            if let oldIndex = photoInfos[i].primaryClusterIndex,
+               let newIndex = oldToNewIndex[oldIndex] {
+                photoInfos[i].primaryClusterIndex = newIndex
+            }
+        }
+        
+        for i in 0..<clusters.count {
+            clusters[i].index = i
+            let photosInCluster = photoInfos.filter { $0.primaryClusterIndex == i }
+            clusters[i].photoCount = photosInCluster.count
+            clusters[i].photoIdentifiers = photosInCluster.map { $0.assetIdentifier }
+        }
+        
+        result.clusters = clusters
+        result.isCompleted = true
+        
+        NSLog("🎨 聚类完成: K=\(clusters.count), 生成 \(clusters.count) 个色板")
+        
+        // Phase 3: 保存到 Core Data
+        progressHandler(AnalysisProgress(
+            currentPhoto: images.count,
+            totalPhotos: images.count,
+            currentStage: "正在保存数据...",
+            overallProgress: 0.85
+        ))
+        
+        let orderedIdentifiers = photoInfos.map { $0.assetIdentifier }
+        let compressedImages = await compressedImageCollector.getAll(orderedBy: orderedIdentifiers)
+        result.compressedImages = compressedImages
+        
+        // 💾 保存原图（用于全屏查看）
+        result.originalImages = images
+        
+        NSLog("📦 图片收集完成")
+        NSLog("   - 压缩图片: \(compressedImages.count) 张")
+        NSLog("   - 原图: \(images.count) 张")
+        
+        let saveTask = Task.detached(priority: .background) {
+            do {
+                let saved = try self.coreDataManager.saveAnalysisSession(from: result)
+                await MainActor.run {
+                    result.sessionId = saved.id
+                    NSLog("💾 数据已保存，Session ID: \(saved.id?.uuidString ?? "nil")")
+                }
+            } catch {
+                await MainActor.run {
+                    NSLog("⚠️ 保存数据失败: \(error.localizedDescription)")
+                }
+            }
+        }
+        _ = await saveTask.value
+        
+        // Phase 4: 作品集特征聚合
+        let collectionFeature = collectionFeatureCalculator.aggregateCollectionFeature(
+            imageFeatures: [],
+            globalPalette: clusters
+        )
+        
+        await MainActor.run {
+            result.collectionFeature = collectionFeature
+        }
+        
+        // Phase 5: AI 评价（异步）
+        progressHandler(AnalysisProgress(
+            currentPhoto: images.count,
+            totalPhotos: images.count,
+            currentStage: "AI 正在生成评价...",
+            overallProgress: 0.90
+        ))
+        
+        Task {
+            do {
+                let evaluation = try await self.aiEvaluator.evaluateColorAnalysis(
+                    result: result,
+                    compressedImages: compressedImages,
+                    userMessage: userMessage,
+                    onUpdate: { @MainActor updated in
+                        result.aiEvaluation = updated
+                    }
+                )
+                
+                await MainActor.run {
+                    result.aiEvaluation = evaluation
+                }
+                
+                if let sessionId = result.sessionId {
+                    try? self.coreDataManager.updateAnalysisSessionAI(
+                        sessionId: sessionId,
+                        evaluation: evaluation
+                    )
+                }
+            } catch {
+                await MainActor.run {
+                    var errorEvaluation = ColorEvaluation()
+                    errorEvaluation.error = error.localizedDescription
+                    errorEvaluation.isLoading = false
+                    result.aiEvaluation = errorEvaluation
+                }
+                
+                if let sessionId = result.sessionId {
+                    var errorEvaluation = ColorEvaluation()
+                    errorEvaluation.error = error.localizedDescription
+                    errorEvaluation.isLoading = false
+                    try? self.coreDataManager.updateAnalysisSessionAI(
+                        sessionId: sessionId,
+                        evaluation: errorEvaluation
+                    )
+                }
+            }
+        }
+        
+        let totalElapsed = Date().timeIntervalSince(startTime)
+        NSLog("⏱️ 总耗时: \(String(format: "%.2f", totalElapsed)) 秒")
+        NSLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        NSLog("🎉 分析完成（隐私模式）")
+        NSLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        
+        return result
+    }
+    
+    // MARK: - 辅助方法
+    /// 压缩图片
+    private func compressImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage? {
+        let size = image.size
+        let scale = min(maxDimension / size.width, maxDimension / size.height, 1.0)
+        
+        if scale >= 1.0 {
+            return image
+        }
+        
+        let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+        
+        UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
+        image.draw(in: CGRect(origin: .zero, size: newSize))
+        let newImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        
+        return newImage
+    }
 }

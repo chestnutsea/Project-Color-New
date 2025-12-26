@@ -7,9 +7,11 @@
 //
 
 import SwiftUI
-import Photos
 import CoreData
 import Combine
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - 通知名称
 extension Notification.Name {
@@ -487,42 +489,28 @@ struct LibrarySessionCard: View {
     
     private func loadCoverImage() {
         guard let assetId = session.coverAssetIdentifier else { return }
-        
-        // ✅ 优化：先检查缓存
+
         if let cachedImage = ThumbnailCache.shared.image(for: assetId) {
             self.coverImage = cachedImage
             return
         }
-        
-        // ✅ 优化：缓存未命中，使用异步加载，避免阻塞
-        Task {
-            let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil)
-            guard let asset = fetchResult.firstObject else { return }
-            
-            let options = PHImageRequestOptions()
-            options.deliveryMode = .highQualityFormat  // ✅ 使用 highQualityFormat 确保只回调一次
-            options.resizeMode = .fast
-            options.isNetworkAccessAllowed = false
-            options.isSynchronous = false
-            
-            // ✅ 修复：使用 actor 隔离来防止重复 resume
-            let loadedImage: UIImage? = await withCheckedContinuation { continuation in
-                var hasResumed = false
-                PHImageManager.default().requestImage(
-                    for: asset,
-                    targetSize: CGSize(width: 300, height: 300),
-                    contentMode: .aspectFill,
-                    options: options
-                ) { image, info in
-                    // ✅ 防止重复 resume（即使 highQualityFormat 也可能在某些情况下多次回调）
-                    guard !hasResumed else { return }
-                    hasResumed = true
-                    continuation.resume(returning: image)
+
+        Task.detached(priority: .userInitiated) {
+            let context = CoreDataManager.shared.newBackgroundContext()
+            var thumbnailData: Data?
+
+            context.performAndWait {
+                let request = PhotoAnalysisEntity.fetchRequest()
+                request.predicate = NSPredicate(format: "assetLocalIdentifier == %@", assetId)
+                request.fetchLimit = 1
+
+                if let entity = try? context.fetch(request).first,
+                   let data = entity.thumbnailData {
+                    thumbnailData = data
                 }
             }
-            
-            if let image = loadedImage {
-                // 存入缓存
+
+            if let data = thumbnailData, let image = UIImage(data: data) {
                 ThumbnailCache.shared.setImage(image, for: assetId)
                 await MainActor.run {
                     self.coverImage = image
@@ -736,7 +724,9 @@ class AnalysisLibraryViewModel: ObservableObject {
             var warmCoolScores: [String: Float] = [:]
             
             if let photoEntities = entity.photoAnalyses?.allObjects as? [PhotoAnalysisEntity] {
-                    analysisResult.photoInfos = photoEntities.sorted { $0.sortOrder < $1.sortOrder }.map { photoEntity in
+                    var thumbnailImages: [UIImage] = []
+                    let sortedPhotoEntities = photoEntities.sorted { $0.sortOrder < $1.sortOrder }
+                    analysisResult.photoInfos = sortedPhotoEntities.compactMap { photoEntity in
                     var photoInfo = PhotoColorInfo(assetIdentifier: photoEntity.assetLocalIdentifier ?? "")
                     photoInfo.albumIdentifier = photoEntity.albumIdentifier
                     photoInfo.albumName = photoEntity.albumName
@@ -793,6 +783,10 @@ class AnalysisLibraryViewModel: ObservableObject {
                         metadataEntity = single
                     }
                     
+                    if let data = photoEntity.thumbnailData, let image = UIImage(data: data) {
+                        thumbnailImages.append(image)
+                    }
+                    
                     if let entity = metadataEntity {
                         var metadata = PhotoMetadata()
                         metadata.captureDate = entity.captureDate
@@ -808,6 +802,8 @@ class AnalysisLibraryViewModel: ObservableObject {
                     
                     return photoInfo
                 }
+                analysisResult.compressedImages = thumbnailImages
+                analysisResult.originalImages = thumbnailImages
             }
             
             // 加载 AI 评价

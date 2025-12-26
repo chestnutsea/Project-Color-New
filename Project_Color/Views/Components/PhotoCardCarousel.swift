@@ -27,6 +27,10 @@ struct PhotoCardCarousel: View {
     let photoInfos: [PhotoColorInfo]
     let displayAreaHeight: CGFloat  // 展示区域的高度（屏幕高度的 1/3）
     
+    // 压缩图片和原图（隐私模式）
+    let compressedImages: [UIImage]
+    let originalImages: [UIImage]
+    
     // 全屏查看回调（由父视图处理）
     var onFullScreenRequest: ((Int) -> Void)?
     
@@ -85,12 +89,15 @@ struct PhotoCardCarousel: View {
                 
                 if currentIndex < photoInfos.count {
                     let photoInfo = photoInfos[currentIndex]
+                    // ✅ 优先使用压缩图片（隐私模式）
+                    let displayImage = currentIndex < compressedImages.count ? compressedImages[currentIndex] : loadedImages[photoInfo.assetIdentifier]
+                    
                     PhotoCardView(
                         assetIdentifier: photoInfo.assetIdentifier,
                         asset: loadedAssets[photoInfo.assetIdentifier],
                         maxPhotoHeight: maxPhotoHeight,
                         maxPhotoWidth: width * PhotoCarouselLayout.maxWidthRatio,
-                        loadedImage: loadedImages[photoInfo.assetIdentifier],
+                        loadedImage: displayImage,
                         onScaleChange: { scale in
                             currentPhotoScale = scale
                         },
@@ -200,14 +207,26 @@ struct PhotoCardCarousel: View {
     }
     
     private func loadAssetAndImageIfNeeded(identifier: String) {
+        // ✅ 隐私模式：compressedImages 和 originalImages 已经包含了所有照片
+        // 不需要从 PHAsset 加载，直接返回
+        // 图片会在 body 中通过 compressedImages[currentIndex] 获取
+        
         // 如果已经加载过，直接返回
         guard loadedAssets[identifier] == nil else {
             return
         }
         
+        // ⚠️ 只在没有 compressedImages 时才尝试从 PHAsset 加载（回退逻辑）
+        guard compressedImages.isEmpty else {
+            return
+        }
+        
         // 通过 identifier 获取 PHAsset
         let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil)
-        guard let asset = fetchResult.firstObject else { return }
+        guard let asset = fetchResult.firstObject else {
+            print("⚠️ 无法加载照片：assetIdentifier=\(identifier.prefix(8))...")
+            return
+        }
         
         DispatchQueue.main.async {
             loadedAssets[identifier] = asset
@@ -436,6 +455,7 @@ private struct PhotoCardView: View {
 
 struct CarouselFullScreenPhotoView: View {
     let photoInfos: [PhotoColorInfo]
+    let originalImages: [UIImage]  // 原图数组
     @Binding var currentIndex: Int
     let onDismiss: () -> Void
     
@@ -448,8 +468,17 @@ struct CarouselFullScreenPhotoView: View {
             // 照片容器（支持左右滑动切换）
                 TabView(selection: $currentIndex) {
                     ForEach(Array(photoInfos.enumerated()), id: \.element.assetIdentifier) { index, photoInfo in
-                    FullScreenPhotoItemView(assetIdentifier: photoInfo.assetIdentifier)
-                        .tag(index)
+                        // ✅ 优先使用原图（隐私模式）
+                        if index < originalImages.count {
+                            FullScreenPhotoItemView(
+                                assetIdentifier: photoInfo.assetIdentifier,
+                                originalImage: originalImages[index]
+                            )
+                            .tag(index)
+                        } else {
+                            FullScreenPhotoItemView(assetIdentifier: photoInfo.assetIdentifier)
+                                .tag(index)
+                        }
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
@@ -477,6 +506,7 @@ struct CarouselFullScreenPhotoView: View {
 
 private struct FullScreenPhotoItemView: View {
     let assetIdentifier: String
+    var originalImage: UIImage? = nil  // 原图（隐私模式）
     
     @State private var image: UIImage?
     @State private var scale: CGFloat = 1.0
@@ -507,8 +537,13 @@ private struct FullScreenPhotoItemView: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .onAppear {
-            loadImage()
+            // ✅ 优先使用原图（隐私模式）
+            if let originalImage = originalImage {
+                image = originalImage
+            } else {
+                loadImage()
             }
+        }
     }
     
     // 双击手势：快速放大/缩小

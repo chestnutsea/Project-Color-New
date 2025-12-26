@@ -262,5 +262,32 @@ enum L10n {
     enum ThreeDView {
         static let lchExplanation = "3d_view.lch_explanation"
     }
+    
+    // MARK: - iCloud Sync
+    enum CloudSync {
+        static let title = "cloud_sync.title"
+        static let enable = "cloud_sync.enable"
+        static let disable = "cloud_sync.disable"
+        static let cancel = "cloud_sync.cancel"
+        static let enableAndRestart = "cloud_sync.enable_and_restart"
+        static let syncStatus = "cloud_sync.sync_status"
+        static let statusEnabled = "cloud_sync.status_enabled"
+        static let statusDisabled = "cloud_sync.status_disabled"
+        static let promptTitle = "cloud_sync.prompt_title"
+        static let promptMessage = "cloud_sync.prompt_message"
+        static let promptMessageWithRestart = "cloud_sync.prompt_message_with_restart"
+        static let restartTitle = "cloud_sync.restart_title"
+        static let restartMessage = "cloud_sync.restart_message"
+        static let restartConfirm = "cloud_sync.restart_confirm"
+        static let dataStats = "cloud_sync.data_stats"
+        static let statsSessions = "cloud_sync.stats_sessions"
+        static let statsPhotos = "cloud_sync.stats_photos"
+        static let statsSize = "cloud_sync.stats_size"
+        static let aboutTitle = "cloud_sync.about_title"
+        static let aboutMultiDevice = "cloud_sync.about_multi_device"
+        static let aboutStorage = "cloud_sync.about_storage"
+        static let aboutNetwork = "cloud_sync.about_network"
+        static let aboutPhotoReference = "cloud_sync.about_photo_reference"
+    }
 }
 

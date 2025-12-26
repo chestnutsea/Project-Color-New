@@ -7,7 +7,6 @@
 //
 
 import SwiftUI
-import Photos
 import CoreData
 #if canImport(UIKit)
 import UIKit
@@ -134,6 +133,8 @@ struct AnalysisResultView: View {
                             PhotoCardCarousel(
                                 photoInfos: result.photoInfos,
                                 displayAreaHeight: displayAreaHeight,
+                                compressedImages: result.compressedImages,
+                                originalImages: result.originalImages,
                                 onFullScreenRequest: { index in
                                     fullScreenPhotoIndex = index
                                     showFullScreenPhoto = true
@@ -171,6 +172,7 @@ struct AnalysisResultView: View {
         if showFullScreenPhoto {
             CarouselFullScreenPhotoView(
                 photoInfos: result.photoInfos,
+                originalImages: result.originalImages,
                 currentIndex: $fullScreenPhotoIndex,
                 onDismiss: {
                     showFullScreenPhoto = false
@@ -239,7 +241,11 @@ struct AnalysisResultView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toast(isPresented: $showShareToast, message: L10n.Toast.featureInDevelopment.localized)
         .sheet(item: $selectedCluster) { cluster in
-            ClusterDetailView(cluster: cluster, result: result)
+            ClusterDetailView(
+                cluster: cluster,
+                result: result,
+                thumbnailProvider: { thumbnailImage(for: $0) }
+            )
         }
         .sheet(isPresented: $show3DView) {
             threeDView(points: colorSpacePoints)
@@ -1164,49 +1170,18 @@ struct AnalysisResultView: View {
         
         if compressedImages.isEmpty {
             print("⚠️ 缓存的压缩图片为空，需要重新加载")
-            
-            // 降级方案：如果缓存为空，重新加载图片
-            // 1. 从 PhotoInfo 加载 PHAsset
-            var assets: [PHAsset] = []
-            for photoInfo in result.photoInfos {
-                if let asset = PHAsset.fetchAssets(withLocalIdentifiers: [photoInfo.assetIdentifier], options: nil).firstObject {
-                    assets.append(asset)
+
+            let identifiers = result.photoInfos.map { $0.assetIdentifier }
+            let fallbackMap = loadThumbnailImages(for: Set(identifiers))
+            let fallbackImages = identifiers.compactMap { fallbackMap[$0] }
+
+            if !fallbackImages.isEmpty {
+                print("🖼️ 通过 Core Data 缓存重新加载了 \(fallbackImages.count) 张图片")
+                await MainActor.run {
+                    result.compressedImages = fallbackImages
                 }
-            }
-            
-            print("📸 加载了 \(assets.count) 个资源")
-            
-            // 2. 压缩图片
-            var loadedImages: [UIImage] = []
-            let imageManager = PHImageManager.default()
-            let options = PHImageRequestOptions()
-            options.deliveryMode = .highQualityFormat
-            options.isNetworkAccessAllowed = true
-            options.isSynchronous = true
-            
-            for asset in assets {
-                let targetSize = CGSize(width: 400, height: 400)  // 使用与分析管线一致的尺寸
-                var resultImage: UIImage?
-                
-                imageManager.requestImage(
-                    for: asset,
-                    targetSize: targetSize,
-                    contentMode: .aspectFit,
-                    options: options
-                ) { image, _ in
-                    resultImage = image
-                }
-                
-                if let image = resultImage {
-                    loadedImages.append(image)
-                }
-            }
-            
-            print("🖼️ 重新加载了 \(loadedImages.count) 张图片")
-            
-            // 更新缓存
-            await MainActor.run {
-                result.compressedImages = loadedImages
+            } else {
+                print("❌ Core Data 中也没有缩略图，无法加载")
             }
         } else {
             print("✅ 使用缓存的 \(compressedImages.count) 张压缩图片（跳过重新加载）")
@@ -1240,6 +1215,48 @@ struct AnalysisResultView: View {
                 result.aiEvaluation = errorEvaluation
             }
         }
+    }
+
+    private var assetIdentifierImageMap: [String: UIImage] {
+        var map: [String: UIImage] = [:]
+        let count = min(result.photoInfos.count, result.compressedImages.count)
+        for index in 0..<count {
+            let assetId = result.photoInfos[index].assetIdentifier
+            map[assetId] = result.compressedImages[index]
+        }
+        return map
+    }
+
+    private func loadThumbnailImages(for identifiers: Set<String>) -> [String: UIImage] {
+        guard !identifiers.isEmpty else { return [:] }
+
+        let context = CoreDataManager.shared.newBackgroundContext()
+        var thumbnails: [String: UIImage] = [:]
+
+        context.performAndWait {
+            let request = PhotoAnalysisEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "assetLocalIdentifier IN %@", NSArray(array: Array(identifiers)))
+            request.fetchBatchSize = 50
+
+            if let entities = try? context.fetch(request) {
+                for entity in entities {
+                    if let assetId = entity.assetLocalIdentifier,
+                       let data = entity.thumbnailData,
+                       let image = UIImage(data: data) {
+                        thumbnails[assetId] = image
+                    }
+                }
+            }
+        }
+
+        return thumbnails
+    }
+
+    private func thumbnailImage(for identifier: String) -> UIImage? {
+        if let image = assetIdentifierImageMap[identifier] {
+            return image
+        }
+        return loadThumbnailImages(for: [identifier])[identifier]
     }
     
     // MARK: - 数据转换（同步计算属性）
@@ -1811,7 +1828,7 @@ struct AnalysisResultView: View {
     }
     
     /// 获取聚类的代表性照片（最接近质心的照片）
-    private func getRepresentativePhotos(for cluster: ColorCluster, maxCount: Int = 3) -> [PHAsset] {
+    private func getRepresentativePhotos(for cluster: ColorCluster, maxCount: Int = 3) -> [UIImage] {
         // 筛选属于该聚类的照片
         let clusterPhotos = result.photoInfos.filter { $0.primaryClusterIndex == cluster.index }
         var seenIdentifiers = Set<String>()
@@ -1822,9 +1839,16 @@ struct AnalysisResultView: View {
         guard !uniqueClusterPhotos.isEmpty else { return [] }
         
         // 如果照片数量少于 maxCount，全部返回
+        let imageMap = assetIdentifierImageMap
+        let missingIds = Set(uniqueClusterPhotos.map { $0.assetIdentifier })
+            .subtracting(imageMap.keys)
+        let fallbackMap = loadThumbnailImages(for: missingIds)
+
+        let combinedMap = imageMap.merging(fallbackMap) { first, _ in first }
+
         if uniqueClusterPhotos.count <= maxCount {
             return uniqueClusterPhotos.compactMap { photoInfo in
-                fetchAsset(identifier: photoInfo.assetIdentifier)
+                combinedMap[photoInfo.assetIdentifier]
             }
         }
         
@@ -1838,14 +1862,8 @@ struct AnalysisResultView: View {
         // 按距离排序，选择最接近的 maxCount 张
         let sortedPhotos = photosWithDistance.sorted { $0.distance < $1.distance }
         return sortedPhotos.prefix(maxCount).compactMap { item in
-            fetchAsset(identifier: item.photoInfo.assetIdentifier)
+            combinedMap[item.photoInfo.assetIdentifier]
         }
-    }
-    
-    /// 根据 identifier 获取 PHAsset
-    private func fetchAsset(identifier: String) -> PHAsset? {
-        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil)
-        return fetchResult.firstObject
     }
     
     // MARK: - 失败统计
@@ -1895,9 +1913,7 @@ struct StatItem: View {
 // MARK: - 聚类卡片
 struct ClusterCard: View {
     let cluster: ColorCluster
-    let representativePhotos: [PHAsset]
-    
-    @State private var thumbnails: [UIImage] = []
+    let representativePhotos: [UIImage]
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1933,11 +1949,11 @@ struct ClusterCard: View {
             }
             
             // 代表性照片缩略图
-            if !thumbnails.isEmpty {
+            if !representativePhotos.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(thumbnails.indices, id: \.self) { index in
-                            Image(uiImage: thumbnails[index])
+                        ForEach(representativePhotos.indices, id: \.self) { index in
+                            Image(uiImage: representativePhotos[index])
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                                 .frame(width: 80, height: 80)
@@ -1955,34 +1971,6 @@ struct ClusterCard: View {
         .background(Color(.systemBackground))
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
-        .onAppear {
-            loadThumbnails()
-        }
-    }
-    
-    private func loadThumbnails() {
-        let imageManager = PHImageManager.default()
-        let options = PHImageRequestOptions()
-        options.isSynchronous = false
-        options.deliveryMode = .opportunistic
-        options.resizeMode = .fast
-        
-        let targetSize = CGSize(width: 160, height: 160) // 2x for retina
-        
-        for asset in representativePhotos.prefix(3) {
-            imageManager.requestImage(
-                for: asset,
-                targetSize: targetSize,
-                contentMode: .aspectFill,
-                options: options
-            ) { image, _ in
-                if let image = image {
-                    DispatchQueue.main.async {
-                        self.thumbnails.append(image)
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -1991,6 +1979,7 @@ struct ClusterDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let cluster: ColorCluster
     let result: AnalysisResult
+    let thumbnailProvider: (String) -> UIImage?
     
     private let columns = [
         GridItem(.adaptive(minimum: 100), spacing: 10)
@@ -2032,7 +2021,7 @@ struct ClusterDetailView: View {
                     // 照片网格
                     LazyVGrid(columns: columns, spacing: 10) {
                         ForEach(photosInCluster, id: \.id) { photoInfo in
-                            AnalysisPhotoThumbnail(assetIdentifier: photoInfo.assetIdentifier)
+                            AnalysisPhotoThumbnail(image: thumbnailProvider(photoInfo.assetIdentifier))
                         }
                     }
                     .padding(.horizontal)
@@ -2077,8 +2066,7 @@ struct ClusterDetailView: View {
 
 // MARK: - 分析照片缩略图
 struct AnalysisPhotoThumbnail: View {
-    let assetIdentifier: String
-    @State private var image: UIImage?
+    let image: UIImage?
     
     var body: some View {
         Group {
@@ -2097,30 +2085,6 @@ struct AnalysisPhotoThumbnail: View {
                     .overlay(
                         ProgressView()
                     )
-            }
-        }
-        .onAppear {
-            loadImage()
-        }
-    }
-    
-    private func loadImage() {
-        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil)
-        guard let asset = fetchResult.firstObject else { return }
-        
-        let manager = PHImageManager.default()
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .opportunistic
-        options.isSynchronous = false
-        
-        manager.requestImage(
-            for: asset,
-            targetSize: CGSize(width: 300, height: 300),  // 统一为 300
-            contentMode: .aspectFill,
-            options: options
-        ) { img, _ in
-            DispatchQueue.main.async {
-                self.image = img
             }
         }
     }

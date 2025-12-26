@@ -124,7 +124,8 @@ struct SearchColorView: View {
                 imageViewer
             }
             .onAppear {
-                checkPhotoLibraryStatus()
+                // ⚠️ 不检查照片库权限，保持隐私模式
+                // checkPhotoLibraryStatus()
                 loadSelectedAssets()
             }
             .onDisappear {
@@ -321,24 +322,8 @@ struct SearchColorView: View {
     
     // MARK: - Actions
     private func handleAddButtonTapped() {
-        switch photoAuthorizationStatus {
-        case .authorized, .limited:
-            showPhotoPicker = true
-        case .notDetermined:
-            PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
-                DispatchQueue.main.async {
-                    photoAuthorizationStatus = status
-                    if status == .authorized || status == .limited {
-                        showPhotoPicker = true
-                    }
-                }
-            }
-        case .denied, .restricted:
-            // TODO: 提示用户前往设置开启权限
-            break
-        @unknown default:
-            break
-        }
+        // ✅ PHPicker 不需要权限，直接显示照片选择器
+        showPhotoPicker = true
     }
     
     private func checkPhotoLibraryStatus() {

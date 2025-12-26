@@ -163,3 +163,28 @@
 // MARK: - 3D Color Space
 "3d_view.lch_explanation" = "L: Lightness; C: Chroma; H: Hue";
 
+// MARK: - iCloud Sync
+"cloud_sync.title" = "Cloud Album";
+"cloud_sync.enable" = "Enable";
+"cloud_sync.disable" = "Disable";
+"cloud_sync.cancel" = "Cancel";
+"cloud_sync.enable_and_restart" = "Enable & Restart";
+"cloud_sync.sync_status" = "iCloud Sync Status";
+"cloud_sync.status_enabled" = "Enabled";
+"cloud_sync.status_disabled" = "Disabled";
+"cloud_sync.prompt_title" = "Enable iCloud Sync?";
+"cloud_sync.prompt_message" = "All photo analysis data will be synced to iCloud for access across devices. Photos themselves won't be uploaded, only analysis results and thumbnails.";
+"cloud_sync.prompt_message_with_restart" = "All photo analysis data will be synced to iCloud for access across devices. Photos themselves won't be uploaded, only analysis results and thumbnails.\n\nThe app will restart to apply changes.";
+"cloud_sync.restart_title" = "Restart Required";
+"cloud_sync.restart_message" = "Changes will take effect after restarting.\n\niCloud syncs analysis data and thumbnails only. Original photos are not uploaded. On other devices, original photos will be shown if they exist in the system photo library; otherwise thumbnails will be displayed.";
+"cloud_sync.restart_confirm" = "OK";
+"cloud_sync.data_stats" = "Synced Data";
+"cloud_sync.stats_sessions" = "Scan Groups";
+"cloud_sync.stats_photos" = "Photos";
+"cloud_sync.stats_size" = "Storage Used";
+"cloud_sync.about_title" = "About iCloud Sync";
+"cloud_sync.about_multi_device" = "Automatically sync analysis data across devices";
+"cloud_sync.about_storage" = "Uses minimal iCloud storage (~100KB per photo)";
+"cloud_sync.about_network" = "Network connection required for syncing";
+"cloud_sync.about_photo_reference" = "Photos referenced from system library, not duplicated";
+

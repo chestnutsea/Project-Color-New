@@ -163,3 +163,28 @@
 // MARK: - 3D Color Space
 "3d_view.lch_explanation" = "L：明度；C：色度；H：色相";
 
+// MARK: - iCloud Sync
+"cloud_sync.title" = "云相册";
+"cloud_sync.enable" = "开启";
+"cloud_sync.disable" = "关闭";
+"cloud_sync.cancel" = "取消";
+"cloud_sync.enable_and_restart" = "开启并重启";
+"cloud_sync.sync_status" = "iCloud 同步状态";
+"cloud_sync.status_enabled" = "已启用";
+"cloud_sync.status_disabled" = "未启用";
+"cloud_sync.prompt_title" = "开启 iCloud 同步？";
+"cloud_sync.prompt_message" = "所有照片分析数据将同步到 iCloud，方便在多台设备间访问。照片本身不会上传，仅同步分析结果和缩略图。";
+"cloud_sync.prompt_message_with_restart" = "所有照片分析数据将同步到 iCloud，方便在多台设备间访问。照片本身不会上传，仅同步分析结果和缩略图。\n\n开启后需要重启 App 才能生效。";
+"cloud_sync.restart_title" = "需要重启 Feelm";
+"cloud_sync.restart_message" = "更改将在重启后生效。\n\niCloud 仅同步分析数据与缩略图，照片原图不会上传。在其他设备上，如果照片存在于系统相册中，将显示原图；否则显示缩略图。";
+"cloud_sync.restart_confirm" = "好的";
+"cloud_sync.data_stats" = "已同步数据";
+"cloud_sync.stats_sessions" = "扫描组数";
+"cloud_sync.stats_photos" = "照片张数";
+"cloud_sync.stats_size" = "占用空间";
+"cloud_sync.about_title" = "关于 iCloud 同步";
+"cloud_sync.about_multi_device" = "自动在多台设备间同步分析数据";
+"cloud_sync.about_storage" = "占用少量 iCloud 存储空间（约 100KB/张）";
+"cloud_sync.about_network" = "需要网络连接才能同步";
+"cloud_sync.about_photo_reference" = "照片通过系统相册引用，不重复存储";
+

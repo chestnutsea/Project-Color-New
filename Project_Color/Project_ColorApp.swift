@@ -20,8 +20,9 @@ struct Project_ColorApp: App {
         // 启动数据清理定时任务
         cleanupScheduler.startScheduledCleanup()
         
-        // ✅ 启动缓存预热（后台执行，不阻塞启动）
-        CachePreloader.shared.startPreloading()
+        // ⚠️ 禁用缓存预热，避免触发照片库权限检查
+        // 保持完全隐私模式：只通过 PHPicker 访问用户选择的照片
+        // CachePreloader.shared.startPreloading()
     }
 
     var body: some Scene {

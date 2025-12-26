@@ -18,55 +18,51 @@ class SelectedPhotosManager: ObservableObject {
     @Published var selectedAssetIdentifiers: [String] = []
     @Published var selectedAssets: [PHAsset] = []
     @Published var selectedImages: [UIImage] = []
+    @Published var originalImages: [UIImage] = []  // 保存原图（用于全屏查看）
+    @Published var selectedMetadata: [PhotoMetadata] = []  // 保存照片元数据（EXIF 信息）
     
     private var imageRequestID: PHImageRequestID?
     private var loadedAssetIds = Set<String>()  // 跟踪已加载的图片，避免重复
+    private var lastPickerResults: [PHPickerResult] = []  // 保存最近的选择结果，便于回退加载
     
     private init() {}
     
     /// 获取选中照片的数量
     var count: Int {
-        return selectedAssets.count
+        return selectedAssets.count + selectedImages.count
     }
     
     /// 是否有选中的照片
     var hasSelection: Bool {
-        return !selectedAssets.isEmpty
+        return !selectedAssets.isEmpty || !selectedImages.isEmpty
     }
     
     /// 从 PHPickerResult 更新选中的资产
     func updateSelectedAssets(with results: [PHPickerResult]) {
         print("📸 SelectedPhotosManager: 开始更新资产，收到 \(results.count) 个结果")
+        lastPickerResults = results
         
-        // 提取有效的 assetIdentifier 并去重（保持顺序）
-        let identifiers = results.compactMap { $0.assetIdentifier }
-        let uniqueIdentifiers = deduplicatedIdentifiers(from: identifiers)
-        if identifiers.count != uniqueIdentifiers.count {
-            print("📸 SelectedPhotosManager: 去除了重复的标识符 \(identifiers.count - uniqueIdentifiers.count) 个")
-        }
-        print("📸 SelectedPhotosManager: 提取了 \(uniqueIdentifiers.count) 个有效标识符")
+        // ✅ 隐私模式：生成 UUID 作为标识符，不使用 assetIdentifier
+        // 避免调用 PHAsset.fetchAssets 触发权限弹窗
+        let identifiers = results.map { _ in UUID().uuidString }
+        print("📸 SelectedPhotosManager: 生成了 \(identifiers.count) 个 UUID 标识符（隐私模式）")
         
-        // 如果有标识符，使用它们；否则直接加载图片
-        if !uniqueIdentifiers.isEmpty {
-            selectedAssetIdentifiers = uniqueIdentifiers
-            fetchAssets()
-        } else {
-            // 如果没有 assetIdentifier（可能是从其他来源选择的照片），直接加载图片
-            print("📸 SelectedPhotosManager: 没有有效的 assetIdentifier，直接从 itemProvider 加载图片")
-            loadImagesFromResults(results)
-        }
+        // ✅ 直接从 itemProvider 加载图片，不尝试获取 PHAsset
+        print("📸 SelectedPhotosManager: 直接从 itemProvider 加载图片（隐私模式）")
+        loadImagesFromResults(results, identifiers: identifiers)
     }
     
-    /// 从 PHPickerResult 直接加载图片（当没有 assetIdentifier 时）
-    private func loadImagesFromResults(_ results: [PHPickerResult]) {
+    /// 从 PHPickerResult 直接加载图片（隐私模式）
+    private func loadImagesFromResults(_ results: [PHPickerResult], identifiers: [String]) {
         selectedImages.removeAll()
         selectedAssets = []
-        selectedAssetIdentifiers = []
+        selectedAssetIdentifiers = identifiers
         
         let dispatchGroup = DispatchGroup()
-        var loadedImages: [UIImage] = []
+        var loadedImages: [(index: Int, image: UIImage)] = []  // 保存索引以维持顺序
         
-        for result in results.suffix(3) {
+        // ✅ 加载所有照片（用于分析），而不仅仅是最后3张
+        for (index, result) in results.enumerated() {
             dispatchGroup.enter()
             
             if result.itemProvider.canLoadObject(ofClass: UIImage.self) {
@@ -74,7 +70,8 @@ class SelectedPhotosManager: ObservableObject {
                     defer { dispatchGroup.leave() }
                     
                     if let image = image as? UIImage {
-                        loadedImages.append(image)
+                        // 收集到数组中，保存索引以维持顺序
+                        loadedImages.append((index: index, image: image))
                     } else if let error = error {
                         print("❌ 加载图片失败: \(error.localizedDescription)")
                     }
@@ -85,8 +82,12 @@ class SelectedPhotosManager: ObservableObject {
         }
         
         dispatchGroup.notify(queue: .main) {
-            self.selectedImages = loadedImages
-            print("📸 SelectedPhotosManager: 从 itemProvider 加载了 \(loadedImages.count) 张图片")
+            // 按原始顺序排序
+            let sortedImages = loadedImages.sorted { $0.index < $1.index }.map { $0.image }
+            self.selectedImages = sortedImages
+            // 同时保存原图（用于全屏查看）
+            self.originalImages = sortedImages
+            print("📸 SelectedPhotosManager: 从 itemProvider 加载了 \(sortedImages.count) 张图片（隐私模式）")
         }
     }
     
@@ -106,11 +107,19 @@ class SelectedPhotosManager: ObservableObject {
         return Array(sorted.prefix(count))
     }
     
+    /// 在需要时重新尝试根据标识符获取 PHAsset（用于权限被延迟授予的情况）
+    func refetchAssetsIfNeeded() {
+        guard selectedAssets.isEmpty, !selectedAssetIdentifiers.isEmpty else { return }
+        print("📸 SelectedPhotosManager: 尝试重新获取 PHAsset...")
+        fetchAssets(fallbackResults: lastPickerResults, fallbackIdentifiers: selectedAssetIdentifiers)
+    }
+    
     /// 清空选中的照片
     func clearSelection() {
         selectedAssetIdentifiers = []
         selectedAssets = []
         selectedImages = []
+        selectedMetadata = []
         if let requestID = imageRequestID {
             PHImageManager.default().cancelImageRequest(requestID)
             imageRequestID = nil
@@ -127,32 +136,44 @@ class SelectedPhotosManager: ObservableObject {
         loadLatestImages()
     }
     
+    /// 隐私模式：直接使用图片更新选择（不使用 PHAsset）
+    /// - Parameters:
+    ///   - images: 加载的图片数组
+    ///   - identifiers: 照片标识符数组（可以是 assetIdentifier 或 UUID）
+    ///   - metadata: 照片元数据数组（可选）
+    func updateWithImages(_ images: [UIImage], identifiers: [String], metadata: [PhotoMetadata] = []) {
+        // 清空 PHAsset 相关数据
+        selectedAssets = []
+        
+        // 保存标识符（用于去重和追踪）
+        selectedAssetIdentifiers = identifiers
+        
+        // 保存所有图片（用于分析）
+        selectedImages = images
+        
+        // 保存元数据
+        selectedMetadata = metadata
+        
+        print("📸 SelectedPhotosManager: 已更新照片选择（隐私模式）: \(images.count) 张")
+        if !metadata.isEmpty {
+            print("📸 SelectedPhotosManager: 已保存 \(metadata.count) 张照片的元数据")
+        }
+    }
+    
     // MARK: - Private Methods
     
-    private func fetchAssets() {
-        guard !selectedAssetIdentifiers.isEmpty else {
-            selectedAssets = []
-            selectedImages = []
-            print("📸 SelectedPhotosManager: 标识符为空，清空资产")
-            return
+    private func fetchAssets(fallbackResults: [PHPickerResult]? = nil, fallbackIdentifiers: [String]? = nil) {
+        // ⚠️ 已弃用：此方法会触发照片库权限弹窗
+        // 在隐私模式下，我们不再使用 PHAsset.fetchAssets
+        // 所有照片都通过 PHPickerResult 的 itemProvider 直接加载
+        
+        print("⚠️ fetchAssets 已弃用（隐私模式），直接使用 loadImagesFromResults")
+        
+        if let results = fallbackResults {
+            loadImagesFromResults(results, identifiers: fallbackIdentifiers ?? selectedAssetIdentifiers)
+        } else {
+            print("❌ 无法加载图片：没有 fallbackResults")
         }
-        
-        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: selectedAssetIdentifiers, options: nil)
-        var fetchedAssets: [PHAsset] = []
-        fetchResult.enumerateObjects { asset, _, _ in
-            fetchedAssets.append(asset)
-        }
-        
-        print("📸 SelectedPhotosManager: 获取了 \(fetchedAssets.count) 个 PHAsset")
-        
-        // Sort fetched assets to match the order of selectedAssetIdentifiers
-        selectedAssets = selectedAssetIdentifiers.compactMap { identifier in
-            fetchedAssets.first { $0.localIdentifier == identifier }
-        }
-        
-        print("📸 SelectedPhotosManager: 排序后有 \(selectedAssets.count) 个资产")
-        
-        loadLatestImages()
     }
     
     func loadLatestImages() {

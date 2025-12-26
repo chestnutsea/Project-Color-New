@@ -7,6 +7,8 @@
 
 import CoreData
 import Foundation
+import Photos
+import UIKit
 
 final class CoreDataManager {
 
@@ -26,6 +28,25 @@ final class CoreDataManager {
 
         if inMemory {
             container.persistentStoreDescriptions.first?.url = URL(fileURLWithPath: "/dev/null")
+        } else {
+            // 配置 iCloud 同步
+            if let storeDescription = container.persistentStoreDescriptions.first {
+                // 启用轻量级迁移
+                storeDescription.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
+                storeDescription.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
+                
+                if CloudSyncSettings.shared.isSyncEnabled {
+                    // 启用 iCloud 同步
+                    storeDescription.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(
+                        containerIdentifier: "iCloud.com.linyahuang.feelm"
+                    )
+                    print("☁️ iCloud 同步已启用")
+                } else {
+                    // 禁用 iCloud 同步（仅使用本地存储）
+                    storeDescription.cloudKitContainerOptions = nil
+                    print("📱 使用本地存储（iCloud 同步已禁用）")
+                }
+            }
         }
 
         container.loadPersistentStores { _, error in
@@ -154,11 +175,19 @@ final class CoreDataManager {
             session.timestamp = timestamp
             session.createdAt = Date()
             
-            // 自动生成名称（格式：YYYY 年 M 月 D 日）
-            let generatedName = self.generateSessionName(for: Date(), context: ctx)
+            // 获取照片组中最早的照片日期（从元数据中读取）
+            let earliestPhotoDate = result.photoInfos
+                .compactMap { $0.metadata?.captureDate }
+                .min() ?? Date()
+            
+            // 自动生成名称（格式：YYYY 年 M 月 D 日，使用最早的照片日期）
+            let generatedName = self.generateSessionName(for: earliestPhotoDate, context: ctx)
             session.customName = generatedName
-            session.customDate = Date()
+            session.customDate = earliestPhotoDate
             session.isFavorite = false  // 默认未收藏
+            
+            print("📅 照片组日期: \(earliestPhotoDate)")
+            print("📅 最早照片日期: \(result.photoInfos.compactMap { $0.metadata?.captureDate }.min() ?? Date())")
             
             session.totalPhotoCount = Int16(totalPhotoCount)
             session.processedCount = Int16(processedCount)
@@ -364,6 +393,24 @@ final class CoreDataManager {
                 }
             } else {
                 print("⚠️ 照片 \(photoInfo.assetIdentifier) 没有 metadata 可保存")
+            }
+            
+            // 生成并保存缩略图（用于跨设备降级显示）
+            // ✅ 隐私模式：优先使用 compressedImages 中的图片数据
+            if index < result.compressedImages.count {
+                let compressedImage = result.compressedImages[index]
+                // 使用已压缩的图片数据
+                if let thumbnailData = compressedImage.jpegData(compressionQuality: 0.7) {
+                    photoAnalysis.thumbnailData = thumbnailData
+                    print("💾 保存缩略图（隐私模式）: \(thumbnailData.count) bytes")
+                }
+            } else if let asset = PHAsset.fetchAssets(withLocalIdentifiers: [photoInfo.assetIdentifier], options: nil).firstObject {
+                // 回退：从 PHAsset 生成缩略图（需要照片库权限）
+                let thumbnail = self.generateThumbnailSync(for: asset, targetSize: CGSize(width: 200, height: 200))
+                if let thumbnailData = thumbnail?.jpegData(compressionQuality: 0.7) {
+                    photoAnalysis.thumbnailData = thumbnailData
+                    print("💾 保存缩略图（PHAsset）: \(thumbnailData.count) bytes")
+                }
             }
             
             photoAnalysis.confidence = 1.0
@@ -627,6 +674,7 @@ final class CoreDataManager {
                             usedNumbers.insert(number)
                         }
                     }
+
                 }
             }
             
@@ -880,6 +928,67 @@ final class CoreDataManager {
             
             try context.save()
             print("🗑️ 已删除显影缓存: \(mode)")
+        }
+    }
+    
+    // MARK: - Thumbnail Generation
+    
+    /// 同步生成缩略图（用于 Core Data 保存时调用）
+    /// - Parameters:
+    ///   - asset: PHAsset 对象
+    ///   - targetSize: 目标尺寸
+    /// - Returns: 缩略图 UIImage
+    private func generateThumbnailSync(for asset: PHAsset, targetSize: CGSize) -> UIImage? {
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .highQualityFormat
+        options.resizeMode = .exact
+        options.isSynchronous = true  // 同步请求
+        options.isNetworkAccessAllowed = false  // 不从 iCloud 下载
+        
+        var resultImage: UIImage?
+        PHImageManager.default().requestImage(
+            for: asset,
+            targetSize: targetSize,
+            contentMode: .aspectFill,
+            options: options
+        ) { image, _ in
+            resultImage = image
+        }
+        
+        return resultImage
+    }
+
+    /// 更新分析会话的 AI 评价（用于分析完成后补写）
+    func updateAnalysisSessionAI(
+        sessionId: UUID?,
+        evaluation: ColorEvaluation?
+    ) {
+        guard let sessionId = sessionId, let evaluation = evaluation else {
+            return
+        }
+
+        let ctx = container.newBackgroundContext()
+        ctx.performAndWait {
+            let request: NSFetchRequest<AnalysisSessionEntity> = AnalysisSessionEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "id == %@", sessionId as CVarArg)
+            request.fetchLimit = 1
+
+            do {
+                guard let session = try ctx.fetch(request).first else {
+                    print("⚠️ 无法更新 AI 评价：找不到 session \(sessionId)")
+                    return
+                }
+
+                if let encoded = try? JSONEncoder().encode(evaluation) {
+                    session.aiEvaluationData = encoded
+                    try ctx.save()
+                    print("💾 AI 评价更新已保存 (session \(sessionId))")
+                } else {
+                    print("❌ 编码 AI 评价失败：\(evaluation)")
+                }
+            } catch {
+                print("❌ 更新 AI 评价失败: \(error)")
+            }
         }
     }
 }

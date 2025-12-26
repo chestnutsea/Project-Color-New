@@ -3,134 +3,130 @@
 //  Project_Color
 //
 //  Created by AI Assistant on 2025/12/10.
-//  使用苹果原生 PHPickerViewController 的照片选择器
+//  使用 SwiftUI 原生 PhotosPicker 的照片选择器（隐私模式）
 //
 
 import SwiftUI
 import PhotosUI
 
-// MARK: - 系统照片选择器（带 Toast 提示）
-/// 使用苹果原生 PHPickerViewController，最多选择 9 张照片
-/// 当用户选择满 9 张后继续点击照片时，会短暂显示"最多选择 9 张照片"的提示
-struct SystemPhotoPickerWithToast: View {
+// MARK: - 系统照片选择器（隐私模式）
+/// 使用 SwiftUI 原生 PhotosPicker，最多选择 9 张照片
+/// ✅ 完全隐私保护：不需要照片库权限，不会触发权限弹窗
+/// ✅ 直接加载图片数据，不使用 PHAsset
+struct SystemPhotoPickerView: View {
     @Environment(\.dismiss) private var dismiss
     
-    var onSelection: ([PHPickerResult]) -> Void
-    
-    @State private var showMaxSelectionToast = false
-    
-    var body: some View {
-        ZStack {
-            SystemPhotoPickerView { results in
-                onSelection(results)
-            }
-            
-            // Toast 提示（最多选择 9 张照片）- 显示在屏幕中央偏下
-            if showMaxSelectionToast {
-                VStack {
-                    Spacer()
-                    
-                    Text("最多选择 9 张照片")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
-                        .background(Color.black.opacity(0.75))
-                        .cornerRadius(8)
-                    
-                    Spacer()
-                        .frame(height: 120)  // 距离底部的距离
-                }
-                .transition(.opacity)
-                .zIndex(999)
-                .allowsHitTesting(false)  // Toast 不拦截点击事件
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .init("ShowMaxSelectionToast"))) { _ in
-            showToast()
-        }
-    }
-    
-    private func showToast() {
-        // 显示 Toast
-        withAnimation(.easeInOut(duration: 0.2)) {
-            showMaxSelectionToast = true
-        }
-        
-        // 1 秒后自动消失
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showMaxSelectionToast = false
-            }
-        }
-    }
-}
-
-// MARK: - 系统照片选择器（基础版本）
-struct SystemPhotoPickerView: UIViewControllerRepresentable {
-    @Environment(\.dismiss) private var dismiss
-    
-    /// 选择完成回调，返回选中的 PHPickerResult 数组
-    var onSelection: ([PHPickerResult]) -> Void
+    /// 选择完成回调，返回加载好的 UIImage 数组
+    var onSelection: ([UIImage]) -> Void
     
     /// 最大选择数量
     private let maxSelection = 9
     
-    func makeUIViewController(context: Context) -> PHPickerViewController {
-        // 配置 PHPicker
-        var configuration = PHPickerConfiguration(photoLibrary: .shared())
-        configuration.filter = .images  // 只显示图片
-        configuration.selectionLimit = maxSelection  // 最多选择 9 张
-        configuration.preferredAssetRepresentationMode = .current
-        configuration.selection = .ordered  // 保持选择顺序
-        
-        let picker = PHPickerViewController(configuration: configuration)
-        picker.delegate = context.coordinator
-        
-        // ✅ 设置照片选择器的强调色为系统蓝色
-        // 这会影响：确定按钮、选中照片的数字背景、导航栏按钮等
-        picker.view.tintColor = UIColor.systemBlue
-        
-        return picker
-    }
+    /// 选中的照片项
+    @State private var selectedItems: [PhotosPickerItem] = []
     
-    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {
-        // 不需要更新
-    }
+    /// 是否正在加载
+    @State private var isLoading = false
     
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-    
-    class Coordinator: NSObject, PHPickerViewControllerDelegate {
-        let parent: SystemPhotoPickerView
-        
-        init(_ parent: SystemPhotoPickerView) {
-            self.parent = parent
-        }
-        
-        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-            if !results.isEmpty {
-                parent.onSelection(results)
+    var body: some View {
+        NavigationView {
+            VStack {
+                if isLoading {
+                    // 加载指示器
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                        Text("正在加载照片...")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    // 照片选择器
+                    // ✅ 隐私模式：不指定 photoLibrary 参数
+                    // 这样不会触发照片库权限弹窗，完全保护用户隐私
+                    PhotosPicker(
+                        selection: $selectedItems,
+                        maxSelectionCount: maxSelection,
+                        matching: .images
+                    ) {
+                        VStack(spacing: 20) {
+                            Image(systemName: "photo.on.rectangle.angled")
+                                .font(.system(size: 60))
+                                .foregroundColor(.blue)
+                            
+                            Text("选择照片")
+                                .font(.headline)
+                            
+                            Text("最多选择 \(maxSelection) 张")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
             }
-            parent.dismiss()
+            .navigationTitle("选择照片")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                }
+            }
+            .onChange(of: selectedItems) { newItems in
+                guard !newItems.isEmpty else { return }
+                
+                isLoading = true
+                
+                Task {
+                    var images: [UIImage] = []
+                    
+                    // ✅ 直接加载图片数据，不使用 PHAsset
+                    for item in newItems {
+                        if let data = try? await item.loadTransferable(type: Data.self),
+                           let uiImage = UIImage(data: data) {
+                            images.append(uiImage)
+                        }
+                    }
+                    
+                    await MainActor.run {
+                        isLoading = false
+                        
+                        if !images.isEmpty {
+                            print("📸 SystemPhotoPickerView: 成功加载 \(images.count) 张照片")
+                            onSelection(images)
+                        }
+                        
+                        dismiss()
+                    }
+                }
+            }
         }
     }
 }
 
 // MARK: - 注意事项
-/// PHPickerViewController 会自动处理以下行为：
-/// 1. 当选择数量达到 selectionLimit (9张) 时，其他照片会变灰无法选择
-/// 2. 系统会显示已选数量 (例如 "3/9")
-/// 3. 用户无法选择超过限制的照片
+/// PhotosPicker 的隐私保护特性：
+/// 1. ✅ 不需要照片库访问权限
+/// 2. ✅ 不会触发系统权限弹窗
+/// 3. ✅ 用户只能看到和选择自己想要的照片
+/// 4. ✅ App 只能访问用户选择的照片，其他照片完全不可见
+/// 5. ✅ 照片数据由系统管理，App 无法直接访问照片库
 ///
-/// 如果需要在用户尝试选择超过限制时显示自定义 Toast：
-/// - 可以通过监听系统行为或使用自定义照片选择器实现
-/// - 当前实现依赖系统默认行为，简洁且符合 iOS 设计规范
+/// 与 PHPickerViewController 的区别：
+/// - PhotosPicker: SwiftUI 原生组件，返回 PhotosPickerItem
+/// - PHPickerViewController: UIKit 组件，返回 PHPickerResult（可能包含 assetIdentifier）
+///
+/// 为什么使用 PhotosPicker：
+/// - 避免使用 assetIdentifier 和 PHAsset.fetchAssets（会触发权限检查）
+/// - 直接通过 loadTransferable 加载图片数据（无需权限）
+/// - 更符合 SwiftUI 的设计理念
 
 #Preview {
-    SystemPhotoPickerWithToast { results in
-        print("Selected \(results.count) photos")
+    SystemPhotoPickerView { images in
+        print("Selected \(images.count) photos")
     }
 }
 

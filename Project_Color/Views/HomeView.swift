@@ -52,8 +52,9 @@ struct HomeView: View {
     private let photoStackBottomOffset: CGFloat = 80 // 照片堆距离屏幕底部的距离
     
     // MARK: - State
+    @Environment(\.colorScheme) private var colorScheme
     @State private var showPhotoPicker = false
-    @State private var photoAuthorizationStatus: PHAuthorizationStatus = .notDetermined
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []  // PhotosPicker 选中的项
     @StateObject private var selectionManager = SelectedPhotosManager.shared
     @State private var selectionAlbumContext: SelectedAlbumContext? = nil
     
@@ -144,9 +145,14 @@ struct HomeView: View {
                     }
                 }
                 .toolbar(showAnalysisResult ? .hidden : .visible, for: .tabBar)
-                .fullScreenCover(isPresented: $showPhotoPicker) {
-                    photoPickerView
-                }
+                .photosPicker(
+                    isPresented: $showPhotoPicker,
+                    selection: $selectedPhotoItems,
+                    maxSelectionCount: 9,
+                    matching: .images
+                    // ✅ 不指定 photoLibrary 参数，保持完全隐私模式
+                    // 这样不会触发照片库权限弹窗
+                )
                 .alert(L10n.Home.scanPreparing.localized, isPresented: $showScanPrepareAlert) {
                     alertButtons
                 }
@@ -158,6 +164,12 @@ struct HomeView: View {
                 }
                 .onChange(of: selectionManager.selectedAssets) { _ in
                     handleSelectionChange()
+                }
+                .onChange(of: selectionManager.selectedImages) { _ in
+                    handleSelectionChange()
+                }
+                .onChange(of: selectedPhotoItems) { newItems in
+                    handlePhotoSelection(newItems)
                 }
         }
     }
@@ -204,9 +216,14 @@ struct HomeView: View {
             }
         }
         .navigationViewStyle(.stack)
-        .fullScreenCover(isPresented: $showPhotoPicker) {
-            photoPickerView
-        }
+        .photosPicker(
+            isPresented: $showPhotoPicker,
+            selection: $selectedPhotoItems,
+            maxSelectionCount: 9,
+            matching: .images
+            // ✅ 不指定 photoLibrary 参数，保持完全隐私模式
+            // 这样不会触发照片库权限弹窗
+        )
         .alert(L10n.Home.scanPreparing.localized, isPresented: $showScanPrepareAlert) {
             alertButtons
         }
@@ -218,6 +235,12 @@ struct HomeView: View {
         }
         .onChange(of: selectionManager.selectedAssets) { _ in
             handleSelectionChange()
+        }
+        .onChange(of: selectionManager.selectedImages) { _ in
+            handleSelectionChange()
+        }
+        .onChange(of: selectedPhotoItems) { newItems in
+            handlePhotoSelection(newItems)
         }
     }
     
@@ -362,13 +385,77 @@ struct HomeView: View {
         }
     }
     
-    // MARK: - 共享视图组件
-    private var photoPickerView: some View {
-        SystemPhotoPickerView { results in
-            convertPickerResultsToAssets(results) { assets in
-                selectionManager.updateSelection(assets)
+    // MARK: - 照片选择处理
+    private func handlePhotoSelection(_ items: [PhotosPickerItem]) {
+        guard !items.isEmpty else { return }
+        
+        print("📸 HomeView: 开始加载 \(items.count) 张照片")
+        
+        Task {
+            var loadedData: [(image: UIImage, identifier: String, metadata: PhotoMetadata?)] = []
+            let metadataReader = PhotoMetadataReader()
+            
+            // 并发加载所有照片和元数据
+            await withTaskGroup(of: (UIImage?, String, PhotoMetadata?).self) { group in
+                for item in items {
+                    group.addTask {
+                        var identifier = UUID().uuidString
+                        var loadedImage: UIImage?
+                        var metadata: PhotoMetadata?
+                        
+                        // 1. 加载原始图片数据（包含 EXIF）
+                        if let data = try? await item.loadTransferable(type: Data.self) {
+                            // 2. 从数据创建 UIImage
+                            if let uiImage = UIImage(data: data) {
+                                loadedImage = uiImage
+                            }
+                            
+                            // 3. 直接从数据中读取 EXIF 元数据（不需要 PHAsset）
+                            metadata = metadataReader.readMetadata(from: data)
+                            
+                            if let meta = metadata {
+                                print("📸 HomeView: 成功从图片数据读取元数据")
+                                print("   - 相机: \(meta.cameraMake ?? "nil") \(meta.cameraModel ?? "nil")")
+                                print("   - 镜头: \(meta.lensModel ?? "nil")")
+                                print("   - 拍摄日期: \(meta.captureDate?.description ?? "nil")")
+                            } else {
+                                print("⚠️ HomeView: 无法从图片数据读取元数据")
+                            }
+                        } else {
+                            print("❌ HomeView: 无法加载图片数据")
+                        }
+                        
+                        return (loadedImage, identifier, metadata)
+                    }
+                }
+                
+                // 收集结果
+                for await (image, identifier, metadata) in group {
+                    if let image = image {
+                        loadedData.append((image: image, identifier: identifier, metadata: metadata))
+                    }
+                }
+            }
+            
+            let images = loadedData.map { $0.image }
+            let identifiers = loadedData.map { $0.identifier }
+            let metadata = loadedData.map { $0.metadata ?? PhotoMetadata() }
+            
+            await MainActor.run {
+                print("📸 HomeView: 成功加载 \(images.count) 张照片")
+                print("📸 HomeView: 成功读取 \(metadata.filter { $0.cameraMake != nil }.count) 张照片的元数据")
+                
+                // 更新 SelectedPhotosManager（包含元数据）
+                selectionManager.updateWithImages(images, identifiers: identifiers, metadata: metadata)
+                
+                // 同时保存原图（用于全屏查看）
+                selectionManager.originalImages = images
+                
                 selectionAlbumContext = nil
                 resetDragState()
+                
+                // 清空选择，准备下次使用
+                selectedPhotoItems = []
             }
         }
     }
@@ -536,22 +623,32 @@ struct HomeView: View {
         progressThrottler.reset()
         
         Task {
-            // 获取所有选中的照片
-            let assets = selectionManager.selectedAssets
+            // ✅ 隐私模式：使用 selectedImages 而不是 selectedAssets
+            let images = selectionManager.selectedImages
+            let identifiers = selectionManager.selectedAssetIdentifiers
             
-            guard !assets.isEmpty else {
-                print("No assets to analyze")
+            guard !images.isEmpty else {
+                print("❌ 没有可分析的照片")
                 await MainActor.run {
+                    permissionToastMessage = "请先选择照片"
+                    showPermissionToast = true
                     self.isProcessing = false
+                    
+                    // 3 秒后自动隐藏提示
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                        self.showPermissionToast = false
+                    }
                 }
                 return
             }
+            
+            print("📸 开始分析 \(images.count) 张照片（隐私模式）")
             
             // 更新进度：照片数据准备完成
             await MainActor.run {
                 self.analysisProgress = AnalysisProgress(
                     currentPhoto: 0,
-                    totalPhotos: assets.count,
+                    totalPhotos: images.count,
                     currentStage: "开始分析...",
                     overallProgress: 0.01
                 )
@@ -575,22 +672,13 @@ struct HomeView: View {
             
             // 获取用户输入的感受（在调用分析前获取，确保能保存到 Core Data）
             let userFeelingToPass = self.userFeeling
+            let metadata = self.selectionManager.selectedMetadata
             
-            // 构建相册信息映射（用于显影页的相册归档）
-            let albumInfoMap: [String: (identifier: String, name: String)]
-            if let albumContext = selectionAlbumContext {
-                albumInfoMap = Dictionary(
-                    uniqueKeysWithValues: assets.map { asset in
-                        (asset.localIdentifier, (identifier: albumContext.id, name: albumContext.name))
-                    }
-                )
-            } else {
-                albumInfoMap = [:]
-            }
-            
+            // ✅ 隐私模式：使用新的分析方法，直接传入 UIImage 数组和元数据
             let result = await analysisPipeline.analyzePhotos(
-                assets: assets,
-                albumInfoMap: albumInfoMap,
+                images: images,
+                identifiers: identifiers,
+                metadata: metadata,
                 userMessage: userFeelingToPass.isEmpty ? nil : userFeelingToPass,
                 progressHandler: throttledHandler
             )
@@ -696,59 +784,19 @@ struct HomeView: View {
         #endif
     }
     
-    // MARK: - 相册权限处理
+    // MARK: - 照片选择处理
     
     private func handleImageTap() {
         // 即刻给出触感反馈，避免点击后长时间无响应的感知
         let impactFeedback = UIImpactFeedbackGenerator(style: .light)
         impactFeedback.impactOccurred()
         
-        // ✅ 每次点击时重新检查权限状态（用户可能在设置中修改了权限）
-        let currentStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        photoAuthorizationStatus = currentStatus
+        // ✅ PHPickerViewController 不需要权限，直接显示照片选择器
+        // 用户选择的照片会自动授权给 App，未选择的照片 App 无法访问
+        showPhotoPicker = true
         
-        switch currentStatus {
-        case .authorized, .limited:
-            // ✅ 已授权或受限访问，直接打开照片选择器
-            // 注意：.limited 状态下，系统会在打开选择器时自动询问是否更改权限
-            showPhotoPicker = true
-            if currentStatus == .authorized {
-                CachePreloader.shared.startPreloading()
-            }
-            
-            // ✅ 在后台预热相册数据（用户打开选择器时会更快）
-            Task.detached(priority: .background) {
-                await AlbumPreheater.shared.preheatDefaultAlbum()
-            }
-            
-        case .notDetermined:
-            // ✅ 未决定，点击 scanner 时才请求权限
-            PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
-                DispatchQueue.main.async {
-                    self.photoAuthorizationStatus = status
-                    if status == .authorized || status == .limited {
-                        self.showPhotoPicker = true
-                        
-                        if status == .authorized {
-                            CachePreloader.shared.startPreloading()
-                        }
-                        
-                        // ✅ 授权后预热相册数据
-                        Task.detached(priority: .background) {
-                            await AlbumPreheater.shared.preheatDefaultAlbum()
-                        }
-                    }
-                }
-            }
-            
-        case .denied, .restricted:
-            // ❌ 被拒绝或受限，保持在当前页面
-            // TODO: 可以添加提示用户去设置中开启权限
-            print("⚠️ 相册权限被拒绝或受限")
-            
-        @unknown default:
-            break
-        }
+        // ⚠️ 不预热相册数据，避免触发照片库权限检查
+        // 保持完全隐私模式：只通过 PHPicker 访问用户选择的照片
     }
     
     // MARK: - 加载选中的照片
@@ -933,17 +981,20 @@ struct HomeView: View {
     // MARK: - 加载图片
     private func loadPhotoScannerImage() -> Image {
         #if canImport(UIKit)
+        // 检测当前颜色模式：暗色模式使用 PhotoScannerBlack
+        let imageName = colorScheme == .dark ? "PhotoScannerBlack" : "PhotoScanner"
+        
         // 方法1: 尝试从 AppStyle 文件夹加载
-        if let imagePath = Bundle.main.path(forResource: "PhotoScanner", ofType: "png", inDirectory: "AppStyle"),
+        if let imagePath = Bundle.main.path(forResource: imageName, ofType: "png", inDirectory: "AppStyle"),
            let uiImage = UIImage(contentsOfFile: imagePath) {
             return Image(uiImage: uiImage)
         }
         // 方法2: 如果图片在 Assets.xcassets 中，直接使用名称
-        if let uiImage = UIImage(named: "PhotoScanner") {
+        if let uiImage = UIImage(named: imageName) {
             return Image(uiImage: uiImage)
         }
         // 方法3: 尝试使用完整路径名称
-        if let uiImage = UIImage(named: "AppStyle/PhotoScanner") {
+        if let uiImage = UIImage(named: "AppStyle/\(imageName)") {
             return Image(uiImage: uiImage)
         }
         // 如果都失败，显示占位符
@@ -954,7 +1005,107 @@ struct HomeView: View {
         #endif
     }
     
-    // MARK: - PHPickerResult 转换为 PHAsset
+    // MARK: - 隐私模式：直接从 PHPickerResult 加载图片
+    /// 不使用 PHAsset，避免触发照片库权限检查
+    private func loadImagesFromPickerResults(_ results: [PHPickerResult]) {
+        print("📸 HomeView: 开始从 PHPickerResult 加载图片（隐私模式）")
+        print("📸 HomeView: 收到 \(results.count) 个结果")
+        
+        // 清空之前的选择
+        selectionManager.clearSelection()
+        
+        Task {
+            var loadedData: [(image: UIImage, identifier: String, metadata: PhotoMetadata?)] = []
+            let metadataReader = PhotoMetadataReader()
+            
+            // 并发加载所有照片和元数据
+            await withTaskGroup(of: (Int, UIImage?, String, PhotoMetadata?).self) { group in
+                for (index, result) in results.enumerated() {
+                    group.addTask {
+                        let identifier = result.assetIdentifier ?? UUID().uuidString
+                        var loadedImage: UIImage?
+                        var metadata: PhotoMetadata?
+                        
+                        // 1. 尝试加载原始图片数据（包含 EXIF）
+                        if result.itemProvider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+                            let imageData = await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+                                result.itemProvider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, error in
+                                    if let error = error {
+                                        print("❌ 加载图片数据失败: \(error.localizedDescription)")
+                                        continuation.resume(returning: nil)
+                                    } else {
+                                        continuation.resume(returning: data)
+                                    }
+                                }
+                            }
+                            
+                            if let data = imageData {
+                                // 2. 从数据创建 UIImage
+                                loadedImage = UIImage(data: data)
+                                
+                                // 3. 直接从数据中读取 EXIF 元数据（不需要 PHAsset）
+                                metadata = metadataReader.readMetadata(from: data)
+                                
+                                if let meta = metadata {
+                                    print("📸 HomeView (PHPickerResult): 成功从图片数据读取元数据")
+                                    print("   - 相机: \(meta.cameraMake ?? "nil") \(meta.cameraModel ?? "nil")")
+                                    print("   - 镜头: \(meta.lensModel ?? "nil")")
+                                    print("   - 拍摄日期: \(meta.captureDate?.description ?? "nil")")
+                                } else {
+                                    print("⚠️ HomeView (PHPickerResult): 无法从图片数据读取元数据")
+                                }
+                            }
+                        }
+                        
+                        // 4. 如果上面失败了，回退到加载 UIImage（但会丢失 EXIF）
+                        if loadedImage == nil && result.itemProvider.canLoadObject(ofClass: UIImage.self) {
+                            loadedImage = await withCheckedContinuation { continuation in
+                                result.itemProvider.loadObject(ofClass: UIImage.self) { image, error in
+                                    if let image = image as? UIImage {
+                                        continuation.resume(returning: image)
+                                    } else {
+                                        if let error = error {
+                                            print("❌ 加载图片失败: \(error.localizedDescription)")
+                                        }
+                                        continuation.resume(returning: nil)
+                                    }
+                                }
+                            }
+                        }
+                        
+                        return (index, loadedImage, identifier, metadata)
+                    }
+                }
+                
+                // 收集结果
+                for await (index, image, identifier, metadata) in group {
+                    if let image = image {
+                        loadedData.append((image: image, identifier: identifier, metadata: metadata))
+                    }
+                }
+            }
+            
+            // 按原始顺序排序
+            let sortedData = loadedData.sorted { $0.identifier < $1.identifier }
+            let images = sortedData.map { $0.image }
+            let identifiers = sortedData.map { $0.identifier }
+            let metadata = sortedData.map { $0.metadata ?? PhotoMetadata() }
+            
+            await MainActor.run {
+                print("📸 HomeView: 成功加载 \(images.count) 张图片")
+                print("📸 HomeView: 成功读取 \(metadata.filter { $0.cameraMake != nil }.count) 张照片的元数据")
+                
+                // 更新 SelectedPhotosManager（包含元数据）
+                self.selectionManager.updateWithImages(images, identifiers: identifiers, metadata: metadata)
+                
+                // 加载最新的 3 张图片用于预览
+                self.loadSelectedImages()
+            }
+        }
+    }
+    
+    // MARK: - PHPickerResult 转换为 PHAsset（已弃用 - 会触发权限检查）
+    @available(*, deprecated, message: "使用 loadImagesFromPickerResults 代替，避免触发权限检查")
     private func convertPickerResultsToAssets(_ results: [PHPickerResult], completion: @escaping ([PHAsset]) -> Void) {
         var assets: [PHAsset] = []
         let group = DispatchGroup()
@@ -964,7 +1115,7 @@ struct HomeView: View {
             group.enter()
             
             if let assetIdentifier = result.assetIdentifier {
-                // 使用 asset identifier 获取 PHAsset
+                // ⚠️ 这里会触发照片库权限检查！
                 let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil)
                 if let asset = fetchResult.firstObject {
                     assets.append(asset)

@@ -7,7 +7,6 @@
 //
 
 import SwiftUI
-import Photos
 import CoreData
 import Combine
 
@@ -129,25 +128,10 @@ struct PhotoThumbnail: View {
     }
     
     private func loadThumbnail() {
-        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [photo.assetIdentifier], options: nil)
-        guard let asset = fetchResult.firstObject else { return }
-        
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .opportunistic
-        options.resizeMode = .fast
-        options.isNetworkAccessAllowed = false
-        
-        PHImageManager.default().requestImage(
-            for: asset,
-            targetSize: CGSize(width: 300, height: 300),  // 统一为 300
-            contentMode: .aspectFill,
-            options: options
-        ) { image, _ in
-            if let image = image {
-                DispatchQueue.main.async {
-                    self.thumbnailImage = image
-                }
-            }
+        if let thumbnailData = photo.thumbnailData, let image = UIImage(data: thumbnailData) {
+            self.thumbnailImage = image
+        } else {
+            // 保持 placeholder（progress indicator），不请求权限
         }
     }
 }
@@ -157,6 +141,7 @@ struct PhotoItem: Identifiable {
     let id: String  // assetLocalIdentifier
     let assetIdentifier: String
     let visionInfo: PhotoVisionInfo?
+    let thumbnailData: Data?  // ✅ 隐私模式：缩略图数据
 }
 
 // MARK: - ViewModel
@@ -179,13 +164,6 @@ class AlbumPhotosViewModel: ObservableObject {
             
             do {
                 let entities = try context.fetch(request)
-                let assetIds: [String] = entities.compactMap { $0.assetLocalIdentifier }
-                let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: assetIds, options: nil)
-                var assetMap: [String: PHAsset] = [:]
-                fetchResult.enumerateObjects { asset, _, _ in
-                    assetMap[asset.localIdentifier] = asset
-                }
-                
                 let decoder = JSONDecoder()
                 let sortedEntities = entities.sorted {
                     (self.primarySession(for: $0)?.timestamp ?? Date.distantPast) >
@@ -193,8 +171,7 @@ class AlbumPhotosViewModel: ObservableObject {
                 }
                 
                 let validPhotos: [PhotoItem] = sortedEntities.compactMap { entity in
-                    guard let assetId = entity.assetLocalIdentifier,
-                          let asset = assetMap[assetId] else {
+                    guard let assetId = entity.assetLocalIdentifier else {
                         return nil
                     }
                     
@@ -204,9 +181,10 @@ class AlbumPhotosViewModel: ObservableObject {
                     }
                     
                     return PhotoItem(
-                        id: asset.localIdentifier,
-                        assetIdentifier: asset.localIdentifier,
-                        visionInfo: visionInfo
+                        id: assetId,
+                        assetIdentifier: assetId,
+                        visionInfo: visionInfo,
+                        thumbnailData: entity.thumbnailData
                     )
                 }
                 

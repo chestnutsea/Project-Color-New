@@ -173,7 +173,8 @@ class QwenVLService {
         var imageContentItems: [VisionChatRequest.ContentItem] = []
         
         for (index, image) in images.enumerated() {
-            guard let imageData = image.jpegData(compressionQuality: 1.0) else {
+            // 优化：使用 0.85 质量以减少文件大小和传输时间
+            guard let imageData = image.jpegData(compressionQuality: 0.85) else {
                 print("⚠️ 图片 \(index + 1) 转换失败，跳过")
                 continue
             }
@@ -319,8 +320,8 @@ class QwenVLService {
         var imageContentItems: [VisionChatRequest.ContentItem] = []
         
         for (index, image) in images.enumerated() {
-            // 转换为 JPEG 格式（质量 1.0，因为尺寸已压缩，不需要再降低质量）
-            guard let imageData = image.jpegData(compressionQuality: 1.0) else {
+            // 优化：使用 0.85 质量以减少文件大小和传输时间
+            guard let imageData = image.jpegData(compressionQuality: 0.85) else {
                 print("⚠️ 图片 \(index + 1) 转换失败，跳过")
                 continue
             }

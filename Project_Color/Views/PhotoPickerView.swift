@@ -20,8 +20,9 @@ struct PhotoPickerView: UIViewControllerRepresentable {
     }
     
     func makeUIViewController(context: Context) -> PHPickerViewController {
-        // 使用 photoLibrary 参数以确保可以获取 assetIdentifier
-        var configuration = PHPickerConfiguration(photoLibrary: .shared())
+        // ✅ 隐私模式：不指定 photoLibrary 参数
+        // 这样不会触发照片库权限弹窗，完全保护用户隐私
+        var configuration = PHPickerConfiguration()
         configuration.filter = .images
         configuration.selectionLimit = 0 // No limit
         configuration.preferredAssetRepresentationMode = .current

@@ -22,8 +22,8 @@ struct KitView: View {
     @State private var developmentShape: BatchProcessSettings.DevelopmentShape = BatchProcessSettings.developmentShape
     @Environment(\.openURL) private var openURL
     
-    // Toast 状态
-    @State private var showCloudAlbumToast = false
+    // iCloud 同步状态
+    @State private var navigateToCloudSettings = false
     
     // 分享状态
     @State private var showShareSheet = false
@@ -32,8 +32,11 @@ struct KitView: View {
         // iOS 16+ 兼容：使用条件编译选择最佳导航方案
         Group {
             if #available(iOS 16.0, *) {
-        NavigationStack {
+                NavigationStack {
                     contentView
+                        .navigationDestination(isPresented: $navigateToCloudSettings) {
+                            CloudSyncSettingsView()
+                        }
                 }
             } else {
                 NavigationView {
@@ -42,7 +45,6 @@ struct KitView: View {
                 .navigationViewStyle(.stack)
             }
         }
-        .toast(isPresented: $showCloudAlbumToast, message: L10n.Toast.featureInDevelopment.localized)
         .sheet(isPresented: $showShareSheet) {
             ShareSheet(activityItems: shareItems)
         }
@@ -91,15 +93,13 @@ struct KitView: View {
     // MARK: - AI 解锁卡片
     private var aiUnlockCard: some View {
         Button {
-            withAnimation {
-                showCloudAlbumToast = true
-            }
-            } label: {
-                KitMenuRow(
-                    icon: "atom",
-                    title: L10n.Mine.unlockAI.localized
-                )
-            }
+            // TODO: 实现 AI 解锁功能
+        } label: {
+            KitMenuRow(
+                icon: "atom",
+                title: L10n.Mine.unlockAI.localized
+            )
+        }
         .buttonStyle(.plain)
         .background(Color(.systemBackground))
         .cornerRadius(Layout.cornerRadius)
@@ -109,17 +109,28 @@ struct KitView: View {
     private var featuresCard: some View {
         VStack(spacing: 0) {
             // 云相册
-            Button {
-                withAnimation {
-                    showCloudAlbumToast = true
+            ZStack {
+                // iOS 16 以下使用 NavigationLink
+                if #available(iOS 16.0, *) {
+                    // iOS 16+ 使用 programmatic navigation
+                    EmptyView()
+                } else {
+                    NavigationLink(destination: CloudSyncSettingsView(), isActive: $navigateToCloudSettings) {
+                        EmptyView()
+                    }
+                    .hidden()
                 }
-            } label: {
-                KitMenuRow(
-                    icon: "cloud",
-                    title: L10n.Mine.cloudAlbum.localized
-                )
+                
+                Button {
+                    handleCloudAlbumTap()
+                } label: {
+                    KitMenuRow(
+                        icon: "cloud",
+                        title: L10n.Mine.cloudAlbum.localized
+                    )
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
             
             // 照片暗房
             NavigationLink {
@@ -322,9 +333,7 @@ struct KitView: View {
         VStack(spacing: 0) {
             // 反馈与联系
             Button {
-                withAnimation {
-                    showCloudAlbumToast = true
-                }
+                // TODO: 实现反馈功能
             } label: {
                 KitMenuRow(
                     icon: "envelope",
@@ -369,6 +378,13 @@ struct KitView: View {
         }
         .background(Color(.systemBackground))
         .cornerRadius(Layout.cornerRadius)
+    }
+    
+    // MARK: - Methods
+    
+    private func handleCloudAlbumTap() {
+        // 直接进入设置页面
+        navigateToCloudSettings = true
     }
 }
 

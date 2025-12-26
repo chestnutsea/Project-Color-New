@@ -1850,28 +1850,28 @@ struct PhotoThumbnailView: View {
     }
     
     private func loadThumbnail() {
-        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil)
-        guard let asset = fetchResult.firstObject else { return }
+        if let cachedImage = ThumbnailCache.shared.image(for: assetIdentifier) {
+            thumbnailImage = cachedImage
+            return
+        }
         
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .opportunistic
-        options.resizeMode = .fast
-        options.isNetworkAccessAllowed = true
-        options.isSynchronous = false
+        let context = CoreDataManager.shared.viewContext
+        let request: NSFetchRequest<PhotoAnalysisEntity> = PhotoAnalysisEntity.fetchRequest()
+        request.predicate = NSPredicate(format: "assetLocalIdentifier == %@", assetIdentifier)
+        request.fetchLimit = 1
         
-        // 使用 2x 尺寸以适配 Retina 屏幕
-        let targetSize = CGSize(width: size * 2, height: size * 2)
-        
-        PHImageManager.default().requestImage(
-            for: asset,
-            targetSize: targetSize,
-            contentMode: .aspectFill,
-            options: options
-        ) { image, _ in
-            if let image = image {
-                DispatchQueue.main.async {
-                    self.thumbnailImage = image
+        context.perform {
+            do {
+                if let entity = try context.fetch(request).first,
+                   let data = entity.thumbnailData,
+                   let image = UIImage(data: data) {
+                    ThumbnailCache.shared.setImage(image, for: self.assetIdentifier)
+                    DispatchQueue.main.async {
+                        self.thumbnailImage = image
+                    }
                 }
+            } catch {
+                print("⚠️ 加载缩略图失败: \(error.localizedDescription)")
             }
         }
     }
