@@ -1981,6 +1981,8 @@ struct ClusterDetailView: View {
     let result: AnalysisResult
     let thumbnailProvider: (String) -> UIImage?
     
+    @State private var selectedPhotoIndex: Int?
+    
     private let columns = [
         GridItem(.adaptive(minimum: 100), spacing: 10)
     ]
@@ -2020,8 +2022,11 @@ struct ClusterDetailView: View {
                     
                     // 照片网格
                     LazyVGrid(columns: columns, spacing: 10) {
-                        ForEach(photosInCluster, id: \.id) { photoInfo in
+                        ForEach(Array(photosInCluster.enumerated()), id: \.element.id) { index, photoInfo in
                             AnalysisPhotoThumbnail(image: thumbnailProvider(photoInfo.assetIdentifier))
+                                .onTapGesture {
+                                    selectedPhotoIndex = index
+                                }
                         }
                     }
                     .padding(.horizontal)
@@ -2036,6 +2041,17 @@ struct ClusterDetailView: View {
                     }
                 }
             }
+        }
+        .fullScreenCover(item: Binding(
+            get: { selectedPhotoIndex.map { ClusterPhotoDetailWrapper(index: $0) } },
+            set: { selectedPhotoIndex = $0?.index }
+        )) { wrapper in
+            ClusterPhotoDetailView(
+                photoInfos: photosInCluster,
+                initialIndex: wrapper.index,
+                thumbnailProvider: thumbnailProvider,
+                onDismiss: { selectedPhotoIndex = nil }
+            )
         }
     }
     
@@ -2085,6 +2101,162 @@ struct AnalysisPhotoThumbnail: View {
                     .overlay(
                         ProgressView()
                     )
+            }
+        }
+    }
+}
+
+// MARK: - 聚类照片详情包装器
+struct ClusterPhotoDetailWrapper: Identifiable {
+    let id = UUID()
+    let index: Int
+}
+
+// MARK: - 聚类照片详情视图
+struct ClusterPhotoDetailView: View {
+    let photoInfos: [PhotoColorInfo]
+    let initialIndex: Int
+    let thumbnailProvider: (String) -> UIImage?
+    let onDismiss: () -> Void
+    
+    @State private var currentIndex: Int
+    
+    init(photoInfos: [PhotoColorInfo], initialIndex: Int, thumbnailProvider: @escaping (String) -> UIImage?, onDismiss: @escaping () -> Void) {
+        self.photoInfos = photoInfos
+        self.initialIndex = initialIndex
+        self.thumbnailProvider = thumbnailProvider
+        self.onDismiss = onDismiss
+        self._currentIndex = State(initialValue: initialIndex)
+    }
+    
+    var currentPhoto: PhotoColorInfo {
+        photoInfos[currentIndex]
+    }
+    
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                // 顶部工具栏
+                topBar
+                
+                // 照片区域
+                photoCarousel
+            }
+        }
+        .statusBar(hidden: true)
+    }
+    
+    // MARK: - 顶部工具栏
+    private var topBar: some View {
+        HStack {
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.title3)
+                    .foregroundColor(.white)
+                    .padding()
+            }
+            
+            Spacer()
+            
+            Text("\(currentIndex + 1) / \(photoInfos.count)")
+                .font(.subheadline)
+                .foregroundColor(.white)
+                .padding()
+        }
+        .background(Color.black.opacity(0.3))
+    }
+    
+    // MARK: - 照片轮播
+    private var photoCarousel: some View {
+        TabView(selection: $currentIndex) {
+            ForEach(Array(photoInfos.enumerated()), id: \.element.assetIdentifier) { index, photoInfo in
+                ClusterPhotoImageView(
+                    assetIdentifier: photoInfo.assetIdentifier,
+                    thumbnailProvider: thumbnailProvider
+                )
+                .tag(index)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+    }
+}
+
+// MARK: - 聚类照片图像视图
+struct ClusterPhotoImageView: View {
+    let assetIdentifier: String
+    let thumbnailProvider: (String) -> UIImage?
+    
+    @State private var fullImage: UIImage?
+    @State private var isLoading: Bool = true
+    
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                if let image = fullImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                } else if isLoading {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                } else {
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.largeTitle)
+                            .foregroundColor(.white.opacity(0.6))
+                        Text("加载失败")
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .onAppear {
+            loadFullImage()
+        }
+    }
+    
+    private func loadFullImage() {
+        // ✅ 从 Core Data 加载原图
+        Task.detached(priority: .userInitiated) {
+            let context = CoreDataManager.shared.newBackgroundContext()
+            var originalImageData: Data?
+            var thumbnailData: Data?
+            
+            context.performAndWait {
+                let request = PhotoAnalysisEntity.fetchRequest()
+                request.predicate = NSPredicate(format: "assetLocalIdentifier == %@", assetIdentifier)
+                request.fetchLimit = 1
+                
+                if let entity = try? context.fetch(request).first {
+                    originalImageData = entity.originalImageData
+                    thumbnailData = entity.thumbnailData
+                }
+            }
+            
+            await MainActor.run {
+                // 优先使用原图
+                if let data = originalImageData, let image = UIImage(data: data) {
+                    self.fullImage = image
+                    self.isLoading = false
+                    print("✅ 加载原图成功: \(assetIdentifier.prefix(8))... 尺寸: \(image.size)")
+                } else if let data = thumbnailData, let image = UIImage(data: data) {
+                    self.fullImage = image
+                    self.isLoading = false
+                    print("⚠️ 原图不可用，使用缩略图: \(assetIdentifier.prefix(8))...")
+                } else if let image = thumbnailProvider(assetIdentifier) {
+                    // 回退：使用传入的缩略图
+                    self.fullImage = image
+                    self.isLoading = false
+                    print("⚠️ Core Data 无数据，使用内存缓存: \(assetIdentifier.prefix(8))...")
+                } else {
+                    self.isLoading = false
+                    print("❌ 无法加载照片: \(assetIdentifier.prefix(8))...")
+                }
             }
         }
     }

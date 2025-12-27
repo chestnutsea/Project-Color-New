@@ -572,17 +572,28 @@ final class ViewModel: ObservableObject {
         let developmentMode = BatchProcessSettings.developmentMode
         let favoriteOnly = BatchProcessSettings.developmentFavoriteOnly
         
-        // 检查当前模式是否已有内存中的数据，如果有且模式匹配则直接使用
-        if currentMode == developmentMode && isFavoriteOnly == favoriteOnly {
+        // ✅ 先获取当前照片数量，用于验证内存缓存是否有效
+        let currentPhotoCount: Int
+        if favoriteOnly {
+            currentPhotoCount = await fetchFavoritePhotoCount()
+        } else {
+            currentPhotoCount = await fetchCurrentPhotoCount()
+        }
+        
+        // 检查当前模式是否已有内存中的数据，如果有且模式匹配且照片数量一致则直接使用
+        if currentMode == developmentMode && isFavoriteOnly == favoriteOnly && analyzedPhotoCount == currentPhotoCount {
             if developmentMode == .shadow && !tonalSquares.isEmpty {
-                print("📊 显影页：使用内存中的影调模式数据")
+                print("📊 显影页：使用内存中的影调模式数据（照片数: \(currentPhotoCount)）")
                 isLoading = false
                 return
             } else if developmentMode != .shadow && !colorCircles.isEmpty {
-                print("📊 显影页：使用内存中的色调/综合模式数据")
+                print("📊 显影页：使用内存中的色调/综合模式数据（照片数: \(currentPhotoCount)）")
                 isLoading = false
                 return
             }
+        } else if currentMode == developmentMode && isFavoriteOnly == favoriteOnly && analyzedPhotoCount != currentPhotoCount {
+            // 照片数量变化，内存缓存失效
+            print("📊 显影页：内存缓存失效（照片数 \(analyzedPhotoCount) → \(currentPhotoCount)），重新聚类")
         }
         
         isLoading = true
@@ -607,13 +618,10 @@ final class ViewModel: ObservableObject {
         }()
         let modeString = favoriteOnly ? "\(baseModeString)_favorite" : baseModeString
         
-        // 获取当前照片数量（根据 favoriteOnly 决定范围）
-        let currentPhotoCount: Int
+        // 更新照片数量（已在前面获取）
         if favoriteOnly {
-            currentPhotoCount = await fetchFavoritePhotoCount()
             print("📊 显影页：只对收藏照片显影，收藏照片数量: \(currentPhotoCount)")
         } else {
-            currentPhotoCount = await fetchCurrentPhotoCount()
             print("📊 显影页：全部照片显影，照片数量: \(currentPhotoCount)")
         }
         analyzedPhotoCount = currentPhotoCount

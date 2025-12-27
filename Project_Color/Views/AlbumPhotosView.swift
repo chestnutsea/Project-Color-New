@@ -142,6 +142,7 @@ struct PhotoItem: Identifiable {
     let assetIdentifier: String
     let visionInfo: PhotoVisionInfo?
     let thumbnailData: Data?  // ✅ 隐私模式：缩略图数据
+    let originalImageData: Data?  // ✅ 原图数据（用于大图查看）
 }
 
 // MARK: - ViewModel
@@ -184,7 +185,8 @@ class AlbumPhotosViewModel: ObservableObject {
                         id: assetId,
                         assetIdentifier: assetId,
                         visionInfo: visionInfo,
-                        thumbnailData: entity.thumbnailData
+                        thumbnailData: entity.thumbnailData,
+                        originalImageData: entity.originalImageData  // ✅ 加载原图数据
                     )
                 }
                 

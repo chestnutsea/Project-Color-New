@@ -395,14 +395,24 @@ final class CoreDataManager {
                 print("⚠️ 照片 \(photoInfo.assetIdentifier) 没有 metadata 可保存")
             }
             
-            // 生成并保存缩略图（用于跨设备降级显示）
-            // ✅ 隐私模式：优先使用 compressedImages 中的图片数据
+            // 生成并保存缩略图和原图（用于跨设备降级显示和大图查看）
+            // ✅ 隐私模式：优先使用 compressedImages 和 originalImages 中的图片数据
             if index < result.compressedImages.count {
                 let compressedImage = result.compressedImages[index]
-                // 使用已压缩的图片数据
+                // 使用已压缩的图片数据作为缩略图
                 if let thumbnailData = compressedImage.jpegData(compressionQuality: 0.7) {
                     photoAnalysis.thumbnailData = thumbnailData
                     print("💾 保存缩略图（隐私模式）: \(thumbnailData.count) bytes")
+                }
+                
+                // ✅ 保存原图数据（用于大图查看）
+                if index < result.originalImages.count {
+                    let originalImage = result.originalImages[index]
+                    // 使用较高质量压缩原图（0.85），平衡质量和存储空间
+                    if let originalImageData = originalImage.jpegData(compressionQuality: 0.85) {
+                        photoAnalysis.originalImageData = originalImageData
+                        print("💾 保存原图（隐私模式）: \(originalImageData.count) bytes")
+                    }
                 }
             } else if let asset = PHAsset.fetchAssets(withLocalIdentifiers: [photoInfo.assetIdentifier], options: nil).firstObject {
                 // 回退：从 PHAsset 生成缩略图（需要照片库权限）

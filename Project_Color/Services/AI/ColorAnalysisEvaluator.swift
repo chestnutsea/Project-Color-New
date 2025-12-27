@@ -29,7 +29,7 @@ class ColorAnalysisEvaluator {
    
    我们现在就像一起坐下来，从摄影记录或创作的角度看着我上传的照片。
    
-   你不需要写一篇文章，只是轻轻说说你从画面里感到的东西。就像朋友之间慢慢交换一些观察，不总结，也不解释。 
+   你不需要写一篇文章，只是轻轻说说你从画面里感到的最突出的东西，300 字以内。就像朋友之间慢慢交换一些观察，不总结，也不解释。 
    
    你可以关注但不必全部涉及也不必仅限于此：色彩大概偏向什么，光线摸上去是什么温度，画面的节奏是如何，空间、主体、拍摄视角、人物关系，似乎在讲述什么样的故事、呈现什么样的隐喻，有什么样的气质、情绪、氛围，等任何让你留意或触动的地方。
    
@@ -56,7 +56,7 @@ class ColorAnalysisEvaluator {
    
    We're sitting down together now, looking at the photos I've uploaded from a perspective of photographic documentation or creation.
    
-   You don't need to write an essay, just gently share what you sense from the images. Like friends slowly exchanging observations—no summaries, no explanations.
+   You don't need to write an essay, just gently share what you sense from the images within 150 words. Like friends slowly exchanging observations—no summaries, no explanations.
    
    You may focus on, but don't need to cover all or limit yourself to: what the colors tend toward, what temperature the light feels like, how the rhythm of the frame moves, the space, subjects, shooting angles, relationships between people, what kind of story seems to be told, what metaphors emerge, what qualities, emotions, atmospheres appear, or anything else that catches your attention or touches you.
    

@@ -537,11 +537,10 @@ private struct FullScreenPhotoItemView: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .onAppear {
-            // ✅ 优先使用原图（隐私模式）
+            // ✅ 隐私模式：直接使用传入的原图（来自 result.originalImages）
+            // 不尝试从 PHAsset 加载，避免触发权限弹窗
             if let originalImage = originalImage {
                 image = originalImage
-            } else {
-                loadImage()
             }
         }
     }
@@ -604,34 +603,6 @@ private struct FullScreenPhotoItemView: View {
             }
     }
     
-    private func loadImage() {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil)
-            guard let asset = fetchResult.firstObject else { return }
-            
-            let options = PHImageRequestOptions()
-            options.deliveryMode = .highQualityFormat
-            options.isNetworkAccessAllowed = true
-            options.isSynchronous = false
-            
-            let screenScale = UIScreen.main.scale
-            let targetSize = CGSize(
-                width: UIScreen.main.bounds.width * screenScale,
-                height: UIScreen.main.bounds.height * screenScale
-            )
-            
-            PHImageManager.default().requestImage(
-                for: asset,
-                targetSize: targetSize,
-                contentMode: .aspectFit,
-                options: options
-            ) { image, _ in
-                DispatchQueue.main.async {
-                    self.image = image
-                }
-            }
-        }
-    }
 }
 
 // MARK: - 旧版全屏查看（保留兼容）

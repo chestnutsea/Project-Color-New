@@ -162,14 +162,23 @@ struct PhotoImageView: View {
     }
     
     private func loadFullImage() {
-        if let data = photo.thumbnailData, let image = UIImage(data: data) {
+        // ✅ 优先加载原图（如果有），否则显示缩略图
+        if let data = photo.originalImageData, let image = UIImage(data: data) {
             DispatchQueue.main.async {
                 self.fullImage = image
                 self.isLoading = false
+                print("✅ 加载原图成功: \(photo.assetIdentifier.prefix(8))... 尺寸: \(image.size)")
+            }
+        } else if let data = photo.thumbnailData, let image = UIImage(data: data) {
+            DispatchQueue.main.async {
+                self.fullImage = image
+                self.isLoading = false
+                print("⚠️ 原图不可用，使用缩略图: \(photo.assetIdentifier.prefix(8))...")
             }
         } else {
             DispatchQueue.main.async {
                 self.isLoading = false
+                print("❌ 无法加载照片: \(photo.assetIdentifier.prefix(8))...")
             }
         }
     }

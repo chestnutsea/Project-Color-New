@@ -92,6 +92,7 @@
         <attribute name="brightnessMedian" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="brightnessContrast" optional="YES" attributeType="Float" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="thumbnailData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
+        <attribute name="originalImageData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
         <relationship name="metadata" optional="YES" toMany="NO" deletionRule="Cascade" destinationEntity="PhotoMetadataEntity" inverseName="photoAnalysis" inverseEntity="PhotoMetadataEntity"/>
         <relationship name="primaryCluster" optional="YES" deletionRule="Nullify" destinationEntity="ColorClusterEntity" inverseName="photoAnalyses" inverseEntity="ColorClusterEntity"/>
         <relationship name="session" optional="YES" deletionRule="Nullify" destinationEntity="AnalysisSessionEntity" inverseName="photoAnalyses" inverseEntity="AnalysisSessionEntity"/>
