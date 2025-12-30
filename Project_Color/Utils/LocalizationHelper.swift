@@ -109,6 +109,38 @@ enum L10n {
         static let aboutFeelm = "mine.about_feelm"
     }
     
+    // MARK: - Unlock AI Sheet
+    enum UnlockAI {
+        static let title = "unlock_ai.title"
+        static let restore = "unlock_ai.restore"
+        static let comparisonTitle = "unlock_ai.comparison_title"
+        static let planBasic = "unlock_ai.plan_basic"
+        static let planPro = "unlock_ai.plan_pro"
+        static let featureICloud = "unlock_ai.feature_icloud"
+        static let featureComposition = "unlock_ai.feature_composition"
+        static let featureColorLookup = "unlock_ai.feature_color_lookup"
+        static let featureRefresh = "unlock_ai.feature_refresh"
+        static let featureDisplayMode = "unlock_ai.feature_display_mode"
+        static let featureDisplayShape = "unlock_ai.feature_display_shape"
+        static let featureShare = "unlock_ai.feature_share"
+        static let valueBasicRefresh = "unlock_ai.value_basic_refresh"
+        static let valueProRefresh = "unlock_ai.value_pro_refresh"
+        static let valueBasicMode = "unlock_ai.value_basic_mode"
+        static let valueProMode = "unlock_ai.value_pro_mode"
+        static let pricingMonthly = "unlock_ai.pricing_monthly"
+        static let pricingYearly = "unlock_ai.pricing_yearly"
+        static let pricingLifetime = "unlock_ai.pricing_lifetime"
+        static let priceEarlyBird = "unlock_ai.price_early_bird"
+        static let priceMonthlyValue = "unlock_ai.price_monthly_value"
+        static let priceYearlyValue = "unlock_ai.price_yearly_value"
+        static let priceYearlyOriginal = "unlock_ai.price_yearly_original"
+        static let priceLifetimeValue = "unlock_ai.price_lifetime_value"
+        static let priceLifetimeOriginal = "unlock_ai.price_lifetime_original"
+        static let upgradeNow = "unlock_ai.upgrade_now"
+        static let privacyPolicy = "unlock_ai.privacy_policy"
+        static let termsOfUse = "unlock_ai.terms_of_use"
+    }
+    
     // MARK: - About View
     enum About {
         static let navigationTitle = "about.navigation_title"
@@ -290,4 +322,3 @@ enum L10n {
         static let aboutPhotoReference = "cloud_sync.about_photo_reference"
     }
 }
-

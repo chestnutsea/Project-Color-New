@@ -22,6 +22,7 @@ struct KitView: View {
     @State private var developmentShape: BatchProcessSettings.DevelopmentShape = BatchProcessSettings.developmentShape
     @Environment(\.openURL) private var openURL
     
+    @State private var showUnlockSheet = false
     // iCloud 同步状态
     @State private var navigateToCloudSettings = false
     
@@ -47,6 +48,11 @@ struct KitView: View {
         }
         .sheet(isPresented: $showShareSheet) {
             ShareSheet(activityItems: shareItems)
+        }
+        .fullScreenCover(isPresented: $showUnlockSheet) {
+            UnlockAISheetView {
+                showUnlockSheet = false
+            }
         }
         .onAppear {
             developmentMode = BatchProcessSettings.developmentMode
@@ -93,7 +99,7 @@ struct KitView: View {
     // MARK: - AI 解锁卡片
     private var aiUnlockCard: some View {
         Button {
-            // TODO: 实现 AI 解锁功能
+            showUnlockSheet = true
         } label: {
             KitMenuRow(
                 icon: "atom",
