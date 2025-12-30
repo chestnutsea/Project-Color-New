@@ -12,11 +12,12 @@ import CoreData
 struct CloudSyncSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var isSyncEnabled: Bool = CloudSyncSettings.shared.isSyncEnabled
-    @State private var showRestartAlert = false
     @State private var sessionCount: Int = 0
     @State private var photoCount: Int = 0
     @State private var estimatedSize: String = "计算中..."
-    @State private var isRestoringState = false  // 防止循环触发
+    @State private var isToggling: Bool = false  // 切换中状态
+    @State private var showSuccessToast: Bool = false
+    @State private var toastMessage: String = ""
     
     var body: some View {
         Group {
@@ -31,27 +32,32 @@ struct CloudSyncSettingsView: View {
                 .navigationViewStyle(.stack)
             }
         }
-        .alert(L10n.CloudSync.restartTitle.localized, isPresented: $showRestartAlert) {
-            Button(L10n.CloudSync.restartConfirm.localized) {
-                // 用户确认，保存设置并退出
-                CloudSyncSettings.shared.isSyncEnabled = isSyncEnabled
-                exit(0)
+        .overlay(alignment: .top) {
+            if showSuccessToast {
+                toastView
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(999)
             }
-            Button(L10n.CloudSync.cancel.localized, role: .cancel) {
-                // 用户取消，恢复开关状态（不保存到 CloudSyncSettings）
-                isRestoringState = true
-                isSyncEnabled = CloudSyncSettings.shared.isSyncEnabled
-                // 重置标志
-                DispatchQueue.main.async {
-                    isRestoringState = false
-                }
-            }
-        } message: {
-            Text(L10n.CloudSync.restartMessage.localized)
         }
         .onAppear {
             loadStatistics()
         }
+    }
+    
+    // MARK: - Toast View
+    private var toastView: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(.green)
+            Text(toastMessage)
+                .font(.system(size: 15))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color(.systemBackground))
+        .cornerRadius(10)
+        .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 4)
+        .padding(.top, 60)
     }
     
     private var contentView: some View {
@@ -91,11 +97,9 @@ struct CloudSyncSettingsView: View {
                 
                 Toggle("", isOn: $isSyncEnabled)
                     .labelsHidden()
+                    .disabled(isToggling)
                     .onChange(of: isSyncEnabled) { newValue in
-                        // 如果是恢复状态，不触发弹窗
-                        if !isRestoringState {
-                            handleSyncToggle(newValue)
-                        }
+                        handleSyncToggle(newValue)
                     }
             }
         }
@@ -181,14 +185,48 @@ struct CloudSyncSettingsView: View {
     // MARK: - Methods
     
     private func handleSyncToggle(_ newValue: Bool) {
-        // 只显示弹窗，不立即保存设置
-        showRestartAlert = true
+        guard !isToggling else { return }
+        
+        isToggling = true
+        
+        Task {
+            // 1. 保存设置
+            CloudSyncSettings.shared.isSyncEnabled = newValue
+            
+            // 2. 动态切换 Core Data 存储
+            await MainActor.run {
+                CoreDataManager.shared.toggleCloudSync(enabled: newValue)
+            }
+            
+            // 3. 刷新统计数据（切换后立即更新显示）
+            loadStatistics()
+            
+            // 4. 显示成功提示
+            await MainActor.run {
+                toastMessage = newValue ? "☁️ iCloud 同步已启用" : "📱 已切换到本地存储"
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    showSuccessToast = true
+                }
+                
+                // 2 秒后隐藏提示
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    withAnimation {
+                        showSuccessToast = false
+                    }
+                }
+                
+                isToggling = false
+            }
+            
+            print("✅ iCloud 同步状态已切换: \(newValue ? "启用" : "禁用")")
+        }
     }
     
     private func loadStatistics() {
         Task {
-            let stats = CoreDataManager.shared.getDataStatistics()
-            let totalPhotoCount = await CoreDataManager.shared.fetchTotalPhotoCount()
+            // ✅ 只统计云端数据（cloudOnly: true）
+            let stats = CoreDataManager.shared.getDataStatistics(cloudOnly: true)
+            let totalPhotoCount = await CoreDataManager.shared.fetchTotalPhotoCount(cloudOnly: true)
             
             // 估算存储大小：每张照片约 100KB（分析数据 + 缩略图）
             let estimatedBytes = totalPhotoCount * 100 * 1024

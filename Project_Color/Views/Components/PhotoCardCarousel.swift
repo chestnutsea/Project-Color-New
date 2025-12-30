@@ -513,6 +513,7 @@ private struct FullScreenPhotoItemView: View {
     @State private var lastScale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
+    @State private var isLoading: Bool = true
     
     private let maxScale: CGFloat = 4.0
     
@@ -529,18 +530,66 @@ private struct FullScreenPhotoItemView: View {
                         .gesture(scale > 1.0 ? dragGesture : nil)
                         .simultaneousGesture(magnificationGesture)
                         .simultaneousGesture(doubleTapGesture)
-                } else {
+                } else if isLoading {
                     ProgressView()
                         .tint(.white)
+                } else {
+                    // 加载失败提示
+                    Text("无法加载照片")
+                        .foregroundColor(.white.opacity(0.7))
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .onAppear {
-            // ✅ 隐私模式：直接使用传入的原图（来自 result.originalImages）
-            // 不尝试从 PHAsset 加载，避免触发权限弹窗
-            if let originalImage = originalImage {
-                image = originalImage
+            loadFullImage()
+        }
+    }
+    
+    // 加载原图：优先使用传入的 originalImage，否则从 PHAsset 加载
+    private func loadFullImage() {
+        // 1. 如果有传入的原图，直接使用
+        if let originalImage = originalImage {
+            self.image = originalImage
+            self.isLoading = false
+            return
+        }
+        
+        // 2. 从 PHAsset 加载原图
+        Task {
+            let loadedImage = await loadOriginalFromAsset()
+            await MainActor.run {
+                self.image = loadedImage
+                self.isLoading = false
+                if loadedImage != nil {
+                    print("✅ 已从 PHAsset 加载原图: \(assetIdentifier.prefix(8))...")
+                } else {
+                    print("⚠️ 原图加载失败: \(assetIdentifier.prefix(8))...")
+                }
+            }
+        }
+    }
+    
+    private func loadOriginalFromAsset() async -> UIImage? {
+        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil)
+        guard let asset = fetchResult.firstObject else {
+            return nil
+        }
+        
+        return await withCheckedContinuation { continuation in
+            let manager = PHImageManager.default()
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .highQualityFormat
+            options.isNetworkAccessAllowed = true
+            options.isSynchronous = false
+            
+            manager.requestImage(
+                for: asset,
+                targetSize: PHImageManagerMaximumSize,
+                contentMode: .aspectFit,
+                options: options
+            ) { image, _ in
+                continuation.resume(returning: image)
             }
         }
     }

@@ -20,38 +20,48 @@ final class CoreDataManager {
     }()
 
     let container: NSPersistentCloudKitContainer
+    
+    private var cloudKitStore: NSPersistentStore?
+    private let localStoreURL: URL
+    private let cloudStoreURL: URL
 
     var viewContext: NSManagedObjectContext { container.viewContext }
 
     private init(inMemory: Bool = false, shouldSeedPreview: Bool = false) {
         container = NSPersistentCloudKitContainer(name: "Project_Color")
+        
+        // 定义本地和云端存储的 URL
+        let storeDirectory = NSPersistentContainer.defaultDirectoryURL()
+        localStoreURL = storeDirectory.appendingPathComponent("Project_Color_Local.sqlite")
+        cloudStoreURL = storeDirectory.appendingPathComponent("Project_Color_Cloud.sqlite")
 
         if inMemory {
             container.persistentStoreDescriptions.first?.url = URL(fileURLWithPath: "/dev/null")
-        } else {
-            // 配置 iCloud 同步
-            if let storeDescription = container.persistentStoreDescriptions.first {
-                // 启用轻量级迁移
-                storeDescription.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
-                storeDescription.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
-                
-                if CloudSyncSettings.shared.isSyncEnabled {
-                    // 启用 iCloud 同步
-                    storeDescription.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(
-                        containerIdentifier: "iCloud.com.linyahuang.feelm"
-                    )
-                    print("☁️ iCloud 同步已启用")
-                } else {
-                    // 禁用 iCloud 同步（仅使用本地存储）
-                    storeDescription.cloudKitContainerOptions = nil
-                    print("📱 使用本地存储（iCloud 同步已禁用）")
+            
+            container.loadPersistentStores { _, error in
+                if let error = error as NSError? {
+                    fatalError("Unresolved error \(error), \(error.userInfo)")
                 }
             }
-        }
-
-        container.loadPersistentStores { _, error in
-            if let error = error as NSError? {
-                fatalError("Unresolved error \(error), \(error.userInfo)")
+        } else {
+            // 配置本地存储（始终存在）
+            let localDescription = NSPersistentStoreDescription(url: localStoreURL)
+            localDescription.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
+            localDescription.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
+            localDescription.cloudKitContainerOptions = nil  // 本地存储不使用 CloudKit
+            
+            container.persistentStoreDescriptions = [localDescription]
+            
+            container.loadPersistentStores { store, error in
+                if let error = error as NSError? {
+                    fatalError("Unresolved error \(error), \(error.userInfo)")
+                }
+                print("📱 本地存储已加载: \(store.url?.lastPathComponent ?? "unknown")")
+            }
+            
+            // 如果用户启用了 iCloud 同步，添加 CloudKit 存储
+            if CloudSyncSettings.shared.isSyncEnabled {
+                addCloudKitStore()
             }
         }
 
@@ -60,6 +70,60 @@ final class CoreDataManager {
 
         if shouldSeedPreview {
             seedPreviewData()
+        }
+    }
+    
+    // MARK: - Dynamic CloudKit Store Management
+    
+    /// 动态添加 CloudKit 存储（启用 iCloud 同步）
+    private func addCloudKitStore() {
+        guard cloudKitStore == nil else {
+            print("⚠️ CloudKit 存储已存在，无需重复添加")
+            return
+        }
+        
+        let cloudDescription = NSPersistentStoreDescription(url: cloudStoreURL)
+        cloudDescription.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
+        cloudDescription.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
+        cloudDescription.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(
+            containerIdentifier: "iCloud.com.linyahuang.ProjectColor"
+        )
+        
+        do {
+            cloudKitStore = try container.persistentStoreCoordinator.addPersistentStore(
+                ofType: NSSQLiteStoreType,
+                configurationName: nil,
+                at: cloudStoreURL,
+                options: cloudDescription.options
+            )
+            print("☁️ iCloud 同步已启用")
+        } catch {
+            print("❌ 添加 CloudKit 存储失败: \(error)")
+        }
+    }
+    
+    /// 动态移除 CloudKit 存储（禁用 iCloud 同步）
+    private func removeCloudKitStore() {
+        guard let store = cloudKitStore else {
+            print("⚠️ CloudKit 存储不存在，无需移除")
+            return
+        }
+        
+        do {
+            try container.persistentStoreCoordinator.remove(store)
+            cloudKitStore = nil
+            print("📱 iCloud 同步已禁用")
+        } catch {
+            print("❌ 移除 CloudKit 存储失败: \(error)")
+        }
+    }
+    
+    /// 切换 iCloud 同步状态（公开方法，供设置界面调用）
+    func toggleCloudSync(enabled: Bool) {
+        if enabled {
+            addCloudKitStore()
+        } else {
+            removeCloudKitStore()
         }
     }
 
@@ -395,24 +459,14 @@ final class CoreDataManager {
                 print("⚠️ 照片 \(photoInfo.assetIdentifier) 没有 metadata 可保存")
             }
             
-            // 生成并保存缩略图和原图（用于跨设备降级显示和大图查看）
-            // ✅ 隐私模式：优先使用 compressedImages 和 originalImages 中的图片数据
+            // 只保存缩略图（400px）
+            // 原图不再保存，大图查看时从 PHAsset 实时加载
             if index < result.compressedImages.count {
                 let compressedImage = result.compressedImages[index]
                 // 使用已压缩的图片数据作为缩略图
                 if let thumbnailData = compressedImage.jpegData(compressionQuality: 0.7) {
                     photoAnalysis.thumbnailData = thumbnailData
-                    print("💾 保存缩略图（隐私模式）: \(thumbnailData.count) bytes")
-                }
-                
-                // ✅ 保存原图数据（用于大图查看）
-                if index < result.originalImages.count {
-                    let originalImage = result.originalImages[index]
-                    // 使用较高质量压缩原图（0.85），平衡质量和存储空间
-                    if let originalImageData = originalImage.jpegData(compressionQuality: 0.85) {
-                        photoAnalysis.originalImageData = originalImageData
-                        print("💾 保存原图（隐私模式）: \(originalImageData.count) bytes")
-                    }
+                    print("💾 保存缩略图: \(thumbnailData.count) bytes")
                 }
             } else if let asset = PHAsset.fetchAssets(withLocalIdentifiers: [photoInfo.assetIdentifier], options: nil).firstObject {
                 // 回退：从 PHAsset 生成缩略图（需要照片库权限）
@@ -584,8 +638,21 @@ final class CoreDataManager {
     
     
     /// 获取数据统计信息
-    func getDataStatistics() -> (total: Int, favorites: Int, within7Days: Int) {
+    /// - Parameter cloudOnly: 是否只统计云端数据（用于云相册页面）
+    func getDataStatistics(cloudOnly: Bool = false) -> (total: Int, favorites: Int, within7Days: Int) {
         let request = AnalysisSessionEntity.fetchRequest()
+        
+        // 如果 cloudOnly 为 true，只统计云端存储的数据
+        if cloudOnly {
+            // 只有当 iCloud 同步启用时才统计
+            guard CloudSyncSettings.shared.isSyncEnabled, let cloudStore = cloudKitStore else {
+                print("📊 云相册统计: iCloud 未启用，返回 0")
+                return (0, 0, 0)
+            }
+            
+            // 限制查询只从 CloudKit 存储中获取
+            request.affectedStores = [cloudStore]
+        }
         
         do {
             let allSessions = try viewContext.fetch(request)
@@ -595,6 +662,10 @@ final class CoreDataManager {
             let calendar = Calendar.current
             let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: Date()) ?? Date()
             let within7Days = allSessions.filter { ($0.createdAt ?? Date()) >= sevenDaysAgo }.count
+            
+            if cloudOnly {
+                print("📊 云相册统计: 会话 \(total) 个, 收藏 \(favorites) 个, 近7天 \(within7Days) 个")
+            }
             
             return (total, favorites, within7Days)
         } catch {
@@ -874,13 +945,31 @@ final class CoreDataManager {
     }
     
     /// 获取当前照片总数（用于缓存失效检测）
-    func fetchTotalPhotoCount() async -> Int {
+    /// - Parameter cloudOnly: 是否只统计云端数据（用于云相册页面）
+    func fetchTotalPhotoCount(cloudOnly: Bool = false) async -> Int {
         let context = container.newBackgroundContext()
         
         return await context.perform {
             let request: NSFetchRequest<PhotoAnalysisEntity> = PhotoAnalysisEntity.fetchRequest()
+            
+            // 如果 cloudOnly 为 true，只统计云端存储的数据
+            if cloudOnly {
+                // 只有当 iCloud 同步启用时才统计
+                guard CloudSyncSettings.shared.isSyncEnabled, let cloudStore = self.cloudKitStore else {
+                    print("📊 云相册照片统计: iCloud 未启用，返回 0")
+                    return 0
+                }
+                
+                // 限制查询只从 CloudKit 存储中获取
+                request.affectedStores = [cloudStore]
+            }
+            
             do {
-                return try context.count(for: request)
+                let count = try context.count(for: request)
+                if cloudOnly {
+                    print("📊 云相册照片统计: \(count) 张")
+                }
+                return count
             } catch {
                 print("❌ 获取照片数量失败: \(error)")
                 return 0

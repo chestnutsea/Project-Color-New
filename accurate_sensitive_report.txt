@@ -1,0 +1,109 @@
+================================================================================
+颜色名称数据库精准敏感词审查报告
+================================================================================
+
+总颜色数量: 29,956
+严重敏感词: 1
+高度敏感词: 11
+中度敏感词: 80
+
+严重敏感词（必须删除）
+================================================================================
+1. Bastard-amber (#ffcc88) - bastard
+
+高度敏感词（强烈建议删除）
+================================================================================
+1. Blood God (#67080b) - blood god
+2. Blood of My Enemies (#e0413a) - blood of my enemies
+3. Blood Pact (#771111) - blood pact
+4. Blue Murder (#2539bf) - murder
+5. Che Guevara Red (#ed214d) - che guevara
+6. Ecstasy (#c96138) - ecstasy
+7. Murder Mustard (#ac7e04) - murder
+8. Opium (#987e7e) - opium
+9. Opium Mauve (#735362) - opium
+10. Orchid Ecstasy (#bb4488) - ecstasy
+11. Trump Tan (#faa76c) - trump tan
+
+中度敏感词（建议审查）
+================================================================================
+1. Ake Blood (#cf3a24) - blood
+2. Animal Blood (#a41313) - blood
+3. Bat’s Blood Soup (#ee3366) - blood
+4. Bestial Blood (#cd343d) - blood
+5. Bite the Bullet (#ecebce) - bullet
+6. Blood (#770001) - blood
+7. Blood Brother (#770011) - blood
+8. Blood Burst (#ff474c) - blood
+9. Blood Donor (#ea1822) - blood
+10. Blood Kiss (#c30b0a) - blood
+11. Blood Mahogany (#543839) - blood
+12. Blood of My Enemies (#e0413a) - blood
+13. Blood Omen (#8a0303) - blood
+14. Blood Organ (#630f0f) - blood
+15. Blood Pact (#771111) - blood
+16. Blood Rose (#73404d) - blood
+17. Blood Rush (#aa2222) - blood
+18. Blood Thorn (#b03060) - blood
+19. Choco Death (#63493e) - death
+20. Dead 99 (#99dead) - dead
+21. Dead Blue Eyes (#0055cc) - dead
+22. Dead Forest (#434b4f) - dead
+23. Dead Grass (#e4dc8a) - dead
+24. Dead Lake (#2e5a88) - dead
+25. Dead Pixel (#3b3a3a) - dead
+26. Death Guard (#9eb37b) - death
+27. Death of a Star (#e760d2) - death
+28. Demon (#7a0006) - demon
+29. Demon Princess (#d2144b) - demon
+30. Detailed Devil (#ff3355) - devil
+31. Devil Blue (#277594) - devil
+32. Devil’s Advocate (#ff3344) - devil
+33. Devil’s Butterfly (#bb4422) - devil
+34. Devil’s Flower Mantis (#8f9805) - devil
+35. Devil’s Grass (#44aa55) - devil
+36. Devil’s Lip (#662a2c) - devil
+37. Devil’s Plum (#423450) - devil
+38. Dragon’s Blood (#b84048) - blood
+39. Dried Blood (#4b0101) - blood
+40. Electric Blood (#e23d2a) - blood
+41. Evil Centipede (#aa2211) - evil
+42. Evil Cigar (#522000) - evil
+43. Evil Eye (#1100cc) - evil
+44. Evil Forces (#770022) - evil
+45. Evil Sunz Scarlet (#c2191f) - evil
+46. Evil-Lyn (#fed903) - evil
+47. Flare Gun (#ff4519) - gun
+48. Go to Hell Black (#342c21) - hell
+49. Golden Blood (#ff1155) - blood
+50. Golden Gun (#dddd00) - gun
+51. Gun Barrel (#979d9a) - gun
+52. Gun Corps Brown (#6b593c) - gun
+53. Gun Powder (#484753) - gun
+54. Hell Rider (#c40700) - hell
+55. Highway to Hell (#cd1102) - hell
+56. Hotter Than Hell (#ff4455) - hell
+57. Machine Gun Metal (#454545) - gun
+58. Matt Demon (#dd4433) - demon
+59. Mauvey Nude (#bb8899) - nude
+60. Naked Noodle (#f7cb6e) - naked
+61. Naked Rose (#ebb5b3) - naked
+62. Nipple (#bb7777) - nipple
+63. Nude Flamingo (#e58f7c) - nude
+64. Nude Lips (#b5948d) - nude
+65. Pink as Hell (#fe69b5) - hell
+66. Red Blood (#660000) - blood
+67. Red Dead Redemption (#bb012d) - dead
+68. Red Death (#ba2a1a) - death
+69. Red Devil (#860111) - devil
+70. Rondo of Blood (#a60044) - blood
+71. Satan (#e63626) - satan
+72. Shojo’s Blood (#e2041b) - blood
+73. Silver Bullet (#b6b5b8) - bullet
+74. Sneaky Devil (#840014) - devil
+75. Speaking of the Devil (#a8415b) - devil
+76. To Hell and Black (#25212a) - hell
+77. Venous Blood Red (#3f3033) - blood
+78. Walking Dead (#849b63) - dead
+79. Weapon Bronze (#b47b27) - weapon
+80. White Bullet (#dfdfda) - bullet

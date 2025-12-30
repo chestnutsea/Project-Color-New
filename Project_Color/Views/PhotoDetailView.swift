@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import Photos
 
 struct PhotoDetailView: View {
     let photos: [PhotoItem]
@@ -162,23 +163,50 @@ struct PhotoImageView: View {
     }
     
     private func loadFullImage() {
-        // ✅ 优先加载原图（如果有），否则显示缩略图
-        if let data = photo.originalImageData, let image = UIImage(data: data) {
-            DispatchQueue.main.async {
-                self.fullImage = image
-                self.isLoading = false
-                print("✅ 加载原图成功: \(photo.assetIdentifier.prefix(8))... 尺寸: \(image.size)")
-            }
-        } else if let data = photo.thumbnailData, let image = UIImage(data: data) {
-            DispatchQueue.main.async {
-                self.fullImage = image
-                self.isLoading = false
-                print("⚠️ 原图不可用，使用缩略图: \(photo.assetIdentifier.prefix(8))...")
-            }
+        // 1. 先显示缩略图（即时显示，无延迟）
+        if let data = photo.thumbnailData, let image = UIImage(data: data) {
+            self.fullImage = image
+            self.isLoading = false
+            print("✅ 显示缩略图: \(photo.assetIdentifier.prefix(8))...")
         } else {
-            DispatchQueue.main.async {
-                self.isLoading = false
-                print("❌ 无法加载照片: \(photo.assetIdentifier.prefix(8))...")
+            self.isLoading = false
+            print("❌ 无法加载缩略图: \(photo.assetIdentifier.prefix(8))...")
+        }
+        
+        // 2. 后台加载原图（从 PHAsset）
+        Task {
+            if let originalImage = await loadOriginalFromAsset() {
+                await MainActor.run {
+                    self.fullImage = originalImage
+                    print("✅ 已加载原图: \(photo.assetIdentifier.prefix(8))... 尺寸: \(originalImage.size)")
+                }
+            } else {
+                // 降级：继续使用缩略图
+                print("⚠️ 原图加载失败，使用缩略图: \(photo.assetIdentifier.prefix(8))...")
+            }
+        }
+    }
+    
+    private func loadOriginalFromAsset() async -> UIImage? {
+        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [photo.assetIdentifier], options: nil)
+        guard let asset = fetchResult.firstObject else {
+            return nil
+        }
+        
+        return await withCheckedContinuation { continuation in
+            let manager = PHImageManager.default()
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .highQualityFormat
+            options.isNetworkAccessAllowed = true
+            options.isSynchronous = false
+            
+            manager.requestImage(
+                for: asset,
+                targetSize: PHImageManagerMaximumSize,
+                contentMode: .aspectFit,
+                options: options
+            ) { image, _ in
+                continuation.resume(returning: image)
             }
         }
     }

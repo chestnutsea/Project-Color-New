@@ -1514,12 +1514,10 @@ class SimpleAnalysisPipeline {
         let compressedImages = await compressedImageCollector.getAll(orderedBy: orderedIdentifiers)
         result.compressedImages = compressedImages
         
-        // 💾 保存原图（用于全屏查看）
-        result.originalImages = images
+        // 原图不再保存到内存，大图查看时从 PHAsset 实时加载
         
         NSLog("📦 图片收集完成")
         NSLog("   - 压缩图片: \(compressedImages.count) 张")
-        NSLog("   - 原图: \(images.count) 张")
         
         let saveTask = Task.detached(priority: .background) {
             do {

@@ -19,7 +19,7 @@
 
 **改动**：
 - 在 `init` 方法中根据 `CloudSyncSettings.shared.isSyncEnabled` 配置 CloudKit
-- 启用时：设置 `cloudKitContainerOptions` 为 `iCloud.com.linyahuang.feelm`
+- 启用时：设置 `cloudKitContainerOptions` 为 `iCloud.com.linyahuang.ProjectColor`
 - 禁用时：设置 `cloudKitContainerOptions` 为 `nil`
 - 添加了缩略图生成方法 `generateThumbnailSync`
 
@@ -146,7 +146,7 @@
 ## 🔧 技术细节
 
 ### iCloud 容器
-- 标识符：`iCloud.com.linyahuang.feelm`
+- 标识符：`iCloud.com.linyahuang.ProjectColor`
 - 已在 `Project_Color.entitlements` 中配置
 - 使用 `NSPersistentCloudKitContainer` 自动同步
 

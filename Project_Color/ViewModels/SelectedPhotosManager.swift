@@ -18,7 +18,8 @@ class SelectedPhotosManager: ObservableObject {
     @Published var selectedAssetIdentifiers: [String] = []
     @Published var selectedAssets: [PHAsset] = []
     @Published var selectedImages: [UIImage] = []
-    @Published var originalImages: [UIImage] = []  // 保存原图（用于全屏查看）
+    // 原图不再保存到内存，大图查看时从 PHAsset 实时加载
+    // @Published var originalImages: [UIImage] = []
     @Published var selectedMetadata: [PhotoMetadata] = []  // 保存照片元数据（EXIF 信息）
     
     private var imageRequestID: PHImageRequestID?
@@ -85,8 +86,8 @@ class SelectedPhotosManager: ObservableObject {
             // 按原始顺序排序
             let sortedImages = loadedImages.sorted { $0.index < $1.index }.map { $0.image }
             self.selectedImages = sortedImages
-            // 同时保存原图（用于全屏查看）
-            self.originalImages = sortedImages
+            // 原图不再保存到内存，大图查看时从 PHAsset 实时加载
+            // self.originalImages = sortedImages
             print("📸 SelectedPhotosManager: 从 itemProvider 加载了 \(sortedImages.count) 张图片（隐私模式）")
         }
     }

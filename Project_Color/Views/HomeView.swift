@@ -88,6 +88,11 @@ struct HomeView: View {
     // Planet 页面导航
     @State private var showPlanetView = false
     
+    // 照片库权限相关
+    @State private var showLimitedAccessGrid = false
+    @State private var showPermissionDeniedAlert = false
+    @State private var navigateToPhotoLibrary = false
+    
 #if DEBUG
     private let enableVerboseLogging = false
 #endif
@@ -159,6 +164,26 @@ struct HomeView: View {
                 .sheet(isPresented: $showFeelingSheet) {
                     feelingInputSheet
                 }
+                .sheet(isPresented: $showLimitedAccessGrid) {
+                    LimitedLibraryPhotosView(onPhotosSelected: { assets in
+                        handleSelectedAssets(assets)
+                    })
+                }
+                .sheet(isPresented: $navigateToPhotoLibrary) {
+                    FullLibraryPickerView(onPhotosSelected: { assets in
+                        handleSelectedAssets(assets)
+                    })
+                }
+                .alert("需要照片库访问权限", isPresented: $showPermissionDeniedAlert) {
+                    Button("去设置") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    }
+                    Button("取消", role: .cancel) {}
+                } message: {
+                    Text("请在设置中允许 Feelm 访问您的照片库，以便选择和分析照片。")
+                }
                 .onAppear {
                     setupOnAppear()
                 }
@@ -229,6 +254,26 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showFeelingSheet) {
             feelingInputSheet
+        }
+        .sheet(isPresented: $showLimitedAccessGrid) {
+            LimitedLibraryPhotosView(onPhotosSelected: { assets in
+                handleSelectedAssets(assets)
+            })
+        }
+        .sheet(isPresented: $navigateToPhotoLibrary) {
+            FullLibraryPickerView(onPhotosSelected: { assets in
+                handleSelectedAssets(assets)
+            })
+        }
+        .alert("需要照片库访问权限", isPresented: $showPermissionDeniedAlert) {
+            Button("去设置") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("请在设置中允许 Feelm 访问您的照片库，以便选择和分析照片。")
         }
         .onAppear {
             setupOnAppear()
@@ -448,14 +493,74 @@ struct HomeView: View {
                 // 更新 SelectedPhotosManager（包含元数据）
                 selectionManager.updateWithImages(images, identifiers: identifiers, metadata: metadata)
                 
-                // 同时保存原图（用于全屏查看）
-                selectionManager.originalImages = images
+                // 原图不再保存到内存，大图查看时从 PHAsset 实时加载
+                // selectionManager.originalImages = images
                 
                 selectionAlbumContext = nil
                 resetDragState()
                 
                 // 清空选择，准备下次使用
                 selectedPhotoItems = []
+            }
+        }
+    }
+    
+    // MARK: - 处理从系统相册选择的照片
+    private func handleSelectedAssets(_ assets: [PHAsset]) {
+        guard !assets.isEmpty else { return }
+        
+        print("📸 HomeView: 从系统相册选择了 \(assets.count) 张照片")
+        
+        Task {
+            var loadedData: [(image: UIImage, identifier: String, metadata: PhotoMetadata?)] = []
+            let metadataReader = PhotoMetadataReader()
+            
+            // 串行加载所有照片和元数据（避免并发问题）
+            for asset in assets {
+                let identifier = asset.localIdentifier
+                
+                // 从 PHAsset 加载图片
+                let loadedImage: UIImage? = await withCheckedContinuation { continuation in
+                    let manager = PHImageManager.default()
+                    let options = PHImageRequestOptions()
+                    options.deliveryMode = .highQualityFormat
+                    options.isNetworkAccessAllowed = true
+                    options.isSynchronous = false
+                    
+                    manager.requestImage(
+                        for: asset,
+                        targetSize: CGSize(width: 2000, height: 2000),
+                        contentMode: .aspectFit,
+                        options: options
+                    ) { image, _ in
+                        continuation.resume(returning: image)
+                    }
+                }
+                
+                // 读取元数据
+                let metadata = await metadataReader.readMetadata(from: asset)
+                
+                if let image = loadedImage {
+                    loadedData.append((image: image, identifier: identifier, metadata: metadata))
+                }
+            }
+            
+            let images = loadedData.map { $0.image }
+            let identifiers = loadedData.map { $0.identifier }
+            let metadata = loadedData.map { $0.metadata ?? PhotoMetadata() }
+            
+            await MainActor.run {
+                print("📸 HomeView: 成功加载 \(images.count) 张照片")
+                print("📸 HomeView: 成功读取 \(metadata.filter { $0.cameraMake != nil }.count) 张照片的元数据")
+                
+                // 更新 SelectedPhotosManager（包含元数据）
+                selectionManager.updateWithImages(images, identifiers: identifiers, metadata: metadata)
+                
+                // 原图不再保存到内存，大图查看时从 PHAsset 实时加载
+                // selectionManager.originalImages = images
+                
+                selectionAlbumContext = nil
+                resetDragState()
             }
         }
     }
@@ -791,12 +896,37 @@ struct HomeView: View {
         let impactFeedback = UIImpactFeedbackGenerator(style: .light)
         impactFeedback.impactOccurred()
         
-        // ✅ PHPickerViewController 不需要权限，直接显示照片选择器
-        // 用户选择的照片会自动授权给 App，未选择的照片 App 无法访问
-        showPhotoPicker = true
+        // 检查照片库权限
+        checkPhotoLibraryPermission()
+    }
+    
+    private func checkPhotoLibraryPermission() {
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         
-        // ⚠️ 不预热相册数据，避免触发照片库权限检查
-        // 保持完全隐私模式：只通过 PHPicker 访问用户选择的照片
+        switch status {
+        case .authorized:
+            // 完全访问权限 - 进入系统相册
+            navigateToPhotoLibrary = true
+            
+        case .limited:
+            // 有限访问权限 - 显示授权照片网格
+            showLimitedAccessGrid = true
+            
+        case .notDetermined:
+            // 首次请求权限
+            PHPhotoLibrary.requestAuthorization(for: .readWrite) { newStatus in
+                DispatchQueue.main.async {
+                    self.checkPhotoLibraryPermission()
+                }
+            }
+            
+        case .denied, .restricted:
+            // 权限被拒绝 - 显示引导提示
+            showPermissionDeniedAlert = true
+            
+        @unknown default:
+            showPermissionDeniedAlert = true
+        }
     }
     
     // MARK: - 加载选中的照片

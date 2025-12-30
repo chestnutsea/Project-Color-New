@@ -139,10 +139,9 @@ struct PhotoThumbnail: View {
 // MARK: - 照片项
 struct PhotoItem: Identifiable {
     let id: String  // assetLocalIdentifier
-    let assetIdentifier: String
+    let assetIdentifier: String  // 用于从 PHAsset 加载原图
     let visionInfo: PhotoVisionInfo?
-    let thumbnailData: Data?  // ✅ 隐私模式：缩略图数据
-    let originalImageData: Data?  // ✅ 原图数据（用于大图查看）
+    let thumbnailData: Data?  // 400px 缩略图
 }
 
 // MARK: - ViewModel
@@ -185,8 +184,7 @@ class AlbumPhotosViewModel: ObservableObject {
                         id: assetId,
                         assetIdentifier: assetId,
                         visionInfo: visionInfo,
-                        thumbnailData: entity.thumbnailData,
-                        originalImageData: entity.originalImageData  // ✅ 加载原图数据
+                        thumbnailData: entity.thumbnailData
                     )
                 }
                 

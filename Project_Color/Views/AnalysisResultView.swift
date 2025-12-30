@@ -8,6 +8,7 @@
 
 import SwiftUI
 import CoreData
+import Photos
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -2221,10 +2222,9 @@ struct ClusterPhotoImageView: View {
     }
     
     private func loadFullImage() {
-        // ✅ 从 Core Data 加载原图
+        // 1. 先从 Core Data 加载缩略图（即时显示）
         Task.detached(priority: .userInitiated) {
             let context = CoreDataManager.shared.newBackgroundContext()
-            var originalImageData: Data?
             var thumbnailData: Data?
             
             context.performAndWait {
@@ -2233,21 +2233,15 @@ struct ClusterPhotoImageView: View {
                 request.fetchLimit = 1
                 
                 if let entity = try? context.fetch(request).first {
-                    originalImageData = entity.originalImageData
                     thumbnailData = entity.thumbnailData
                 }
             }
             
             await MainActor.run {
-                // 优先使用原图
-                if let data = originalImageData, let image = UIImage(data: data) {
+                if let data = thumbnailData, let image = UIImage(data: data) {
                     self.fullImage = image
                     self.isLoading = false
-                    print("✅ 加载原图成功: \(assetIdentifier.prefix(8))... 尺寸: \(image.size)")
-                } else if let data = thumbnailData, let image = UIImage(data: data) {
-                    self.fullImage = image
-                    self.isLoading = false
-                    print("⚠️ 原图不可用，使用缩略图: \(assetIdentifier.prefix(8))...")
+                    print("✅ 显示缩略图: \(assetIdentifier.prefix(8))...")
                 } else if let image = thumbnailProvider(assetIdentifier) {
                     // 回退：使用传入的缩略图
                     self.fullImage = image
@@ -2255,8 +2249,40 @@ struct ClusterPhotoImageView: View {
                     print("⚠️ Core Data 无数据，使用内存缓存: \(assetIdentifier.prefix(8))...")
                 } else {
                     self.isLoading = false
-                    print("❌ 无法加载照片: \(assetIdentifier.prefix(8))...")
+                    print("❌ 无法加载缩略图: \(assetIdentifier.prefix(8))...")
                 }
+            }
+            
+            // 2. 后台加载原图（从 PHAsset）
+            if let originalImage = await self.loadOriginalFromAsset() {
+                await MainActor.run {
+                    self.fullImage = originalImage
+                    print("✅ 已加载原图: \(assetIdentifier.prefix(8))... 尺寸: \(originalImage.size)")
+                }
+            }
+        }
+    }
+    
+    private func loadOriginalFromAsset() async -> UIImage? {
+        let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil)
+        guard let asset = fetchResult.firstObject else {
+            return nil
+        }
+        
+        return await withCheckedContinuation { continuation in
+            let manager = PHImageManager.default()
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .highQualityFormat
+            options.isNetworkAccessAllowed = true
+            options.isSynchronous = false
+            
+            manager.requestImage(
+                for: asset,
+                targetSize: PHImageManagerMaximumSize,
+                contentMode: .aspectFit,
+                options: options
+            ) { image, _ in
+                continuation.resume(returning: image)
             }
         }
     }
