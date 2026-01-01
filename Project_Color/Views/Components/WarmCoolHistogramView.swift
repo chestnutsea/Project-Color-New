@@ -20,7 +20,7 @@ struct WarmCoolHistogramView: View {
             HStack {
                 Image(systemName: "thermometer")
                     .foregroundColor(.orange)
-                Text("冷暖色调分布")
+                Text(L10n.WarmCoolHistogram.title.localized)
                     .font(.headline)
             }
             
@@ -41,15 +41,15 @@ struct WarmCoolHistogramView: View {
             
             // 刻度标签
             HStack {
-                Text("冷色调")
+                Text(L10n.WarmCoolHistogram.cool.localized)
                     .font(.caption)
                     .foregroundColor(.blue)
                 Spacer()
-                Text("中性")
+                Text(L10n.WarmCoolHistogram.neutral.localized)
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Spacer()
-                Text("暖色调")
+                Text(L10n.WarmCoolHistogram.warm.localized)
                     .font(.caption)
                     .foregroundColor(.orange)
             }

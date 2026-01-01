@@ -20,15 +20,23 @@
 "common.loading" = "加载中...";
 "common.error" = "错误";
 "common.success" = "成功";
+"common.close" = "关闭";
+"common.retry" = "重新尝试";
+"common.upgrade" = "立即升级";
+"common.go_to_settings" = "去设置";
 
 // MARK: - Toast Messages
 "toast.feature_in_development" = "功能开发中，敬请期待";
+
+// MARK: - Kit
+"kit.view_details" = "去看看";
+"kit.unlock_more_modes" = "升级至 Pro 应用更多显影模式";
 
 // MARK: - Mine/Kit View
 "mine.title" = "我的";
 "mine.unlock_ai" = "解锁 AI 视角";
 "mine.cloud_album" = "云相册";
-"mine.photo_darkroom" = "照片暗房";
+"mine.photo_darkroom" = "自定义设置";
 "mine.development_mode" = "显影模式";
 "mine.scan_result_style" = "扫描结果页样式";
 "mine.color_lab" = "色彩实验室";
@@ -44,8 +52,8 @@
 "unlock_ai.title" = "Feelm Pro";
 "unlock_ai.restore" = "恢复购买";
 "unlock_ai.comparison_title" = "权益对比";
-"unlock_ai.plan_basic" = "Feelm";
-"unlock_ai.plan_pro" = "Feelm Pro";
+"unlock_ai.plan_basic" = "免费版";
+"unlock_ai.plan_pro" = "Pro";
 "unlock_ai.feature_icloud" = "iCloud 同步";
 "unlock_ai.feature_composition" = "构成分析";
 "unlock_ai.feature_color_lookup" = "查色、算色";
@@ -59,25 +67,34 @@
 "unlock_ai.value_pro_mode" = "色调、影调、融合";
 "unlock_ai.pricing_monthly" = "每月";
 "unlock_ai.pricing_yearly" = "每年";
-"unlock_ai.pricing_lifetime" = "永久";
+"unlock_ai.pricing_lifetime" = "终身";
 "unlock_ai.price_early_bird" = "早鸟价";
-"unlock_ai.price_monthly_value" = "¥18.00";
-"unlock_ai.price_yearly_value" = "¥68.00";
-"unlock_ai.price_yearly_original" = "¥98.00";
-"unlock_ai.price_lifetime_value" = "¥198.00";
-"unlock_ai.price_lifetime_original" = "¥228.00";
+"unlock_ai.price_monthly_value" = "¥6.00";
+"unlock_ai.price_yearly_value" = "¥18.00";
+"unlock_ai.price_yearly_original" = "¥25.00";
+"unlock_ai.price_lifetime_value" = "¥38.00";
+"unlock_ai.price_lifetime_original" = "¥50.00";
 "unlock_ai.upgrade_now" = "立即升级";
 "unlock_ai.privacy_policy" = "隐私协议";
 "unlock_ai.terms_of_use" = "使用条款";
+"unlock_ai.purchase_failed" = "订阅失败，请稍后重试";
+"unlock_ai.restore_success" = "恢复成功";
+"unlock_ai.restore_success_message" = "您的购买已成功恢复";
+"unlock_ai.ok" = "好的";
+"unlock_ai.title_upgrade" = "升级至 Feelm Pro";
+"unlock_ai.title_pro_member" = "您已成为 Feelm Pro 会员！";
+"unlock_ai.title_lifetime_member" = "您已成为 Feelm Pro 终身会员！";
+"unlock_ai.processing" = "处理中";
 
 // MARK: - About View
 "about.navigation_title" = "说明";
-"about.description" = "说明";
+"about.legal_info" = "许可与法律信息";
 "about.iteration_log" = "迭代记录";
+"about.terms_of_use" = "使用条款";
 "about.privacy_policy" = "隐私与数据说明";
 
 // MARK: - Photo Darkroom
-"darkroom.title" = "照片暗房";
+"darkroom.title" = "自定义设置";
 "darkroom.use_photo_time" = "使用照片时间作为默认日期";
 "darkroom.favorite_only" = "只对收藏照片进行显影";
 "darkroom.scan_result_style" = "扫描结果页样式";
@@ -115,6 +132,12 @@
 "home.scan_preparing" = "扫描预备中...";
 "home.confirm_selection" = "确认选片";
 "home.feeling_placeholder" = "那一刻...";
+"home.upgrade_message" = "升级至 Pro 每月可扫描 100 张照片";
+"home.permission_required" = "需要照片库访问权限";
+"home.permission_message" = "请在设置中允许 Feelm 访问您的照片库，以便选择和分析照片。";
+"home.limit_reached_title" = "本月可扫描张数不足（%d/%d）";
+"home.later" = "稍后再说";
+"home.character_count" = "%d/%d";
 
 // MARK: - Favorite
 "favorite.title" = "收藏";
@@ -148,6 +171,8 @@
 "analysis_library.delete_confirm_message" = "确定要删除这个分析结果吗？此操作无法撤销。";
 "analysis_library.delete" = "删除";
 "analysis_library.cancel" = "取消";
+"analysis_library.loading" = "加载中...";
+"analysis_library.edit_date" = "编辑日期";
 
 // MARK: - Emerge View
 "emerge.loading" = "色彩显影中...";
@@ -156,6 +181,7 @@
 "emerge.current_scanned" = "当前已扫描 %d 张";
 "emerge.current_favorited" = "当前已收藏 %d 张";
 "emerge.error_title" = "错误";
+"emerge.empty_message" = "扫描照片开启色彩显影";
 
 // MARK: - Analysis Result
 "analysis_result.perspective" = "视角";
@@ -217,3 +243,94 @@
 "cloud_sync.about_storage" = "占用少量 iCloud 存储空间（约 100KB/张）";
 "cloud_sync.about_network" = "需要网络连接才能同步";
 "cloud_sync.about_photo_reference" = "照片通过系统相册引用，不重复存储";
+
+// MARK: - Analysis Result Details
+"analysis_result.processing_failed" = "处理失败：%d 张";
+"analysis_result.photos_count_text" = "%d 张照片";
+"analysis_result.initial_clusters_text" = "初始识别 %d 个色系，最终保留 %d 个";
+"analysis_result.k_value" = "K = %d";
+"analysis_result.processed_count" = "%d";
+"analysis_result.ai_evaluation_failed" = "AI 评价失败";
+"analysis_result.analysis_complete" = "分析完成";
+"analysis_result.photos_unit" = "张照片";
+"analysis_result.cluster_quality" = "聚类质量";
+"analysis_result.optimal_clusters" = "最优色系数";
+"analysis_result.silhouette_score" = "轮廓系数";
+"analysis_result.cluster_count_change" = "色系数量变化";
+"analysis_result.possible_reasons" = "可能原因：";
+"analysis_result.adjustment_hint" = "可在设置中调整合并阈值、最小簇大小等参数";
+"analysis_result.clusters_count" = "%d 个色系";
+"analysis_result.photos_count_in_cluster" = "%d 张照片";
+
+// MARK: - Hue Ring Distribution
+"hue_ring.no_data" = "暂无 Hue 分布数据";
+
+// MARK: - Search Color
+"search_color.matched_photos" = "匹配到的照片 (%d)";
+"search_color.ios_only" = "寻色功能仅在 iOS 上可用";
+
+// MARK: - Lookup Color
+"lookup_color.hex_placeholder" = "输入 HEX 值，如  FFFFFF";
+"lookup_color.ios_only" = "LookUpColorView 仅在 iOS 上可用";
+
+// MARK: - Limited Library
+"limited_library.max_selection_toast" = "最多只能选择 %d 张照片";
+"limited_library.analyze_button" = "分析 (%d)";
+
+// MARK: - Analysis Limit
+"analysis_limit.monthly_usage" = "本月已扫描 %d/%d 张";
+"analysis_limit.view" = "查看";
+"analysis_limit.upgrade_pro" = "升级至 Pro";
+
+// MARK: - Membership
+"membership.free" = "免费版";
+"membership.monthly" = "Pro 月会员";
+"membership.yearly" = "Pro 年会员";
+"membership.lifetime" = "Pro 终身会员";
+
+// MARK: - Photo Picker
+"photo_picker.max_selection" = "最多选择 %d 张";
+
+// MARK: - Photo Card
+"photo_card.load_failed" = "无法加载照片";
+
+// MARK: - Photo Detail
+"photo_detail.no_tags" = "无标签信息";
+"photo_detail.load_failed" = "加载失败";
+
+// MARK: - Album Photos
+"album_photos.no_photos" = "暂无照片";
+"album_photos.deleted_message" = "该相册中的照片可能已被删除";
+
+// MARK: - Native Album Photos
+"native_album_photos.empty_album" = "相册为空";
+"native_album_photos.load_failed" = "加载失败";
+
+// MARK: - Brightness CDF
+"brightness_cdf.photo_count" = "%d/%d";
+"brightness_cdf.no_data" = "暂无数据";
+
+// MARK: - Photo Stack
+"photo_stack.ios_only" = "照片堆功能仅在 iOS 上可用";
+
+// MARK: - Saturation Brightness Scatter
+"saturation_brightness_scatter.no_data" = "暂无饱和度/亮度数据";
+"saturation_brightness_scatter.description" = "完成色彩分析后将显示散点图。";
+
+// MARK: - Color Cast Scatter
+"color_cast_scatter.title" = "色偏分析";
+"color_cast_scatter.description" = "展示照片中高光和阴影区域的色彩偏向，圆心为中性，距离表示偏色强度";
+"color_cast_scatter.highlight_title" = "高光区域";
+"color_cast_scatter.highlight_description" = "亮部的色彩倾向";
+"color_cast_scatter.shadow_title" = "阴影区域";
+"color_cast_scatter.shadow_description" = "暗部的色彩倾向";
+
+// MARK: - Temperature Distribution
+"temperature_distribution.cool" = "冷";
+"temperature_distribution.warm" = "暖";
+
+// MARK: - Warm Cool Histogram
+"warm_cool_histogram.title" = "冷暖色调分布";
+"warm_cool_histogram.cool" = "冷色调";
+"warm_cool_histogram.neutral" = "中性";
+"warm_cool_histogram.warm" = "暖色调";

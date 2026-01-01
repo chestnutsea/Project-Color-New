@@ -58,7 +58,7 @@ struct SystemPhotoPickerView: View {
                             Text("选择照片")
                                 .font(.headline)
                             
-                            Text("最多选择 \(maxSelection) 张")
+                            Text(String(format: L10n.PhotoPicker.maxSelection.localized, maxSelection))
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         }
@@ -70,7 +70,7 @@ struct SystemPhotoPickerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("取消") {
+                    Button(L10n.Common.cancel.localized) {
                         dismiss()
                     }
                 }

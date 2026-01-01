@@ -68,7 +68,7 @@ struct LimitedLibraryPhotosView: View {
                     VStack {
                         Spacer()
                         
-                        Text("最多只能选择 \(maxSelectionCount) 张照片")
+                        Text(String(format: L10n.LimitedLibrary.maxSelectionToast.localized, maxSelectionCount))
                             .font(.system(size: 15, weight: .medium))
                             .foregroundColor(.white)
                             .padding(.horizontal, 24)
@@ -87,12 +87,12 @@ struct LimitedLibraryPhotosView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("取消") {
+                    Button(L10n.Common.cancel.localized) {
                         dismiss()
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("分析 (\(selectedAssets.count))") {
+                    Button(String(format: L10n.LimitedLibrary.analyzeButton.localized, selectedAssets.count)) {
                         startAnalysis()
                     }
                     .disabled(selectedAssets.isEmpty)

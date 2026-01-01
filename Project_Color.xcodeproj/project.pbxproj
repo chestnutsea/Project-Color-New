@@ -39,6 +39,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				Product.storekit,
 				Test/ColorWheelV1.md,
 				Views/Components/ColorWheel.md,
 				Views/CustomPhotoPickerView.md,

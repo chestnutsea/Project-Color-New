@@ -165,9 +165,9 @@ struct SaturationBrightnessScatterView: View {
             Image(systemName: "chart.scatter")
                 .font(.system(size: 40))
                 .foregroundColor(.secondary)
-            Text("暂无饱和度/亮度数据")
+            Text(L10n.SaturationBrightnessScatter.noData.localized)
                 .font(.headline)
-            Text("完成色彩分析后将显示散点图。")
+            Text(L10n.SaturationBrightnessScatter.description.localized)
                 .font(.caption)
                 .foregroundColor(.secondary)
         }

@@ -134,15 +134,17 @@ struct GardenFlowerView: View {
             }
             
             // 天气信息显示（左上角）
-            if let weather = weatherInfo {
-                VStack {
-                    HStack {
-                        WeatherInfoView(weatherInfo: weather)
-                            .padding(.leading, 16)
-                            .padding(.top, 8)
+            if BatchProcessSettings.enableWeatherFeature {
+                if let weather = weatherInfo {
+                    VStack {
+                        HStack {
+                            WeatherInfoView(weatherInfo: weather)
+                                .padding(.leading, 16)
+                                .padding(.top, 8)
+                            Spacer()
+                        }
                         Spacer()
                     }
-                    Spacer()
                 }
             }
         }
@@ -168,10 +170,12 @@ struct GardenFlowerView: View {
             }
             
             // 请求位置和天气信息
-            Task {
-                isLoadingWeather = true
-                weatherInfo = await weatherService.requestLocationAndWeather()
-                isLoadingWeather = false
+            if BatchProcessSettings.enableWeatherFeature {
+                Task {
+                    isLoadingWeather = true
+                    weatherInfo = await weatherService.requestLocationAndWeather()
+                    isLoadingWeather = false
+                }
             }
         }
         .onDisappear {

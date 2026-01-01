@@ -155,7 +155,7 @@ struct HueRingDistributionView: View {
             Image(systemName: "circle.dashed")
                 .font(.system(size: 36))
                 .foregroundColor(.secondary)
-            Text("暂无 Hue 分布数据")
+            Text(L10n.HueRing.noData.localized)
                 .font(.headline)
             Text("完成色彩分析后将展示主色环形分布。")
                 .font(.caption)

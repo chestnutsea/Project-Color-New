@@ -47,7 +47,7 @@ struct NativeAlbumPhotosView: View {
                 .font(.system(size: 60))
                 .foregroundColor(.gray)
             
-            Text("相册为空")
+            Text(L10n.NativeAlbumPhotos.emptyAlbum.localized)
                 .font(.title2)
                 .foregroundColor(.primary)
         }
@@ -219,7 +219,7 @@ struct NativePhotoImageView: View {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.largeTitle)
                             .foregroundColor(.white.opacity(0.6))
-                        Text("加载失败")
+                        Text(L10n.NativeAlbumPhotos.loadFailed.localized)
                             .font(.subheadline)
                             .foregroundColor(.white.opacity(0.6))
                     }

@@ -62,17 +62,17 @@ struct AlbumLibraryView: View {
     
     // MARK: - 主内容视图
     private var contentView: some View {
-            ScrollView {
                 VStack(spacing: 0) {
-                    // 自定义标题
+                // 标题
                     Text(L10n.Album.title.localized)
                         .font(.system(size: AppStyle.tabTitleFontSize, weight: AppStyle.tabTitleFontWeight))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal)
+                    .padding(.horizontal, 16)
                         .padding(.top, AppStyle.tabTitleTopPadding)
                         .padding(.bottom, 8)
                     
                     // 内容区域
+                ScrollView {
                     Group {
                         if viewModel.albums.isEmpty {
                             emptyStateView
@@ -80,8 +80,8 @@ struct AlbumLibraryView: View {
                             albumGridView
                         }
                     }
+                    .padding(.horizontal, 16)
                 }
-                .padding(.horizontal, 16)
             }
             .background(Color(.systemGroupedBackground))
             .navigationBarHidden(true)

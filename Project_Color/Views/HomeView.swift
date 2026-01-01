@@ -85,13 +85,15 @@ struct HomeView: View {
     @State private var showPermissionToast = false
     @State private var permissionToastMessage = ""
     
-    // Planet 页面导航
-    @State private var showPlanetView = false
-    
     // 照片库权限相关
     @State private var showLimitedAccessGrid = false
     @State private var showPermissionDeniedAlert = false
     @State private var navigateToPhotoLibrary = false
+    
+    // 分析次数限制相关
+    @State private var showAnalysisLimitReached = false
+    @State private var showUpgradeSheet = false
+    @State private var scanLimitInfo: (total: Int, limit: Int) = (0, 3) // 存储扫描限制信息（总数，限制）
     
 #if DEBUG
     private let enableVerboseLogging = false
@@ -138,10 +140,6 @@ struct HomeView: View {
                         .toolbar(.hidden, for: .tabBar)
                     }
                 }
-                .navigationDestination(isPresented: $showPlanetView) {
-                    PlanetView()
-                        .navigationBarBackButtonHidden(false)
-                }
                 .onChange(of: showAnalysisResult) { newValue in
                     if !newValue {
                         selectionManager.clearSelection()
@@ -174,15 +172,30 @@ struct HomeView: View {
                         handleSelectedAssets(assets)
                     })
                 }
-                .alert("需要照片库访问权限", isPresented: $showPermissionDeniedAlert) {
-                    Button("去设置") {
+                .alert(String(format: L10n.Home.limitReachedTitle.localized, scanLimitInfo.total, scanLimitInfo.limit), isPresented: $showAnalysisLimitReached) {
+                    Button(L10n.Home.later.localized, role: .cancel) {
+                        // 不做任何操作
+                    }
+                    Button(L10n.Common.upgrade.localized) {
+                        showUpgradeSheet = true
+                    }
+                } message: {
+                    Text(L10n.Home.upgradeMessage.localized)
+                }
+                .fullScreenCover(isPresented: $showUpgradeSheet) {
+                    UnlockAISheetView(onClose: {
+                        showUpgradeSheet = false
+                    })
+                }
+                .alert(L10n.Home.permissionRequired.localized, isPresented: $showPermissionDeniedAlert) {
+                    Button(L10n.Common.goToSettings.localized) {
                         if let url = URL(string: UIApplication.openSettingsURLString) {
                             UIApplication.shared.open(url)
                         }
                     }
-                    Button("取消", role: .cancel) {}
+                    Button(L10n.Common.cancel.localized, role: .cancel) {}
                 } message: {
-                    Text("请在设置中允许 Feelm 访问您的照片库，以便选择和分析照片。")
+                    Text(L10n.Home.permissionMessage.localized)
                 }
                 .onAppear {
                     setupOnAppear()
@@ -222,15 +235,6 @@ struct HomeView: View {
                 ) {
                     EmptyView()
                 }
-                
-                // Planet 页面导航
-                NavigationLink(
-                    destination: PlanetView()
-                        .navigationBarBackButtonHidden(false),
-                    isActive: $showPlanetView
-                ) {
-                    EmptyView()
-                }
             }
             .onChange(of: showAnalysisResult) { newValue in
                 if !newValue {
@@ -265,15 +269,30 @@ struct HomeView: View {
                 handleSelectedAssets(assets)
             })
         }
-        .alert("需要照片库访问权限", isPresented: $showPermissionDeniedAlert) {
-            Button("去设置") {
+        .alert(String(format: L10n.Home.limitReachedTitle.localized, scanLimitInfo.total, scanLimitInfo.limit), isPresented: $showAnalysisLimitReached) {
+            Button(L10n.Home.later.localized, role: .cancel) {
+                // 不做任何操作
+            }
+            Button(L10n.Common.upgrade.localized) {
+                showUpgradeSheet = true
+            }
+        } message: {
+            Text(L10n.Home.upgradeMessage.localized)
+        }
+        .fullScreenCover(isPresented: $showUpgradeSheet) {
+            UnlockAISheetView(onClose: {
+                showUpgradeSheet = false
+            })
+        }
+        .alert(L10n.Home.permissionRequired.localized, isPresented: $showPermissionDeniedAlert) {
+            Button(L10n.Common.goToSettings.localized) {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
                     UIApplication.shared.open(url)
                 }
             }
-            Button("取消", role: .cancel) {}
+            Button(L10n.Common.cancel.localized, role: .cancel) {}
         } message: {
-            Text("请在设置中允许 Feelm 访问您的照片库，以便选择和分析照片。")
+            Text(L10n.Home.permissionMessage.localized)
         }
         .onAppear {
             setupOnAppear()
@@ -295,24 +314,6 @@ struct HomeView: View {
             // 统一背景色
             Color(.systemGroupedBackground)
                 .ignoresSafeArea()
-            
-            // Planet 按钮 - 右上角
-            VStack {
-                HStack {
-                    Spacer()
-                    Button(action: {
-                        showPlanetView = true
-                    }) {
-                        Image("planet")
-                            .resizable()
-                            .renderingMode(.template)
-                            .foregroundColor(.primary)
-                            .frame(width: 28, height: 28)
-                            .padding(16)
-                    }
-                }
-                Spacer()
-            }
             
             // PhotoScanner - 始终显示在同一位置
             VStack {
@@ -376,7 +377,7 @@ struct HomeView: View {
                                     }
                             )
                             .onTapGesture {
-                                showPhotoPicker = true
+                                showLimitedAccessGrid = true
                             }
                         Spacer()
                     }
@@ -654,7 +655,29 @@ struct HomeView: View {
         debugLog("X overlap: \(hasXOverlap), Y overlap: \(hasYOverlap)")
         
         if hasXOverlap && hasYOverlap {
-            debugLog("✅ Photo stack overlaps with scanner! Showing prepare alert...")
+            debugLog("✅ Photo stack overlaps with scanner!")
+            
+            // ✅ 检查扫描张数限制
+            let subscriptionManager = SubscriptionManager.shared
+            let selectedCount = selectionManager.selectedImages.count
+            
+            if !subscriptionManager.canScanPhotos(count: selectedCount) {
+                let currentUsed = subscriptionManager.currentMonthAnalysisCount
+                let limit = subscriptionManager.isProUser ? 100 : 3
+                let totalCount = currentUsed + selectedCount
+                debugLog("❌ 超过限制: 已扫描 \(currentUsed) 张 + 本次 \(selectedCount) 张 = \(totalCount) 张 > 限制 \(limit) 张")
+                // 保存扫描限制信息
+                scanLimitInfo = (total: totalCount, limit: limit)
+                // 显示超额提示
+                showAnalysisLimitReached = true
+                // 弹回原位
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                    dragOffset = .zero
+                }
+                return
+            }
+            
+            debugLog("✅ 扫描张数充足，显示准备弹窗...")
             // 显示扫描预备弹窗
             showScanPrepareAlert = true
             return
@@ -840,6 +863,9 @@ struct HomeView: View {
             
             // 短暂延迟，让进度条显示完成状态
             try? await Task.sleep(nanoseconds: 200_000_000)
+            
+            // ✅ 记录扫描的照片数量
+            SubscriptionManager.shared.recordScannedPhotos(count: images.count)
             
             // 跳转到结果页
             await MainActor.run {
@@ -1403,12 +1429,12 @@ struct FeelingInputSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("取消") {
+                    Button(L10n.Common.cancel.localized) {
                         onCancel()
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("确认") {
+                    Button(L10n.Common.confirm.localized) {
                         onConfirm()
                     }
                     .disabled(!canConfirm)

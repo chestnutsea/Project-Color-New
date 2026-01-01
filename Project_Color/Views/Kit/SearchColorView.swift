@@ -243,7 +243,7 @@ struct SearchColorView: View {
     // MARK: - Results
     private var resultsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("匹配到的照片 (\(filteredPhotos.count))")
+            Text(String(format: L10n.SearchColor.matchedPhotos.localized, filteredPhotos.count))
                 .font(.headline)
                 .foregroundColor(.primary)
                 .padding(.horizontal, gridPadding)
@@ -468,7 +468,7 @@ import SwiftUI
 
 struct SearchColorView: View {
     var body: some View {
-        Text("寻色功能仅在 iOS 上可用")
+        Text(L10n.SearchColor.iosOnly.localized)
             .font(.headline)
             .foregroundColor(.secondary)
             .padding()

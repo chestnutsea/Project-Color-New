@@ -84,11 +84,21 @@ enum L10n {
         static let loading = "common.loading"
         static let error = "common.error"
         static let success = "common.success"
+        static let close = "common.close"
+        static let retry = "common.retry"
+        static let upgrade = "common.upgrade"
+        static let goToSettings = "common.go_to_settings"
     }
     
     // MARK: - Toast Messages
     enum Toast {
         static let featureInDevelopment = "toast.feature_in_development"
+    }
+    
+    // MARK: - Kit
+    enum Kit {
+        static let viewDetails = "kit.view_details"
+        static let unlockMoreModes = "kit.unlock_more_modes"
     }
     
     // MARK: - Mine/Kit View
@@ -139,13 +149,22 @@ enum L10n {
         static let upgradeNow = "unlock_ai.upgrade_now"
         static let privacyPolicy = "unlock_ai.privacy_policy"
         static let termsOfUse = "unlock_ai.terms_of_use"
+        static let purchaseFailed = "unlock_ai.purchase_failed"
+        static let restoreSuccess = "unlock_ai.restore_success"
+        static let titleUpgrade = "unlock_ai.title_upgrade"
+        static let titleProMember = "unlock_ai.title_pro_member"
+        static let titleLifetimeMember = "unlock_ai.title_lifetime_member"
+        static let processing = "unlock_ai.processing"
+        static let restoreSuccessMessage = "unlock_ai.restore_success_message"
+        static let ok = "unlock_ai.ok"
     }
     
     // MARK: - About View
     enum About {
         static let navigationTitle = "about.navigation_title"
-        static let description = "about.description"
+        static let legalInfo = "about.legal_info"
         static let iterationLog = "about.iteration_log"
+        static let termsOfUse = "about.terms_of_use"
         static let privacyPolicy = "about.privacy_policy"
     }
     
@@ -192,6 +211,12 @@ enum L10n {
         static let scanPreparing = "home.scan_preparing"
         static let confirmSelection = "home.confirm_selection"
         static let feelingPlaceholder = "home.feeling_placeholder"
+        static let upgradeMessage = "home.upgrade_message"
+        static let permissionRequired = "home.permission_required"
+        static let permissionMessage = "home.permission_message"
+        static let limitReachedTitle = "home.limit_reached_title"
+        static let later = "home.later"
+        static let characterCount = "home.character_count"
     }
     
     // MARK: - Favorite
@@ -240,6 +265,8 @@ enum L10n {
         static let deleteConfirmMessage = "analysis_library.delete_confirm_message"
         static let delete = "analysis_library.delete"
         static let cancel = "analysis_library.cancel"
+        static let loading = "analysis_library.loading"
+        static let editDate = "analysis_library.edit_date"
     }
     
     // MARK: - Emerge View
@@ -250,12 +277,83 @@ enum L10n {
         static let currentScanned = "emerge.current_scanned"
         static let currentFavorited = "emerge.current_favorited"
         static let errorTitle = "emerge.error_title"
+        static let emptyMessage = "emerge.empty_message"
+    }
+    
+    // MARK: - Photo Card
+    enum PhotoCard {
+        static let loadFailed = "photo_card.load_failed"
+    }
+    
+    // MARK: - Photo Detail
+    enum PhotoDetail {
+        static let noTags = "photo_detail.no_tags"
+        static let loadFailed = "photo_detail.load_failed"
+    }
+    
+    // MARK: - Album Photos
+    enum AlbumPhotos {
+        static let noPhotos = "album_photos.no_photos"
+        static let deletedMessage = "album_photos.deleted_message"
+    }
+    
+    // MARK: - Native Album Photos
+    enum NativeAlbumPhotos {
+        static let emptyAlbum = "native_album_photos.empty_album"
+        static let loadFailed = "native_album_photos.load_failed"
+    }
+    
+    // MARK: - Brightness CDF
+    enum BrightnessCDF {
+        static let noData = "brightness_cdf.no_data"
+        static let photoCount = "brightness_cdf.photo_count"
+    }
+    
+    // MARK: - Saturation Brightness Scatter
+    enum SaturationBrightnessScatter {
+        static let noData = "saturation_brightness_scatter.no_data"
+        static let description = "saturation_brightness_scatter.description"
+    }
+    
+    // MARK: - Color Cast Scatter
+    enum ColorCastScatter {
+        static let title = "color_cast_scatter.title"
+        static let description = "color_cast_scatter.description"
+        static let highlightTitle = "color_cast_scatter.highlight_title"
+        static let highlightDescription = "color_cast_scatter.highlight_description"
+        static let shadowTitle = "color_cast_scatter.shadow_title"
+        static let shadowDescription = "color_cast_scatter.shadow_description"
+    }
+    
+    // MARK: - Temperature Distribution
+    enum TemperatureDistribution {
+        static let cool = "temperature_distribution.cool"
+        static let warm = "temperature_distribution.warm"
+    }
+    
+    // MARK: - Warm Cool Histogram
+    enum WarmCoolHistogram {
+        static let title = "warm_cool_histogram.title"
+        static let cool = "warm_cool_histogram.cool"
+        static let neutral = "warm_cool_histogram.neutral"
+        static let warm = "warm_cool_histogram.warm"
     }
     
     // MARK: - Analysis Result
     enum AnalysisResult {
         static let title = "analysis_result.title"
         static let perspective = "analysis_result.perspective"
+        static let aiEvaluationFailed = "analysis_result.ai_evaluation_failed"
+        static let analysisComplete = "analysis_result.analysis_complete"
+        static let photosUnit = "analysis_result.photos_unit"
+        static let clusterQuality = "analysis_result.cluster_quality"
+        static let optimalClusters = "analysis_result.optimal_clusters"
+        static let silhouetteScore = "analysis_result.silhouette_score"
+        static let clusterCountChange = "analysis_result.cluster_count_change"
+        static let possibleReasons = "analysis_result.possible_reasons"
+        static let adjustmentHint = "analysis_result.adjustment_hint"
+        static let clustersCount = "analysis_result.clusters_count"
+        static let photosCountInCluster = "analysis_result.photos_count_in_cluster"
         static let composition = "analysis_result.composition"
         static let share = "analysis_result.share"
         static let favorite = "analysis_result.favorite"
@@ -263,6 +361,8 @@ enum L10n {
         static let distribution = "analysis_result.distribution"
         static let pickerTitle = "analysis_result.picker_title"
         static let aiLoading = "analysis_result.ai_loading"
+        static let clusterInfo = "analysis_result.initial_clusters_text"
+        static let failedCount = "analysis_result.processing_failed"
         static let aiLoadingRefresh = "analysis_result.ai_loading_refresh"
         static let aiLoadingSubtitle = "analysis_result.ai_loading_subtitle"
         static let aiError = "analysis_result.ai_error"
@@ -320,5 +420,62 @@ enum L10n {
         static let aboutStorage = "cloud_sync.about_storage"
         static let aboutNetwork = "cloud_sync.about_network"
         static let aboutPhotoReference = "cloud_sync.about_photo_reference"
+    }
+    
+    // MARK: - Analysis Result Details
+    enum AnalysisResultDetail {
+        static let processingFailed = "analysis_result.processing_failed"
+        static let photosCountText = "analysis_result.photos_count_text"
+        static let initialClustersText = "analysis_result.initial_clusters_text"
+        static let kValue = "analysis_result.k_value"
+        static let processedCount = "analysis_result.processed_count"
+    }
+    
+    // MARK: - Hue Ring Distribution
+    enum HueRing {
+        static let noData = "hue_ring.no_data"
+    }
+    
+    // MARK: - Search Color
+    enum SearchColor {
+        static let matchedPhotos = "search_color.matched_photos"
+        static let iosOnly = "search_color.ios_only"
+    }
+    
+    // MARK: - Lookup Color
+    enum LookupColor {
+        static let hexPlaceholder = "lookup_color.hex_placeholder"
+        static let iosOnly = "lookup_color.ios_only"
+    }
+    
+    // MARK: - Limited Library
+    enum LimitedLibrary {
+        static let maxSelectionToast = "limited_library.max_selection_toast"
+        static let analyzeButton = "limited_library.analyze_button"
+    }
+    
+    // MARK: - Analysis Limit
+    enum AnalysisLimit {
+        static let monthlyUsage = "analysis_limit.monthly_usage"
+        static let view = "analysis_limit.view"
+        static let upgradePro = "analysis_limit.upgrade_pro"
+    }
+    
+    // MARK: - Membership
+    enum Membership {
+        static let free = "membership.free"
+        static let monthly = "membership.monthly"
+        static let yearly = "membership.yearly"
+        static let lifetime = "membership.lifetime"
+    }
+    
+    // MARK: - Photo Picker
+    enum PhotoPicker {
+        static let maxSelection = "photo_picker.max_selection"
+    }
+    
+    // MARK: - Photo Stack
+    enum PhotoStack {
+        static let iosOnly = "photo_stack.ios_only"
     }
 }

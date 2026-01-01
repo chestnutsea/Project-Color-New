@@ -78,7 +78,7 @@ struct LookUpColorView: View {
                 TextField(
                     "",
                     text: $hexInput,
-                    prompt: Text("输入 HEX 值，如  FFFFFF").foregroundColor(topTextColor.opacity(0.6))
+                    prompt: Text(L10n.LookupColor.hexPlaceholder.localized).foregroundColor(topTextColor.opacity(0.6))
                 )
                 .textFieldStyle(.plain)
                 .font(.system(size: 18))
@@ -267,7 +267,7 @@ import SwiftUI
 
 struct LookUpColorView: View {
     var body: some View {
-        Text("LookUpColorView 仅在 iOS 上可用")
+        Text(L10n.LookupColor.iosOnly.localized)
             .font(.headline)
             .foregroundColor(.secondary)
             .padding()

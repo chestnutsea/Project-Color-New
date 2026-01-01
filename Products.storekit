@@ -1,0 +1,141 @@
+{
+  "identifier" : "E4F8B3A2",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "38.00",
+      "familyShareable" : false,
+      "internalID" : "6757229397",
+      "localizations" : [
+        {
+          "description" : "一次购买，永久使用",
+          "displayName" : "永久解锁",
+          "locale" : "zh_CN"
+        }
+      ],
+      "productID" : "Permanent_membership",
+      "referenceName" : "Lifetime Purchase",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "zh_CN",
+    "_storefront" : "CHN",
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Purchase"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Verification"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Store Sync"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Subscription Status"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Transaction"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Manage Subscriptions Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Refund Request Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Offer Code Redeem Sheet"
+      }
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21549281",
+      "localizations" : [
+
+      ],
+      "name" : "AI Subscription",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "6.00",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6757227914",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "每月 AI 分析服务",
+              "displayName" : "月度订阅",
+              "locale" : "zh_CN"
+            }
+          ],
+          "productID" : "Monthly_membership",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Monthly Subscription",
+          "subscriptionGroupID" : "21549281",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "18.00",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6757228325",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "每年 AI 分析服务",
+              "displayName" : "年度订阅",
+              "locale" : "zh_CN"
+            }
+          ],
+          "productID" : "Yearly_membership",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Yearly Subscription",
+          "subscriptionGroupID" : "21549281",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 2,
+    "minor" : 0
+  }
+}
+

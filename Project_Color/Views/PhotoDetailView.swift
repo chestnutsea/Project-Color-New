@@ -111,7 +111,7 @@ struct PhotoDetailView: View {
             if let visionInfo = currentPhoto.visionInfo {
                 TagsContentView(visionInfo: visionInfo, isExpanded: isTagsExpanded)
             } else {
-                Text("无标签信息")
+                Text(L10n.PhotoDetail.noTags.localized)
                     .font(.subheadline)
                     .foregroundColor(.white.opacity(0.6))
                     .padding()
@@ -149,7 +149,7 @@ struct PhotoImageView: View {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.largeTitle)
                             .foregroundColor(.white.opacity(0.6))
-                        Text("加载失败")
+                        Text(L10n.PhotoDetail.loadFailed.localized)
                             .font(.subheadline)
                             .foregroundColor(.white.opacity(0.6))
                     }

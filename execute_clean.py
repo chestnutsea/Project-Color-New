@@ -59,3 +59,4 @@ print("\n已删除的颜色:")
 for i, row in enumerate(removed_rows, 1):
     print(f"  {i:2d}. {row['name']:30s} ({row['hex']})")
 
+

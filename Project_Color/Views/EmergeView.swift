@@ -188,8 +188,8 @@ struct EmergeView: View {
                 if viewModel.isLoading {
                     loadingView
                 }
-                // ✅ 恢复 10 张照片限制
-                else if viewModel.analyzedPhotoCount < 10 {
+                // ✅ 没有扫描照片时显示提示
+                else if viewModel.analyzedPhotoCount == 0 {
                     insufficientPhotosView
                 }
                 // ✅ 影调模式：展示圆角正方形
@@ -335,7 +335,9 @@ struct EmergeView: View {
             }
             // 监听全屏状态变化，控制 Tab Bar 显示/隐藏
             .onChange(of: fullScreenPhotoIndex) { newValue in
-                tabBarVisibility.isHidden = (newValue != nil)
+                let shouldHide = (newValue != nil)
+                print("📸 [EmergeView] 全屏照片状态变化: \(newValue != nil ? "显示" : "隐藏"), Tab Bar 应该: \(shouldHide ? "隐藏" : "显示")")
+                tabBarVisibility.isHidden = shouldHide
             }
             .onAppear {
                 screenSize = geometry.size
@@ -626,8 +628,8 @@ final class ViewModel: ObservableObject {
         }
         analyzedPhotoCount = currentPhotoCount
         
-        guard currentPhotoCount >= 10 else {
-            print("📊 显影页：照片数量不足 10 张，跳过聚类")
+        guard currentPhotoCount >= 1 else {
+            print("📊 显影页：照片数量不足 1 张，跳过聚类")
             isLoading = false
             return
         }
@@ -893,7 +895,7 @@ final class ViewModel: ObservableObject {
         // 获取所有照片的明度中位数和对比度
         let (tonalData, photoCount) = fetchTonalDataBackground(coreDataManager: coreDataManager, favoriteOnly: favoriteOnly)
         
-        guard photoCount >= 10 else {
+        guard photoCount >= 1 else {
             return TonalClusteringBackgroundResult(squares: [], photoCount: photoCount, error: nil)
         }
         
@@ -908,8 +910,14 @@ final class ViewModel: ObservableObject {
             SIMD3<Float>(data.brightnessMedian, data.contrast, 0)
         }
         
-        // 自动选择 K 值
-        let k = min(max(LayoutConstants.minK, tonalData.count / 10), LayoutConstants.maxK)
+        // 自动选择 K 值（确保 K 不超过数据点数量）
+        let idealK = min(max(LayoutConstants.minK, tonalData.count / 10), LayoutConstants.maxK)
+        let k = min(idealK, tonalData.count)  // K 不能超过数据点数量
+        
+        // 如果数据点太少，至少聚成 1 类
+        guard k >= 1 else {
+            return TonalClusteringBackgroundResult(squares: [], photoCount: photoCount, error: nil)
+        }
         
         // 执行 KMeans 聚类（使用二维距离）
         guard let clusterResult = kmeans.cluster(
@@ -1223,7 +1231,7 @@ final class ViewModel: ObservableObject {
         // 获取颜色数据和预存储的视觉代表色
         let (colorSources, photoCount, storedVisualColors) = fetchColorsWithSourceBackground(coreDataManager: coreDataManager, favoriteOnly: favoriteOnly)
         
-        guard photoCount >= 10 else {
+        guard photoCount >= 1 else {
             return ClusteringBackgroundResult(circles: [], photoCount: photoCount, error: nil)
         }
         
@@ -1271,7 +1279,14 @@ final class ViewModel: ObservableObject {
             return color.weight * chromaFactor * darkFactor * brightFactor
         }
         
-        let k = min(max(LayoutConstants.minK, colorsWithLAB.count / 50), LayoutConstants.maxK)
+        // 自动选择 K 值（确保 K 不超过数据点数量）
+        let idealK = min(max(LayoutConstants.minK, colorsWithLAB.count / 50), LayoutConstants.maxK)
+        let k = min(idealK, colorsWithLAB.count)  // K 不能超过数据点数量
+        
+        // 如果数据点太少，至少聚成 1 类
+        guard k >= 1 else {
+            return ClusteringBackgroundResult(circles: [], photoCount: photoCount, error: nil)
+        }
         
         guard let clusterResult = kmeans.cluster(
             points: labColors,
@@ -1465,6 +1480,7 @@ final class ViewModel: ObservableObject {
         
             do {
                 let results = try context.fetch(request)
+                print("📊 [显影页] 查询到 \(results.count) 个 PhotoAnalysisEntity")
                 
                 // 过滤：如果是收藏模式，只保留属于收藏 session 的照片
                 let filteredResults: [PhotoAnalysisEntity]
@@ -1475,11 +1491,13 @@ final class ViewModel: ObservableObject {
                         }
                         return false
                     }
+                    print("📊 [显影页] 收藏模式：过滤后剩余 \(filteredResults.count) 张照片")
                 } else {
                     filteredResults = results
                 }
                 
                 photoCount = filteredResults.count
+                print("📊 [显影页] 最终照片数量: \(photoCount)")
             
                 // 预分配容量
                 colorSources.reserveCapacity(photoCount * 5)
@@ -1488,11 +1506,28 @@ final class ViewModel: ObservableObject {
                 // 复用 JSONDecoder
                 let decoder = JSONDecoder()
             
+                var skippedCount = 0
+                var skippedReasons: [String: Int] = [:]
+                
                 for entity in filteredResults {
                     autoreleasepool {
-                        guard let assetId = entity.assetLocalIdentifier,
-                              let data = entity.dominantColors,
-                              let colors = try? decoder.decode([DominantColor].self, from: data) else {
+                        guard let assetId = entity.assetLocalIdentifier else {
+                            skippedCount += 1
+                            skippedReasons["无 assetLocalIdentifier", default: 0] += 1
+                            return
+                        }
+                        
+                        guard let data = entity.dominantColors else {
+                            skippedCount += 1
+                            skippedReasons["无 dominantColors 数据", default: 0] += 1
+                            print("⚠️ [显影页] 照片 \(assetId.prefix(8))... 缺少 dominantColors")
+                            return
+                        }
+                        
+                        guard let colors = try? decoder.decode([DominantColor].self, from: data) else {
+                            skippedCount += 1
+                            skippedReasons["dominantColors 解码失败", default: 0] += 1
+                            print("⚠️ [显影页] 照片 \(assetId.prefix(8))... dominantColors 解码失败")
                             return
                         }
                         
@@ -1516,6 +1551,15 @@ final class ViewModel: ObservableObject {
                         }
                     }
                 }
+                
+                if skippedCount > 0 {
+                    print("⚠️ [显影页] 跳过了 \(skippedCount) 张照片:")
+                    for (reason, count) in skippedReasons {
+                        print("   - \(reason): \(count) 张")
+                    }
+                }
+                
+                print("✅ [显影页] 成功加载 \(colorSources.count) 个颜色数据（来自 \(photoCount) 张照片）")
             } catch {
                 print("❌ 获取颜色数据失败: \(error)")
             }
@@ -2132,15 +2176,10 @@ struct ZoomablePhotoView: View {
             options.isNetworkAccessAllowed = true
             options.isSynchronous = false
             
-            let screenScale = UIScreen.main.scale
-            let targetSize = CGSize(
-                width: screenSize.width * screenScale,
-                height: screenSize.height * screenScale
-            )
-            
+            // 加载原图而不是屏幕尺寸的图片
             PHImageManager.default().requestImage(
                 for: asset,
-                targetSize: targetSize,
+                targetSize: PHImageManagerMaximumSize,
                 contentMode: .aspectFit,
                 options: options
             ) { image, _ in
@@ -2168,31 +2207,13 @@ extension EmergeView {
     
     private var insufficientPhotosView: some View {
         VStack(spacing: 20) {
-            Image(systemName: viewModel.isFavoriteOnly ? "heart" : "photo.on.rectangle.angled")
+            Image(systemName: "photo.on.rectangle.angled")
                 .font(.system(size: 60))
                 .foregroundColor(.secondary.opacity(0.4))
             
-            if viewModel.isFavoriteOnly {
-                Text(L10n.Emerge.insufficientFavorites.localized)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(.secondary)
-                
-                if viewModel.analyzedPhotoCount > 0 {
-                    Text(L10n.Emerge.currentFavorited.localized(with: viewModel.analyzedPhotoCount))
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary.opacity(0.6))
-                }
-            } else {
-                Text(L10n.Emerge.insufficientPhotos.localized)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(.secondary)
-                
-                if viewModel.analyzedPhotoCount > 0 {
-                    Text(L10n.Emerge.currentScanned.localized(with: viewModel.analyzedPhotoCount))
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary.opacity(0.6))
-                }
-            }
+            Text(L10n.Emerge.emptyMessage.localized)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundColor(.secondary)
         }
         .padding()
     }

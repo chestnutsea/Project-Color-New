@@ -44,6 +44,14 @@ struct AboutView: View {
         }
     }
     
+    private var termsOfUseURL: String {
+        if LocalizationManager.shared.isChineseLanguage {
+            return "https://www.yuque.com/deerhino/oi51m5/iv130myyrgko7fwk"  // 中文链接
+        } else {
+            return "https://www.yuque.com/deerhino/oi51m5/iwrgdabsx5geh6yr"  // 英文链接
+        }
+    }
+    
     var body: some View {
         ScrollView {
             VStack(spacing: Layout.cardSpacing) {
@@ -62,7 +70,7 @@ struct AboutView: View {
     // MARK: - 说明卡片
     private var infoCard: some View {
         VStack(spacing: 0) {
-            // 说明
+            // 许可与法律信息
             Button {
                 if let url = URL(string: descriptionURL) {
                     openURL(url)
@@ -70,7 +78,7 @@ struct AboutView: View {
             } label: {
                 KitMenuRow(
                     icon: "doc.text",
-                    title: L10n.About.description.localized
+                    title: L10n.About.legalInfo.localized
                 )
             }
             .buttonStyle(.plain)
@@ -84,6 +92,19 @@ struct AboutView: View {
                 KitMenuRow(
                     icon: "shoeprints.fill",
                     title: L10n.About.iterationLog.localized
+                )
+            }
+            .buttonStyle(.plain)
+            
+            // 使用条款
+            Button {
+                if let url = URL(string: termsOfUseURL) {
+                    openURL(url)
+                }
+            } label: {
+                KitMenuRow(
+                    icon: "doc.plaintext",
+                    title: L10n.About.termsOfUse.localized
                 )
             }
             .buttonStyle(.plain)

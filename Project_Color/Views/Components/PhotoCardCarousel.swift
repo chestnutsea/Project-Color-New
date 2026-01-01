@@ -535,7 +535,7 @@ private struct FullScreenPhotoItemView: View {
                         .tint(.white)
                 } else {
                     // 加载失败提示
-                    Text("无法加载照片")
+                    Text(L10n.PhotoCard.loadFailed.localized)
                         .foregroundColor(.white.opacity(0.7))
                 }
             }
@@ -581,14 +581,15 @@ private struct FullScreenPhotoItemView: View {
             let options = PHImageRequestOptions()
             options.deliveryMode = .highQualityFormat
             options.isNetworkAccessAllowed = true
-            options.isSynchronous = false
+            options.isSynchronous = true  // 改为同步模式，确保只返回一次最终结果
+            options.resizeMode = .none  // 不进行缩放，返回原始尺寸
             
             manager.requestImage(
                 for: asset,
                 targetSize: PHImageManagerMaximumSize,
                 contentMode: .aspectFit,
                 options: options
-            ) { image, _ in
+            ) { image, info in
                 continuation.resume(returning: image)
             }
         }
@@ -746,7 +747,7 @@ struct FullscreenPhotoViewer: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("完成") {
+                    Button(L10n.Common.done.localized) {
                         dismiss()
                     }
                     .foregroundColor(.white)

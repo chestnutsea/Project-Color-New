@@ -34,7 +34,7 @@ struct AlbumPhotosView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("关闭") {
+                    Button(L10n.Common.close.localized) {
                         dismiss()
                     }
                 }
@@ -62,11 +62,11 @@ struct AlbumPhotosView: View {
                 .font(.system(size: 60))
                 .foregroundColor(.gray)
             
-            Text("暂无照片")
+            Text(L10n.AlbumPhotos.noPhotos.localized)
                 .font(.title2)
                 .foregroundColor(.primary)
             
-            Text("该相册中的照片可能已被删除")
+            Text(L10n.AlbumPhotos.deletedMessage.localized)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)

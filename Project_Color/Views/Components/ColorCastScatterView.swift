@@ -17,7 +17,7 @@ struct ColorCastScatterView: View {
             HStack {
                 Image(systemName: "circle.hexagongrid.fill")
                     .foregroundColor(.purple)
-                Text("色偏分析")
+                Text(L10n.ColorCastScatter.title.localized)
                     .font(.headline)
                 
                 Spacer()
@@ -31,7 +31,7 @@ struct ColorCastScatterView: View {
             }
             
             // 说明文字
-            Text("展示照片中高光和阴影区域的色彩偏向，圆心为中性，距离表示偏色强度")
+            Text(L10n.ColorCastScatter.description.localized)
                 .font(.caption)
                 .foregroundColor(.secondary)
             
@@ -42,10 +42,10 @@ struct ColorCastScatterView: View {
             // 底部标签
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("高光区域")
+                    Text(L10n.ColorCastScatter.highlightTitle.localized)
                         .font(.caption)
                         .fontWeight(.semibold)
-                    Text("亮部的色彩倾向")
+                    Text(L10n.ColorCastScatter.highlightDescription.localized)
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -53,10 +53,10 @@ struct ColorCastScatterView: View {
                 Spacer()
                 
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text("阴影区域")
+                    Text(L10n.ColorCastScatter.shadowTitle.localized)
                         .font(.caption)
                         .fontWeight(.semibold)
-                    Text("暗部的色彩倾向")
+                    Text(L10n.ColorCastScatter.shadowDescription.localized)
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }

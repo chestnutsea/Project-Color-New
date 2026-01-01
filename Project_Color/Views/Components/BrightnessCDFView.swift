@@ -58,7 +58,7 @@ struct BrightnessCDFView: View {
     @ViewBuilder
     private func chartContent(photosWithCDF: [PhotoColorInfo]) -> some View {
         if photoInfos.isEmpty {
-            Text("暂无数据")
+            Text(L10n.BrightnessCDF.noData.localized)
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)

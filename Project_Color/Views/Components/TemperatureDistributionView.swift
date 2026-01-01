@@ -67,11 +67,11 @@ struct TemperatureDistributionView: View {
                 
                 // 下方：冷、暖标签，分别对齐左右两端
                 HStack {
-                    Text("冷")
+                    Text(L10n.TemperatureDistribution.cool.localized)
                         .font(.caption)
                         .foregroundColor(.blue.opacity(Layout.labelOpacity))  // 与左端颜色一致，透明度与色相环圆一致
                     Spacer()
-                    Text("暖")
+                    Text(L10n.TemperatureDistribution.warm.localized)
                         .font(.caption)
                         .foregroundColor(.red.opacity(Layout.labelOpacity))  // 与右端颜色一致，透明度与色相环圆一致
                 }

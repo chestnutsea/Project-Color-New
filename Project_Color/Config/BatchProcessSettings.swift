@@ -11,9 +11,9 @@ import Foundation
 struct BatchProcessSettings {
     // MARK: - 显影解析方式
     enum DevelopmentMode: String, Codable, CaseIterable {
-        case tone = "tone"
-        case shadow = "shadow"
-        case comprehensive = "comprehensive"
+        case comprehensive = "comprehensive"  // 融合模式（第一个）
+        case tone = "tone"                    // 色调模式（第二个）
+        case shadow = "shadow"                // 影调模式（第三个）
         
         var displayName: String {
             switch self {
@@ -59,6 +59,7 @@ struct BatchProcessSettings {
         static let developmentShape = "developmentShape"
         static let developmentFavoriteOnly = "developmentFavoriteOnly"
         static let scanResultStyle = "scanResultStyle"
+        static let enableWeatherFeature = "enableWeatherFeature"
     }
     
     /// 是否使用照片时间作为默认日期
@@ -89,12 +90,22 @@ struct BatchProcessSettings {
             if let data = try? JSONEncoder().encode(newValue) {
                 UserDefaults.standard.set(data, forKey: SettingsKey.developmentMode)
             }
+            
+            // ✅ 如果切换到影调模式，强制设置形状为 circle
+            if newValue == .shadow {
+                developmentShape = .circle
+            }
         }
     }
     
     /// 显影形状
     static var developmentShape: DevelopmentShape {
         get {
+            // ✅ 如果当前是影调模式，强制返回 circle
+            if developmentMode == .shadow {
+                return .circle
+            }
+            
             // 如果从未设置过，默认为圆形
             guard let data = UserDefaults.standard.data(forKey: SettingsKey.developmentShape),
                   let shape = try? JSONDecoder().decode(DevelopmentShape.self, from: data) else {
@@ -103,9 +114,23 @@ struct BatchProcessSettings {
             return shape
         }
         set {
+            // ✅ 如果当前是影调模式，忽略设置（不允许更改）
+            if developmentMode == .shadow {
+                return
+            }
+            
             if let data = try? JSONEncoder().encode(newValue) {
                 UserDefaults.standard.set(data, forKey: SettingsKey.developmentShape)
             }
+        }
+    }
+    
+    /// 获取可用的显影形状选项（影调模式只能选 circle）
+    static func availableShapes() -> [DevelopmentShape] {
+        if developmentMode == .shadow {
+            return [.circle]
+        } else {
+            return DevelopmentShape.allCases
         }
     }
     
@@ -134,6 +159,16 @@ struct BatchProcessSettings {
             if let data = try? JSONEncoder().encode(newValue) {
                 UserDefaults.standard.set(data, forKey: SettingsKey.scanResultStyle)
             }
+        }
+    }
+    
+    /// 是否启用天气功能（默认关闭）
+    static var enableWeatherFeature: Bool {
+        get {
+            return UserDefaults.standard.bool(forKey: SettingsKey.enableWeatherFeature)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: SettingsKey.enableWeatherFeature)
         }
     }
 }

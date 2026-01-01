@@ -126,3 +126,4 @@ echo "   2. 清理构建 (Shift + Cmd + K)"
 echo "   3. 运行应用测试本地化效果"
 echo ""
 
+

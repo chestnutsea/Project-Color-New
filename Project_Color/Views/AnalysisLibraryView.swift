@@ -66,11 +66,11 @@ struct AnalysisLibraryView: View {
                     .ignoresSafeArea()
                 
             VStack(spacing: 0) {
-                // 自定义标题
-                Text(L10n.AnalysisLibrary.title.localized)
+                // 标题
+                Text(L10n.Tab.album.localized)
                     .font(.system(size: AppStyle.tabTitleFontSize, weight: AppStyle.tabTitleFontWeight))
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
+                    .padding(.horizontal, 16)
                     .padding(.top, AppStyle.tabTitleTopPadding)
                     .padding(.bottom, 8)
                 
@@ -82,6 +82,7 @@ struct AnalysisLibraryView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
+                .padding(.top, 8)
                 .padding(.bottom, 16)
                 
                 // 内容区域（支持左右滑动切换）
@@ -375,7 +376,7 @@ struct AnalysisResultSheetView: View {
                 } else {
                     VStack(spacing: 20) {
                         ProgressView()
-                        Text("加载中...")
+                        Text(L10n.AnalysisLibrary.loading.localized)
                             .foregroundColor(.secondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -894,7 +895,7 @@ struct SessionEditAlertView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            Text("编辑日期")
+            Text(L10n.AnalysisLibrary.editDate.localized)
                 .font(.headline)
                 .padding(.top, 16)
                 .padding(.bottom, 12)
@@ -909,7 +910,7 @@ struct SessionEditAlertView: View {
             Divider()
             
             HStack(spacing: 0) {
-                Button("取消") {
+                Button(L10n.Common.cancel.localized) {
                     onCancel()
                 }
                 .frame(maxWidth: .infinity)
@@ -919,7 +920,7 @@ struct SessionEditAlertView: View {
                 Divider()
                     .frame(height: 44)
                 
-                Button("确认") {
+                Button(L10n.Common.confirm.localized) {
                     onConfirm(sessionDate)
                 }
                 .frame(maxWidth: .infinity)

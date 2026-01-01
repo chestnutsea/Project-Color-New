@@ -225,18 +225,18 @@ struct AnalysisResultView: View {
                 }
             }
             
-            // 分享按钮（放在收藏按钮左边）
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: {
-                    withAnimation {
-                        showShareToast = true
-                    }
-                }) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(.primary)
-                }
-            }
+            // 分享按钮（已隐藏）
+            // ToolbarItem(placement: .navigationBarTrailing) {
+            //     Button(action: {
+            //         withAnimation {
+            //             showShareToast = true
+            //         }
+            //     }) {
+            //         Image(systemName: "square.and.arrow.up")
+            //             .font(.system(size: 17, weight: .semibold))
+            //             .foregroundColor(.primary)
+            //     }
+            // }
         }
         .toolbarBackground(Color(.systemBackground), for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
@@ -726,7 +726,7 @@ struct AnalysisResultView: View {
                 .font(.system(size: 40))
                 .foregroundColor(.orange)
             
-            Text("AI 评价失败")
+            Text(L10n.AnalysisResult.aiEvaluationFailed.localized)
                 .font(.headline)
             
             Text(error)
@@ -735,7 +735,7 @@ struct AnalysisResultView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
             
-            Button("重新尝试") {
+            Button(L10n.Common.retry.localized) {
                 retryAIEvaluation()
             }
             .buttonStyle(.bordered)
@@ -1582,7 +1582,7 @@ struct AnalysisResultView: View {
         VStack(spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("分析完成")
+                    Text(L10n.AnalysisResult.analysisComplete.localized)
                         .font(.title2)
                         .fontWeight(.bold)
                     
@@ -1599,7 +1599,7 @@ struct AnalysisResultView: View {
                         .fontWeight(.bold)
                         .foregroundColor(.blue)
                     
-                    Text("张照片")
+                    Text(L10n.AnalysisResult.photosUnit.localized)
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -1631,7 +1631,7 @@ struct AnalysisResultView: View {
                 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text("聚类质量")
+                        Text(L10n.AnalysisResult.clusterQuality.localized)
                             .font(.headline)
                         
                         Text(result.qualityLevel)
@@ -1652,7 +1652,7 @@ struct AnalysisResultView: View {
             
             HStack(spacing: 20) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("最优色系数")
+                    Text(L10n.AnalysisResult.optimalClusters.localized)
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Text("K = \(result.optimalK)")
@@ -1663,7 +1663,7 @@ struct AnalysisResultView: View {
                 Spacer()
                 
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text("轮廓系数")
+                    Text(L10n.AnalysisResult.silhouetteScore.localized)
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Text(String(format: "%.3f", result.silhouetteScore))
@@ -1752,18 +1752,18 @@ struct AnalysisResultView: View {
                     .foregroundColor(.orange)
                 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("色系数量变化")
+                    Text(L10n.AnalysisResult.clusterCountChange.localized)
                         .font(.headline)
                         .foregroundColor(.orange)
                     
-                    Text("初始识别 \(result.optimalK) 个色系，最终保留 \(result.clusters.count) 个")
+                    Text(String(format: L10n.AnalysisResult.clusterInfo.localized, result.optimalK, result.clusters.count))
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                     
                     Divider()
                     
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("可能原因：")
+                        Text(L10n.AnalysisResult.possibleReasons.localized)
                             .font(.caption)
                             .fontWeight(.semibold)
                             .foregroundColor(.secondary)
@@ -1778,7 +1778,7 @@ struct AnalysisResultView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "gearshape")
                             .font(.caption)
-                        Text("可在设置中调整合并阈值、最小簇大小等参数")
+                        Text(L10n.AnalysisResult.adjustmentHint.localized)
                             .font(.caption)
                     }
                     .foregroundColor(.blue)
@@ -1804,7 +1804,7 @@ struct AnalysisResultView: View {
                 
                 Spacer()
                 
-                Text("\(nonEmptyClusters.count) 个色系")
+                Text(String(format: L10n.AnalysisResult.clustersCount.localized, nonEmptyClusters.count))
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
@@ -1873,7 +1873,7 @@ struct AnalysisResultView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundColor(.orange)
             
-            Text("处理失败：\(result.failedCount) 张")
+            Text(String(format: L10n.AnalysisResult.failedCount.localized, result.failedCount))
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
@@ -1938,7 +1938,7 @@ struct ClusterCard: View {
                         .foregroundColor(.secondary)
                         .monospaced()
                     
-                    Text("\(cluster.photoCount) 张照片")
+                    Text(String(format: L10n.AnalysisResult.photosCountInCluster.localized, cluster.photoCount))
                         .font(.subheadline)
                         .foregroundColor(.blue)
                 }
@@ -2012,7 +2012,7 @@ struct ClusterDetailView: View {
                                 .foregroundColor(.secondary)
                                 .monospaced()
                             
-                            Text("\(cluster.photoCount) 张照片")
+                            Text(String(format: L10n.AnalysisResult.photosCountInCluster.localized, cluster.photoCount))
                                 .font(.headline)
                                 .foregroundColor(.blue)
                         }
@@ -2037,7 +2037,7 @@ struct ClusterDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("关闭") {
+                    Button(L10n.Common.close.localized) {
                         dismiss()
                     }
                 }

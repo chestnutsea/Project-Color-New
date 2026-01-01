@@ -138,7 +138,7 @@ struct PhotoStackView: View {
     let images: [Any] = []
     
     var body: some View {
-        Text("照片堆功能仅在 iOS 上可用")
+        Text(L10n.PhotoStack.iosOnly.localized)
             .font(.caption)
             .foregroundColor(.secondary)
     }

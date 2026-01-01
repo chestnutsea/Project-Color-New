@@ -14,7 +14,26 @@
 
   ],
   "products" : [
-
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "6757229397",
+      "localizations" : [
+        {
+          "description" : "终身会员",
+          "displayName" : "终身会员",
+          "locale" : "zh_Hans"
+        },
+        {
+          "description" : "Permanent membership",
+          "displayName" : "Permanent membership",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "Permanent_membership",
+      "referenceName" : "终身会员",
+      "type" : "NonConsumable"
+    }
   ],
   "settings" : {
     "_applicationInternalID" : "6755543995",
@@ -24,9 +43,9 @@
     "_developerTeamID" : "FGH6P7Z3NA",
     "_disableDialogs" : false,
     "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 788884176.63958299,
     "_locale" : "en_US",
     "_renewalBillingIssuesEnabled" : false,
-    "_shouldSetupSyncOnLoad" : true,
     "_storefront" : "USA",
     "_storeKitErrors" : [
 
@@ -34,7 +53,81 @@
     "_timeRate" : 0
   },
   "subscriptionGroups" : [
+    {
+      "id" : "21874668",
+      "localizations" : [
 
+      ],
+      "name" : "Membership",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "2.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6757230041",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Yearly membership",
+              "displayName" : "Yearly membership",
+              "locale" : "en_US"
+            },
+            {
+              "description" : "年会员",
+              "displayName" : "年会员",
+              "locale" : "zh_Hans"
+            }
+          ],
+          "productID" : "Yearly_membership",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "年会员",
+          "subscriptionGroupID" : "21874668",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "0.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6757230270",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Monthly membership",
+              "displayName" : "Monthly membership",
+              "locale" : "en_US"
+            },
+            {
+              "description" : "月会员",
+              "displayName" : "月会员",
+              "locale" : "zh_Hans"
+            }
+          ],
+          "productID" : "Monthly_membership",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "月会员",
+          "subscriptionGroupID" : "21874668",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        }
+      ]
+    }
   ],
   "version" : {
     "major" : 4,
