@@ -19,7 +19,7 @@ private enum UnlockAIStyle {
         static let shapeIconHeight: CGFloat = 18
         static let proColumnRatio: CGFloat = 0.4
         static let pricingBorderWidth: CGFloat = 2
-        static let footerTopSpacing: CGFloat = 4
+        static let footerTopSpacing: CGFloat = -8  // 负值用于减少与上方按钮的间距
     }
 
     enum PricingChina {
@@ -132,19 +132,23 @@ struct UnlockAISheetView: View {
                 let proWidth = geo.size.width * UnlockAIStyle.Layout.proColumnRatio
                 let otherWidth = max((geo.size.width - proWidth) / 2, 0)
                 
+                // 根据语言环境决定标题行字体大小：中文用 subheadline，英文用 caption
+                let isChinese = Locale.current.language.languageCode?.identifier == "zh"
+                let headerFont: Font = isChinese ? .subheadline.weight(.semibold) : .caption.weight(.semibold)
+                
                 HStack(alignment: .center, spacing: 0) {
                     Text(L10n.UnlockAI.comparisonTitle.localized)
-                        .font(.subheadline.weight(.semibold))
+                        .font(headerFont)
                         .foregroundColor(.secondary)
                         .frame(width: otherWidth, alignment: .leading)
                     
                     Text(L10n.UnlockAI.planBasic.localized)
-                        .font(.subheadline.weight(.semibold))
+                        .font(headerFont)
                         .foregroundColor(.primary)
                         .frame(width: otherWidth, alignment: .center)
                     
                     Text(L10n.UnlockAI.planPro.localized)
-                        .font(.subheadline.weight(.semibold))
+                        .font(headerFont)
                         .foregroundColor(.primary)
                         .frame(width: proWidth, alignment: .center)
                 }
@@ -152,13 +156,13 @@ struct UnlockAISheetView: View {
             .frame(minHeight: 30)
             
             BenefitRow(
-                title: L10n.UnlockAI.featureComposition.localized,
+                title: L10n.UnlockAI.featureColorSearch.localized,
                 basic: checkIcon,
                 pro: checkIcon
             )
             
             BenefitRow(
-                title: L10n.UnlockAI.featureColorLookup.localized,
+                title: L10n.UnlockAI.featureColorCalculation.localized,
                 basic: checkIcon,
                 pro: checkIcon
             )
@@ -314,13 +318,16 @@ struct UnlockAISheetView: View {
     }
     
     private func valueLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.subheadline)
+        // 根据语言环境决定字体大小：中文用 subheadline，英文用 caption
+        let isChinese = Locale.current.language.languageCode?.identifier == "zh"
+        let valueFont: Font = isChinese ? .subheadline : .caption
+        
+        return Text(text)
+            .font(valueFont)
             .foregroundColor(.primary)
             .multilineTextAlignment(.center)
-            .lineLimit(1)
-            .minimumScaleFactor(0.75)
-            .allowsTightening(true)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var regionPricing: PricingValues {
@@ -363,10 +370,17 @@ private struct BenefitRow<Basic: View, Pro: View>: View {
             let proWidth = geo.size.width * UnlockAIStyle.Layout.proColumnRatio
             let otherWidth = max((geo.size.width - proWidth) / 2, 0)
             
-            HStack(alignment: .center, spacing: 0) {
+            // 根据语言环境决定字体大小：中文用 subheadline，英文用 caption
+            let isChinese = Locale.current.language.languageCode?.identifier == "zh"
+            let titleFont: Font = isChinese ? .subheadline : .caption
+            
+            HStack(alignment: .top, spacing: 0) {
                 Text(title)
-                    .font(.caption)
+                    .font(titleFont)
                     .foregroundColor(.primary)
+                    .lineLimit(nil)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(width: otherWidth, alignment: .leading)
                 
                 basic

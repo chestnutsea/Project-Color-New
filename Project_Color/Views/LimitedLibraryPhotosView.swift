@@ -13,6 +13,12 @@ import PhotosUI
 import UIKit
 #endif
 
+// MARK: - Layout Constants
+private enum LimitedLibraryLayout {
+    static let hintTopPadding: CGFloat = -8  // 负值用于减少导航栏与内容的默认间距
+    static let hintBottomPadding: CGFloat = 12
+}
+
 struct LimitedLibraryPhotosView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var authorizedAssets: [PHAsset] = []
@@ -34,6 +40,14 @@ struct LimitedLibraryPhotosView: View {
         NavigationView {
             ZStack {
                 ScrollView {
+                    VStack(spacing: 0) {
+                        // 提示文字
+                        Text(L10n.LimitedLibrary.selectionHint.localized)
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                            .padding(.top, LimitedLibraryLayout.hintTopPadding)
+                            .padding(.bottom, LimitedLibraryLayout.hintBottomPadding)
+                        
                     LazyVGrid(
                         columns: Array(repeating: GridItem(.flexible(), spacing: 1), count: 3),
                         spacing: 1
@@ -59,6 +73,7 @@ struct LimitedLibraryPhotosView: View {
                             .onTapGesture {
                                 toggleSelection(asset.localIdentifier)
                             }
+                            }
                         }
                     }
                 }
@@ -83,7 +98,7 @@ struct LimitedLibraryPhotosView: View {
                     .zIndex(1000)
                 }
             }
-            .navigationTitle("选择照片")
+            .navigationTitle(L10n.LimitedLibrary.title.localized)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {

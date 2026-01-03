@@ -52,33 +52,31 @@ final class SubscriptionManager: ObservableObject {
         static let analysisCount = "monthly_analysis_count"
         static let lastResetDate = "last_reset_date"
         static let hasUploadedFirstPhoto = "has_uploaded_first_photo"
+        static let keychainMonthlyState = "monthly_usage_state"
+    }
+    
+    private struct MonthlyState: Codable {
+        var count: Int
+        var lastResetDate: Date
+        var hasUploadedFirstPhoto: Bool
     }
     
     // MARK: - Private Properties
     
     private var updateTask: Task<Void, Never>?
     private let userDefaults = UserDefaults.standard
+    private var persistedState = MonthlyState(
+        count: 0,
+        lastResetDate: Date(),
+        hasUploadedFirstPhoto: false
+    )
     
     // MARK: - Initialization
     
     private init() {
-        // 先同步读取计数（不触发 @Published 更新）
-        if userDefaults.bool(forKey: StorageKeys.hasUploadedFirstPhoto) {
-            let lastResetDate = userDefaults.object(forKey: StorageKeys.lastResetDate) as? Date ?? Date()
-            let calendar = Calendar.current
-            
-            if !calendar.isDate(lastResetDate, equalTo: Date(), toGranularity: .month) {
-                // 新月份，重置
-                currentMonthAnalysisCount = 0
-                userDefaults.set(0, forKey: StorageKeys.analysisCount)
-                userDefaults.set(Date(), forKey: StorageKeys.lastResetDate)
-            } else {
-                // 同月份，读取
-                currentMonthAnalysisCount = userDefaults.integer(forKey: StorageKeys.analysisCount)
-            }
-        } else {
-            currentMonthAnalysisCount = 0
-        }
+        loadPersistedState()
+        checkAndResetMonthlyCount()
+        persistState()  // 确保 Keychain 与 UserDefaults 同步
         
         // 异步检查订阅状态和数据一致性
         Task {
@@ -95,16 +93,8 @@ final class SubscriptionManager: ObservableObject {
         
         // 检查 Core Data 中是否有数据
         let photoCount = await CoreDataManager.shared.fetchTotalPhotoCount()
-        
-        if photoCount == 0 {
-            // Core Data 为空但计数不为0，说明数据不一致（可能是重新安装）
-            print("⚠️ [订阅] 检测到数据不一致：Core Data 为空但计数为 \(currentMonthAnalysisCount)，重置计数")
-            await MainActor.run {
-                currentMonthAnalysisCount = 0
-                userDefaults.set(0, forKey: StorageKeys.analysisCount)
-                userDefaults.set(false, forKey: StorageKeys.hasUploadedFirstPhoto)
-            }
-        }
+        // 保留计数，即便 Core Data 为空（例如重新安装后的首次启动）
+        guard photoCount > 0 else { return }
     }
     
     deinit {
@@ -131,14 +121,17 @@ final class SubscriptionManager: ObservableObject {
     
     /// 记录扫描的照片数量（在扫描成功后调用）
     func recordScannedPhotos(count: Int) {
-        currentMonthAnalysisCount += count
-        userDefaults.set(currentMonthAnalysisCount, forKey: StorageKeys.analysisCount)
+        checkAndResetMonthlyCount()
         
-        // 标记用户已上传第一张照片
-        if !userDefaults.bool(forKey: StorageKeys.hasUploadedFirstPhoto) {
-            userDefaults.set(true, forKey: StorageKeys.hasUploadedFirstPhoto)
-            userDefaults.set(Date(), forKey: StorageKeys.lastResetDate)
+        persistedState.count += count
+        if !persistedState.hasUploadedFirstPhoto {
+            persistedState.hasUploadedFirstPhoto = true
+            persistedState.lastResetDate = Date()
+        } else if persistedState.lastResetDate > Date() {
+            // 防止意外的未来日期导致重置逻辑失效
+            persistedState.lastResetDate = Date()
         }
+        persistState()
         
         updateCanAnalyzeMore()
         
@@ -222,28 +215,71 @@ final class SubscriptionManager: ObservableObject {
         }
     }
     
-    /// 检查并重置月度计数
-    private func checkAndResetMonthlyCount() {
-        // 如果用户还没上传过第一张照片，不需要重置
-        guard userDefaults.bool(forKey: StorageKeys.hasUploadedFirstPhoto) else {
-            currentMonthAnalysisCount = 0
-            print("📊 [订阅] 用户还没上传过照片，计数为 0")
+    /// 从 Keychain（优先）或 UserDefaults 载入计数
+    private func loadPersistedState() {
+        if let data = KeychainStore.shared.data(for: StorageKeys.keychainMonthlyState),
+           let state = try? JSONDecoder().decode(MonthlyState.self, from: data) {
+            persistedState = state
+            currentMonthAnalysisCount = state.count
+            print("📊 [订阅] 从 Keychain 读取计数: \(state.count)")
             return
         }
         
-        let lastResetDate = userDefaults.object(forKey: StorageKeys.lastResetDate) as? Date ?? Date()
+        let defaultsState = MonthlyState(
+            count: userDefaults.integer(forKey: StorageKeys.analysisCount),
+            lastResetDate: userDefaults.object(forKey: StorageKeys.lastResetDate) as? Date ?? Date(),
+            hasUploadedFirstPhoto: userDefaults.bool(forKey: StorageKeys.hasUploadedFirstPhoto)
+        )
+        persistedState = defaultsState
+        currentMonthAnalysisCount = defaultsState.count
+        print("📊 [订阅] 从 UserDefaults 读取计数: \(defaultsState.count)")
+    }
+    
+    /// 将状态写回 Keychain 和 UserDefaults
+    private func persistState() {
+        currentMonthAnalysisCount = persistedState.count
+        persistToUserDefaults()
+        persistToKeychain()
+    }
+    
+    private func persistToUserDefaults() {
+        userDefaults.set(persistedState.count, forKey: StorageKeys.analysisCount)
+        userDefaults.set(persistedState.lastResetDate, forKey: StorageKeys.lastResetDate)
+        userDefaults.set(persistedState.hasUploadedFirstPhoto, forKey: StorageKeys.hasUploadedFirstPhoto)
+    }
+    
+    private func persistToKeychain() {
+        guard let data = try? JSONEncoder().encode(persistedState) else {
+            print("❌ [订阅] 无法编码月度状态，未写入 Keychain")
+            return
+        }
+        if !KeychainStore.shared.set(data: data, for: StorageKeys.keychainMonthlyState) {
+            print("⚠️ [订阅] 写入 Keychain 失败")
+        }
+    }
+    
+    /// 检查并重置月度计数
+    private func checkAndResetMonthlyCount() {
+        // 如果用户还没上传过第一张照片，不需要重置，但保持状态同步
+        guard persistedState.hasUploadedFirstPhoto else {
+            currentMonthAnalysisCount = 0
+            persistState()
+            print("📊 [订阅] 用户还没上传过照片，计数为 0")
+            updateCanAnalyzeMore()
+            return
+        }
+        
         let calendar = Calendar.current
         
         // 检查是否是新的月份
-        if !calendar.isDate(lastResetDate, equalTo: Date(), toGranularity: .month) {
+        if !calendar.isDate(persistedState.lastResetDate, equalTo: Date(), toGranularity: .month) {
             print("🔄 [订阅] 新月份，重置扫描张数")
-            currentMonthAnalysisCount = 0
-            userDefaults.set(0, forKey: StorageKeys.analysisCount)
-            userDefaults.set(Date(), forKey: StorageKeys.lastResetDate)
+            persistedState.count = 0
+            persistedState.lastResetDate = Date()
+            persistState()
         } else {
-            let storedCount = userDefaults.integer(forKey: StorageKeys.analysisCount)
-            currentMonthAnalysisCount = storedCount
-            print("📊 [订阅] 从 UserDefaults 读取计数: \(storedCount)")
+            currentMonthAnalysisCount = persistedState.count
+            print("📊 [订阅] 计数未重置，当前: \(persistedState.count)")
         }
         
         updateCanAnalyzeMore()
@@ -275,4 +311,3 @@ enum AnalysisLimitError: LocalizedError {
         }
     }
 }
-

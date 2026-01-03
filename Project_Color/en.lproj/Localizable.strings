@@ -31,6 +31,7 @@
 // MARK: - Kit
 "kit.view_details" = "View Details";
 "kit.unlock_more_modes" = "Upgrade to Pro to unlock more emerge modes";
+"kit.unlock_more_shapes" = "Upgrade to Pro to unlock more emerge shapes";
 
 // MARK: - Mine/Kit View
 "mine.title" = "Mine";
@@ -57,7 +58,9 @@
 "unlock_ai.feature_icloud" = "iCloud Sync";
 "unlock_ai.feature_composition" = "Composition Analysis";
 "unlock_ai.feature_color_lookup" = "Color Lookup & Calculation";
-"unlock_ai.feature_refresh" = "Perspectives Monthly Refresh";
+"unlock_ai.feature_color_search" = "Color Search";
+"unlock_ai.feature_color_calculation" = "Color Calculation";
+"unlock_ai.feature_refresh" = "Monthly Scan Quota";
 "unlock_ai.feature_display_mode" = "Emerge Modes";
 "unlock_ai.feature_display_shape" = "Emerge Shapes";
 "unlock_ai.feature_share" = "Share Scan Results";
@@ -168,7 +171,7 @@
 "analysis_library.empty_favorites" = "No Favorites";
 "analysis_library.empty_materials" = "No Materials";
 "analysis_library.delete_confirm_title" = "Confirm Delete";
-"analysis_library.delete_confirm_message" = "Are you sure you want to delete this analysis result? This action cannot be undone.";
+"analysis_library.delete_confirm_message" = "Are you sure you want to delete this scan result?";
 "analysis_library.delete" = "Delete";
 "analysis_library.cancel" = "Cancel";
 "analysis_library.loading" = "Loading...";
@@ -274,8 +277,10 @@
 "lookup_color.ios_only" = "LookUpColorView is only available on iOS";
 
 // MARK: - Limited Library
+"limited_library.title" = "Select Photos";
 "limited_library.max_selection_toast" = "Maximum %d photos can be selected";
-"limited_library.analyze_button" = "Analyze (%d)";
+"limited_library.analyze_button" = "Scan (%d)";
+"limited_library.selection_hint" = "Select one or a group of photos";
 
 // MARK: - Analysis Limit
 "analysis_limit.monthly_usage" = "Scanned %d/%d pics this month";

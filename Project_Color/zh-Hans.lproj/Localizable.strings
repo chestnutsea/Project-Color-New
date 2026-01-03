@@ -30,7 +30,8 @@
 
 // MARK: - Kit
 "kit.view_details" = "去看看";
-"kit.unlock_more_modes" = "升级至 Pro 应用更多显影模式";
+"kit.unlock_more_modes" = "升级至 Pro 解锁更多显影模式";
+"kit.unlock_more_shapes" = "升级至 Pro 解锁更多显影形状";
 
 // MARK: - Mine/Kit View
 "mine.title" = "我的";
@@ -51,13 +52,15 @@
 // MARK: - Unlock AI Sheet
 "unlock_ai.title" = "Feelm Pro";
 "unlock_ai.restore" = "恢复购买";
-"unlock_ai.comparison_title" = "权益对比";
+"unlock_ai.comparison_title" = "权益";
 "unlock_ai.plan_basic" = "免费版";
 "unlock_ai.plan_pro" = "Pro";
 "unlock_ai.feature_icloud" = "iCloud 同步";
 "unlock_ai.feature_composition" = "构成分析";
 "unlock_ai.feature_color_lookup" = "查色、算色";
-"unlock_ai.feature_refresh" = "每月视角刷新";
+"unlock_ai.feature_color_search" = "查色";
+"unlock_ai.feature_color_calculation" = "算色";
+"unlock_ai.feature_refresh" = "每月扫描额度";
 "unlock_ai.feature_display_mode" = "显影模式";
 "unlock_ai.feature_display_shape" = "显影形状";
 "unlock_ai.feature_share" = "扫描结果分享";
@@ -168,7 +171,7 @@
 "analysis_library.empty_favorites" = "暂无收藏";
 "analysis_library.empty_materials" = "暂无素材";
 "analysis_library.delete_confirm_title" = "确认删除";
-"analysis_library.delete_confirm_message" = "确定要删除这个分析结果吗？此操作无法撤销。";
+"analysis_library.delete_confirm_message" = "确定要删除这个扫描结果吗？";
 "analysis_library.delete" = "删除";
 "analysis_library.cancel" = "取消";
 "analysis_library.loading" = "加载中...";
@@ -274,8 +277,10 @@
 "lookup_color.ios_only" = "LookUpColorView 仅在 iOS 上可用";
 
 // MARK: - Limited Library
+"limited_library.title" = "选择照片";
 "limited_library.max_selection_toast" = "最多只能选择 %d 张照片";
-"limited_library.analyze_button" = "分析 (%d)";
+"limited_library.analyze_button" = "扫描 (%d)";
+"limited_library.selection_hint" = "选择一张或一组照片";
 
 // MARK: - Analysis Limit
 "analysis_limit.monthly_usage" = "本月已扫描 %d/%d 张";

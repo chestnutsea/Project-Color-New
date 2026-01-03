@@ -112,16 +112,18 @@ struct PhotoThumbnail: View {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+                    .frame(width: side, height: side)
+                    .clipped()
             } else {
                 Rectangle()
                     .fill(Color.gray.opacity(0.2))
+                    .frame(width: side, height: side)
                     .overlay(
                         ProgressView()
                     )
             }
         }
-        .frame(width: side, height: side)
-        .clipped()
+        .contentShape(Rectangle())
         .onAppear {
             loadThumbnail()
         }

@@ -506,7 +506,7 @@ struct CarouselFullScreenPhotoView: View {
 
 private struct FullScreenPhotoItemView: View {
     let assetIdentifier: String
-    var originalImage: UIImage? = nil  // 原图（隐私模式）
+    var originalImage: UIImage? = nil  // 原图（隐私模式，已废弃，始终从 PHAsset 加载）
     
     @State private var image: UIImage?
     @State private var scale: CGFloat = 1.0
@@ -546,16 +546,9 @@ private struct FullScreenPhotoItemView: View {
         }
     }
     
-    // 加载原图：优先使用传入的 originalImage，否则从 PHAsset 加载
+    // 加载原图：始终从 PHAsset 加载原图（不再使用传入的 originalImage）
     private func loadFullImage() {
-        // 1. 如果有传入的原图，直接使用
-        if let originalImage = originalImage {
-            self.image = originalImage
-            self.isLoading = false
-            return
-        }
-        
-        // 2. 从 PHAsset 加载原图
+        // 始终从 PHAsset 加载原图
         Task {
             let loadedImage = await loadOriginalFromAsset()
             await MainActor.run {

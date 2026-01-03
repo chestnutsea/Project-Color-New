@@ -203,6 +203,12 @@ struct KitView: View {
                             }
                         } label: {
                             HStack {
+                                // 锁定图标（仅在未解锁时显示）
+                                if isLocked {
+                                    Image(systemName: "lock.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.secondary)
+                                }
                                 Text(mode.displayName)
                                 Spacer()
                                 // 选中标记
@@ -315,7 +321,7 @@ struct KitView: View {
                 } else {
                     // 免费用户：点击显示升级提示
                     Button {
-                        proFeatureAlertTitle = "升级至 Pro 应用更多显影形状"
+                        proFeatureAlertTitle = L10n.Kit.unlockMoreShapes.localized
                         showProFeatureAlert = true
                     } label: {
                         HStack(spacing: 4) {

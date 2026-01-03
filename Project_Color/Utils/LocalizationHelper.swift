@@ -99,6 +99,7 @@ enum L10n {
     enum Kit {
         static let viewDetails = "kit.view_details"
         static let unlockMoreModes = "kit.unlock_more_modes"
+        static let unlockMoreShapes = "kit.unlock_more_shapes"
     }
     
     // MARK: - Mine/Kit View
@@ -129,6 +130,8 @@ enum L10n {
         static let featureICloud = "unlock_ai.feature_icloud"
         static let featureComposition = "unlock_ai.feature_composition"
         static let featureColorLookup = "unlock_ai.feature_color_lookup"
+        static let featureColorSearch = "unlock_ai.feature_color_search"
+        static let featureColorCalculation = "unlock_ai.feature_color_calculation"
         static let featureRefresh = "unlock_ai.feature_refresh"
         static let featureDisplayMode = "unlock_ai.feature_display_mode"
         static let featureDisplayShape = "unlock_ai.feature_display_shape"
@@ -450,8 +453,10 @@ enum L10n {
     
     // MARK: - Limited Library
     enum LimitedLibrary {
+        static let title = "limited_library.title"
         static let maxSelectionToast = "limited_library.max_selection_toast"
         static let analyzeButton = "limited_library.analyze_button"
+        static let selectionHint = "limited_library.selection_hint"
     }
     
     // MARK: - Analysis Limit
